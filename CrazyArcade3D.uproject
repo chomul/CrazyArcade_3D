@@ -1,0 +1,22 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{A89AD46F-4322-FE9A-C3F3-2FA167BBBE36}",
+	"Category": "",
+	"Description": "3D Crazy Arcade - voxel grid arena bomb action",
+	"Modules": [
+		{
+			"Name": "CrazyArcade3D",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		}
+	]
+}

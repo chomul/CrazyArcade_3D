@@ -1,0 +1,21 @@
+# ─── Unreal Engine 생성물 (재생성 가능 — 추적 안 함) ───
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Build/
+
+# 프로젝트 파일 (UBT -projectfiles 로 재생성)
+*.sln
+*.slnx
+.vs/
+.vsconfig
+.idea/
+
+# ─── Diversion 메타데이터 (Diversion은 사용자가 별도 관리) ───
+.diversion/
+
+# ─── 기타 ───
+*.tmp
+*.log
+.DS_Store
