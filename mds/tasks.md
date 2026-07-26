@@ -8,17 +8,26 @@
 
 ## 1주차 — 로컬 플레이어블
 
-- [x] **1. 프로젝트 생성 + 폴더 스캐폴딩** — 에디터·서버 타깃 모두 빌드 통과 (소스 엔진)
-- [ ] **2. `FVoxelGrid` + `FallbackMapGenerator`**
-- [ ] **3. `AVoxelWorld` + `HISMVoxelRenderer`**
-- [ ] **4. `ACA3DCharacter` 이동·점프** — 셀 크기·이동속도·점프 높이를 여기서 몸으로 결정
-- [ ] **5. `UPoolSubsystem`**
-- [ ] **6. `ABomb` + `Propagate` (6방향)**
-- [ ] **7. 블록 파괴 → 렌더 갱신 → 낙하**
-- [ ] **8. 연쇄 폭발 프레임 분산**
-- [ ] **9. 위험 구역 프리뷰 데칼**
-- [ ] **10. 갇힘 상태 + "발판만이 안전하다"**
-- [ ] **11. Listen Server PIE 2인 테스트**
+번호는 `mds/Tasks/` 의 1 task = 1 class 체계 (구 5장 번호는 00-INDEX 참조).
+
+- [x] **00. 프로젝트 생성 + 폴더 스캐폴딩** — 에디터·서버 타깃 모두 빌드 통과 (소스 엔진)
+- [x] **01. `FVoxelGrid`** — VoxelTypes.h + VoxelGrid.h/.cpp + 자동화 테스트 6항목 통과 (`CrazyArcade3D.Voxel.VoxelGrid`), 두 타깃 빌드 통과
+- [ ] **02. `UCA3DRuleSet`**
+- [ ] **03. `IMapGenerator` + ItemTypes.h**
+- [ ] **04. `UFallbackMapGenerator`**
+- [ ] **05. `IVoxelRenderer`**
+- [ ] **06. `AVoxelWorld`**
+- [ ] **07. `UHISMVoxelRenderer`** — 여기서 맵이 처음 보임
+- [ ] **08. `ACA3DGameState`**
+- [ ] **09. `ACA3DGameMode`**
+- [ ] **10. `ACA3DCharacter`** — 셀 크기·이동속도·점프 높이를 여기서 몸으로 결정
+- [ ] **11. `ACA3DPlayerController`** — 카메라 입력 기준도 여기서 결정
+- [ ] **12. `UStatusComponent`**
+- [ ] **13. `IPooledActor`**
+- [ ] **14. `UPoolSubsystem`**
+- [ ] **15. `UExplosionSubsystem`** — Propagate 6방향·층간
+- [ ] **16. `ABomb`** — 파괴→낙하·연쇄 분산·프리뷰 데칼 포함
+- [ ] **17. `APredictedBombVisual`** — 🏁 Listen Server PIE 2인 게이트 포함
 
 ## 2주차 — 멀티 / 데디 서버
 
