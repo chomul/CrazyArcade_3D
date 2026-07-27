@@ -12,7 +12,7 @@
 
 - [x] **00. 프로젝트 생성 + 폴더 스캐폴딩** — 에디터·서버 타깃 모두 빌드 통과 (소스 엔진)
 - [x] **01. `FVoxelGrid`** — VoxelTypes.h + VoxelGrid.h/.cpp + 자동화 테스트 6항목 통과 (`CrazyArcade3D.Voxel.VoxelGrid`), 두 타깃 빌드 통과
-- [ ] **02. `UCA3DRuleSet`**
+- [x] **02. `UCA3DRuleSet`** — Framework/CA3DRuleSet.h/.cpp (UPrimaryDataAsset, 튜닝 값 14종) / 두 타깃 빌드 통과. 에디터 작업(DA_Rules_Default 생성) 미완
 - [ ] **03. `IMapGenerator` + ItemTypes.h**
 - [ ] **04. `UFallbackMapGenerator`**
 - [ ] **05. `IVoxelRenderer`**
