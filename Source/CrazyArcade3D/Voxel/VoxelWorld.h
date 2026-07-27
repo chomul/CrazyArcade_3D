@@ -7,6 +7,8 @@
 #include "Voxel/VoxelRenderer.h" // 인터페이스 자체가 가벼워 헤더 include 허용
 #include "VoxelWorld.generated.h"
 
+class UHISMVoxelRenderer;
+
 // 복셀 지형 액터. 레벨에 1개 배치. bReplicates = true.
 //
 // 리플리케이션 흐름 (불변식 1 — 서버·클라가 같은 함수를 통과한다):
@@ -41,6 +43,7 @@ public:
 	float CellSize = 100.f;
 
 protected:
+	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	// 맵 생성 시드. 클라는 OnRep으로 서버와 동일한 맵을 결정론적으로 재생성한다.
@@ -55,9 +58,16 @@ protected:
 private:
 	FVoxelGrid Grid;
 
-	// 클라에서만 생성, 데디 서버는 nullptr — 이 Task(06) 시점엔 항상 nullptr, Task 07에서 장착.
+	// 클라/리슨에서만 연결, 데디 서버는 nullptr (BeginPlay에서 분기).
 	UPROPERTY()
 	TScriptInterface<IVoxelRenderer> Renderer;
+
+	// C++ 기본 렌더러 컴포넌트 (Task 07). 생성자 CreateDefaultSubobject로 CDO에 존재해야
+	// BP_VoxelWorld 서브클래스에서 BlockMeshes 디폴트(메시 에셋)를 편집할 수 있다
+	// (BeginPlay NewObject 컴포넌트는 BP 디폴트를 못 받는다).
+	// 데디 서버는 BeginPlay에서 DestroyComponent — 시각 전용 (불변식 5).
+	UPROPERTY(VisibleAnywhere, Category="Voxel")
+	TObjectPtr<UHISMVoxelRenderer> HISMRendererComponent;
 
 	// 그리드 초기화 전에 도착한 파괴 Multicast의 셀 보관 큐 (OnRep_Seed 직후 flush).
 	TArray<FIntVector> PendingDestroyQueue;
@@ -71,4 +81,5 @@ private:
 	void ApplyDestruction(const TArray<FIntVector>& Cells);
 
 	friend class FVoxelWorldTest; // 자동화 테스트가 OnRep_Seed·Multicast 경로(파괴 선도착 큐)를 검증하기 위한 접근
+	friend class FHISMVoxelRendererTest; // BeginPlay가 돌지 않는 테스트 월드에서 Renderer 수동 배선용
 };

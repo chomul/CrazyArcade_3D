@@ -3,6 +3,7 @@
 #include "CrazyArcade3D.h"
 #include "MapGen/FallbackMapGenerator.h"   // Voxel→MapGen 참조는 설계서 2.2가 확정 — .cpp 에서만 include
 #include "Framework/CA3DRuleSet.h"         // Voxel→Framework 참조도 동일 — .cpp 에서만 include
+#include "Voxel/HISMVoxelRenderer.h"
 #include "Net/UnrealNetwork.h"
 
 AVoxelWorld::AVoxelWorld()
@@ -13,6 +14,41 @@ AVoxelWorld::AVoxelWorld()
 	// 지형은 모든 클라에 항상 필요 — 거리 기반 relevancy 컬링으로 액터가 사라지면
 	// 파괴 Multicast를 놓쳐 그리드가 어긋난다. 항상 relevant 로 고정한다.
 	bAlwaysRelevant = true;
+
+	// HISM 부착 기준점 겸 액터 트랜스폼 기준 — 루트 없이 스폰되면 GetActorLocation이 무의미해진다.
+	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+
+	// 렌더러는 생성자 CreateDefaultSubobject (Task 07) — BP_VoxelWorld 서브클래스에서
+	// BlockMeshes 디폴트를 편집할 수 있어야 하기 때문 (BeginPlay NewObject는 BP 디폴트를 못 받는다).
+	// 데디 서버에서는 BeginPlay에서 파괴한다.
+	HISMRendererComponent = CreateDefaultSubobject<UHISMVoxelRenderer>(TEXT("HISMRenderer"));
+}
+
+void AVoxelWorld::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (IsRunningDedicatedServer())
+	{
+		// 데디 서버는 시각이 필요 없다 (불변식 5) — 렌더러 컴포넌트를 파괴해 메모리 절약.
+		// Renderer 는 nullptr 유지 (호출부는 전부 null 가드).
+		if (HISMRendererComponent)
+		{
+			HISMRendererComponent->DestroyComponent();
+			HISMRendererComponent = nullptr;
+		}
+		return;
+	}
+
+	Renderer = HISMRendererComponent.Get();
+
+	// 순서 함정: 클라에서 OnRep_Seed 가 BeginPlay 보다 먼저 도착할 수 있다.
+	// 그 경우 InitGridFromSeed 시점엔 Renderer 가 아직 없어 렌더 빌드를 건너뛰었으므로
+	// 여기서 따라잡기 빌드를 수행한다.
+	if (bGridInitialized && Renderer)
+	{
+		Renderer->BuildFromGrid(Grid);
+	}
 }
 
 void AVoxelWorld::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
