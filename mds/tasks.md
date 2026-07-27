@@ -14,7 +14,7 @@
 - [x] **01. `FVoxelGrid`** — VoxelTypes.h + VoxelGrid.h/.cpp + 자동화 테스트 6항목 통과 (`CrazyArcade3D.Voxel.VoxelGrid`), 두 타깃 빌드 통과
 - [x] **02. `UCA3DRuleSet`** — Framework/CA3DRuleSet.h/.cpp (UPrimaryDataAsset, 튜닝 값 14종) / 두 타깃 빌드 통과. 에디터 작업(DA_Rules_Default 생성) 미완
 - [x] **03. `IMapGenerator` + ItemTypes.h** — MapGen/MapGenerator.h (UINTERFACE 쌍, Generate 시그니처·결정론 계약 주석) + Gameplay/Item/ItemTypes.h (EItemType 5종, FItemPlacement) / 두 타깃 빌드 통과 (순수 인터페이스 — 컴파일 검증만)
-- [ ] **04. `UFallbackMapGenerator`**
+- [x] **04. `UFallbackMapGenerator`** — MapGen/FallbackMapGenerator.h/.cpp (하드코딩 21×21×4 레이아웃: 외곽 2층 Immortal 벽·기둥 격자·Destructible 71개·계단 접근로 (8,9,1)→(9,9,1)→(10,9,1~2)·스폰 8개) + 자동화 테스트 `CrazyArcade3D.MapGen.FallbackMapGenerator` 통과 / 두 타깃 빌드 통과
 - [ ] **05. `IVoxelRenderer`**
 - [ ] **06. `AVoxelWorld`**
 - [ ] **07. `UHISMVoxelRenderer`** — 여기서 맵이 처음 보임
