@@ -16,7 +16,7 @@
 - [x] **03. `IMapGenerator` + ItemTypes.h** — MapGen/MapGenerator.h (UINTERFACE 쌍, Generate 시그니처·결정론 계약 주석) + Gameplay/Item/ItemTypes.h (EItemType 5종, FItemPlacement) / 두 타깃 빌드 통과 (순수 인터페이스 — 컴파일 검증만)
 - [x] **04. `UFallbackMapGenerator`** — MapGen/FallbackMapGenerator.h/.cpp (하드코딩 21×21×4 레이아웃: 외곽 2층 Immortal 벽·기둥 격자·Destructible 71개·계단 접근로 (8,9,1)→(9,9,1)→(10,9,1~2)·스폰 8개) + 자동화 테스트 `CrazyArcade3D.MapGen.FallbackMapGenerator` 통과 / 두 타깃 빌드 통과
 - [x] **05. `IVoxelRenderer`** — Voxel/VoxelRenderer.h (UINTERFACE 쌍, BuildFromGrid/RemoveBlock/Clear) / 두 타깃 빌드 통과 (순수 인터페이스 — 컴파일 검증만)
-- [ ] **06. `AVoxelWorld`**
+- [x] **06. `AVoxelWorld`** — Voxel/VoxelWorld.h/.cpp (그리드 소유·Seed 복제·ApplyDestruction 단일 경로·선도착 파괴 큐 flush·좌표 변환, CellSize=100 임시) + 자동화 테스트 `CrazyArcade3D.Voxel.VoxelWorld` 통과 / 두 타깃 빌드 통과. 실제 넷 복제 검증은 Task 17 게이트로 이월
 - [ ] **07. `UHISMVoxelRenderer`** — 여기서 맵이 처음 보임
 - [ ] **08. `ACA3DGameState`**
 - [ ] **09. `ACA3DGameMode`**
