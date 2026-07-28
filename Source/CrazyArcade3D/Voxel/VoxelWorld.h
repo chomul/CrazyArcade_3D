@@ -42,6 +42,14 @@ public:
 	UPROPERTY(EditAnywhere, Category="Voxel")
 	float CellSize = 100.f;
 
+	// ⚠️ 임시 (Task 09에서 제거) — GameMode가 아직 없어 서버가 BeginPlay에서 스스로 초기화한다.
+	// 정식 흐름은 ACA3DGameMode가 시드를 정해 ServerInitFromSeed를 호출하는 것.
+	UPROPERTY(EditAnywhere, Category="Voxel|Temp")
+	bool bDebugAutoInit = true;
+
+	UPROPERTY(EditAnywhere, Category="Voxel|Temp", meta=(EditCondition="bDebugAutoInit"))
+	int32 DebugSeed = 1;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

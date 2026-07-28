@@ -28,6 +28,14 @@ void AVoxelWorld::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// ⚠️ 임시 (Task 09에서 제거) — GameMode가 없어 서버가 스스로 초기화.
+	// 데디 분기보다 먼저 두어 데디 서버에서도 그리드가 만들어진다.
+	// 이 시점엔 Renderer가 아직 없어 렌더 빌드는 건너뛰지만, 아래 catch-up 빌드가 처리한다.
+	if (bDebugAutoInit && HasAuthority() && !bGridInitialized)
+	{
+		ServerInitFromSeed(static_cast<uint32>(DebugSeed));
+	}
+
 	if (IsRunningDedicatedServer())
 	{
 		// 데디 서버는 시각이 필요 없다 (불변식 5) — 렌더러 컴포넌트를 파괴해 메모리 절약.
