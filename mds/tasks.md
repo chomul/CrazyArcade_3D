@@ -17,7 +17,7 @@
 - [x] **04. `UFallbackMapGenerator`** — MapGen/FallbackMapGenerator.h/.cpp (하드코딩 21×21×4 레이아웃: 외곽 2층 Immortal 벽·기둥 격자·Destructible 71개·계단 접근로 (8,9,1)→(9,9,1)→(10,9,1~2)·스폰 8개) + 자동화 테스트 `CrazyArcade3D.MapGen.FallbackMapGenerator` 통과 / 두 타깃 빌드 통과
 - [x] **05. `IVoxelRenderer`** — Voxel/VoxelRenderer.h (UINTERFACE 쌍, BuildFromGrid/RemoveBlock/Clear) / 두 타깃 빌드 통과 (순수 인터페이스 — 컴파일 검증만)
 - [x] **06. `AVoxelWorld`** — Voxel/VoxelWorld.h/.cpp (그리드 소유·Seed 복제·ApplyDestruction 단일 경로·선도착 파괴 큐 flush·좌표 변환, CellSize=100 임시) + 자동화 테스트 `CrazyArcade3D.Voxel.VoxelWorld` 통과 / 두 타깃 빌드 통과. 실제 넷 복제 검증은 Task 17 게이트로 이월
-- [ ] **07. `UHISMVoxelRenderer`** — 여기서 맵이 처음 보임. C++ 완료(Voxel/HISMVoxelRenderer.h/.cpp + VoxelWorld 연결 + 로직 테스트 `CrazyArcade3D.Voxel.HISMVoxelRenderer` 통과, 두 타깃 빌드 통과) — **에디터 연결(BP_VoxelWorld·L_Arena)과 PIE 검증 대기라 미체크**
+- [x] **07. `UHISMVoxelRenderer`** — Voxel/HISMVoxelRenderer.h/.cpp (타입별 HISM + 표면 추출 + RemoveInstance 스왑 보정) / 로직 테스트 통과 + 에디터 연결(BP_VoxelWorld·L_Arena) + PIE 검증 완료 — 임시 디버그 명령 `ca3d.DestroyAim`/`DestroyBlock` (Task 16에서 제거)으로 3타입 파괴·표면 노출·연속 파괴·멀티 클라 리플리케이션 확인. 잔여: `stat unit` 히치 확인만 (체크리스트 07)
 - [ ] **08. `ACA3DGameState`**
 - [ ] **09. `ACA3DGameMode`**
 - [ ] **10. `ACA3DCharacter`** — 셀 크기·이동속도·점프 높이를 여기서 몸으로 결정

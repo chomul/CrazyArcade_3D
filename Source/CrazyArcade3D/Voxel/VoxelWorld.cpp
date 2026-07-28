@@ -5,6 +5,8 @@
 #include "Framework/CA3DRuleSet.h"         // Voxel→Framework 참조도 동일 — .cpp 에서만 include
 #include "Voxel/HISMVoxelRenderer.h"
 #include "Net/UnrealNetwork.h"
+#include "EngineUtils.h"   // ⚠️ 임시 (Task 16에서 제거) — 디버그 콘솔 명령의 TActorIterator
+#include "Engine/Engine.h" // ⚠️ 임시 (Task 16에서 제거) — GEngine->GetWorldContexts
 
 AVoxelWorld::AVoxelWorld()
 {
@@ -195,3 +197,123 @@ void AVoxelWorld::ApplyDestruction(const TArray<FIntVector>& Cells)
 		}
 	}
 }
+
+// ─── 디버그 콘솔 명령 ──────────────────────────────────────
+// ⚠️ 임시 (Task 16 ABomb 전까지) — 아직 파괴 수단이 없어 체크리스트 07 PIE 검증용.
+// 정식 경로(ServerDestroyBlocks → ApplyDestruction + Multicast)를 그대로 태운다 (불변식 1).
+#if !UE_BUILD_SHIPPING
+
+namespace CA3DVoxelDebug
+{
+	static AVoxelWorld* FindVoxelWorld(UWorld* World)
+	{
+		for (TActorIterator<AVoxelWorld> It(World); It; ++It)
+		{
+			return *It;
+		}
+		UE_LOG(LogCA3D, Warning, TEXT("ca3d.Destroy*: 월드에 AVoxelWorld 없음"));
+		return nullptr;
+	}
+
+	// PIE 멀티 인스턴스에서 명령은 클라 월드에서 실행될 수 있다. 파괴는 서버에서
+	// 시작해야 하므로(불변식 1) 같은 프로세스의 권한 있는 VoxelWorld를 찾는다.
+	// 셀 좌표는 결정론 생성이라 서버·클라 동일 — 클라에서 계산한 셀을 그대로 써도 된다.
+	static AVoxelWorld* FindAuthoritativeVoxelWorld()
+	{
+		for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+		{
+			UWorld* W = Ctx.World();
+			if (!W || (Ctx.WorldType != EWorldType::PIE && Ctx.WorldType != EWorldType::Game))
+			{
+				continue;
+			}
+			for (TActorIterator<AVoxelWorld> It(W); It; ++It)
+			{
+				if (It->HasAuthority())
+				{
+					return *It;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	static void DestroyCell(const FIntVector& Cell)
+	{
+		AVoxelWorld* VoxelWorld = FindAuthoritativeVoxelWorld();
+		if (!VoxelWorld)
+		{
+			// 별도 프로세스 데디 서버로 PIE 중이면 이 프로세스엔 서버 월드가 없다.
+			UE_LOG(LogCA3D, Warning,
+				TEXT("ca3d.Destroy*: 이 프로세스에 서버 권한 VoxelWorld 없음 — "
+					 "별도 프로세스 데디 서버 PIE에선 사용 불가. 리슨 서버/스탠드얼론으로 실행할 것"));
+			return;
+		}
+		if (!VoxelWorld->IsSolid(Cell))
+		{
+			UE_LOG(LogCA3D, Warning, TEXT("ca3d.Destroy*: (%d, %d, %d) 는 솔리드가 아님"),
+				Cell.X, Cell.Y, Cell.Z);
+			return;
+		}
+
+		UE_LOG(LogCA3D, Log, TEXT("ca3d.Destroy*: (%d, %d, %d) 타입 %d 파괴"),
+			Cell.X, Cell.Y, Cell.Z, static_cast<int32>(VoxelWorld->GetBlock(Cell)));
+		VoxelWorld->ServerDestroyBlocks({ Cell });
+	}
+}
+
+static FAutoConsoleCommandWithWorldAndArgs GCA3DDestroyBlockCmd(
+	TEXT("ca3d.DestroyBlock"),
+	TEXT("셀 좌표의 블록 1개를 정식 파괴 경로로 제거. 사용: ca3d.DestroyBlock X Y Z"),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+		[](const TArray<FString>& Args, UWorld* World)
+		{
+			if (Args.Num() < 3)
+			{
+				UE_LOG(LogCA3D, Warning, TEXT("사용법: ca3d.DestroyBlock X Y Z"));
+				return;
+			}
+			const FIntVector Cell(
+				FCString::Atoi(*Args[0]), FCString::Atoi(*Args[1]), FCString::Atoi(*Args[2]));
+			CA3DVoxelDebug::DestroyCell(Cell);
+		}));
+
+static FAutoConsoleCommandWithWorldAndArgs GCA3DDestroyAimCmd(
+	TEXT("ca3d.DestroyAim"),
+	TEXT("카메라 시선의 블록 1개를 정식 파괴 경로로 제거 (블록 메시에 콜리전 필요)"),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+		[](const TArray<FString>& Args, UWorld* World)
+		{
+			// 트레이스·좌표 변환은 명령이 실행된 로컬 월드(클라 가능)에서, 파괴는
+			// DestroyCell이 찾은 서버 월드에서 — 셀 좌표는 양쪽이 동일하다.
+			AVoxelWorld* VoxelWorld = CA3DVoxelDebug::FindVoxelWorld(World);
+			if (!VoxelWorld)
+			{
+				return;
+			}
+			APlayerController* PC = World->GetFirstPlayerController();
+			if (!PC)
+			{
+				UE_LOG(LogCA3D, Warning, TEXT("ca3d.DestroyAim: PlayerController 없음"));
+				return;
+			}
+
+			FVector ViewLoc;
+			FRotator ViewRot;
+			PC->GetPlayerViewPoint(ViewLoc, ViewRot);
+
+			FHitResult Hit;
+			const FVector TraceEnd = ViewLoc + ViewRot.Vector() * 100000.f;
+			if (!World->LineTraceSingleByChannel(Hit, ViewLoc, TraceEnd, ECC_Visibility))
+			{
+				UE_LOG(LogCA3D, Warning,
+					TEXT("ca3d.DestroyAim: 시선에 히트 없음 (블록 메시에 콜리전이 있는지 확인)"));
+				return;
+			}
+
+			// ImpactPoint는 셀 경계면 위 — 노멀 반대로 반 셀 밀어 넣어 셀 내부 좌표로 만든다.
+			const FVector Inside = Hit.ImpactPoint - Hit.ImpactNormal * (VoxelWorld->CellSize * 0.5f);
+			CA3DVoxelDebug::DestroyCell(VoxelWorld->WorldToCell(Inside));
+		}));
+
+#endif // !UE_BUILD_SHIPPING
