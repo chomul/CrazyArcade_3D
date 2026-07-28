@@ -38,17 +38,13 @@ public:
 	void ServerInitFromSeed(uint32 InSeed);
 	void ServerDestroyBlocks(const TArray<FIntVector>& Cells);
 
+	// 생성기가 반환한 스폰 셀 — 서버 GameMode(ChoosePlayerStart)가 소비한다 (Task 09).
+	// 결정론 생성이라 클라에도 같은 값이 만들어지지만 소비처는 서버뿐이다.
+	const TArray<FIntVector>& GetSpawnCells() const { return SpawnCells; }
+
 	// ⚠️ 임시값 — 확정은 Task 10 튜닝에서. 임의 변경 금지, 질문할 것.
 	UPROPERTY(EditAnywhere, Category="Voxel")
 	float CellSize = 100.f;
-
-	// ⚠️ 임시 (Task 09에서 제거) — GameMode가 아직 없어 서버가 BeginPlay에서 스스로 초기화한다.
-	// 정식 흐름은 ACA3DGameMode가 시드를 정해 ServerInitFromSeed를 호출하는 것.
-	UPROPERTY(EditAnywhere, Category="Voxel|Temp")
-	bool bDebugAutoInit = true;
-
-	UPROPERTY(EditAnywhere, Category="Voxel|Temp", meta=(EditCondition="bDebugAutoInit"))
-	int32 DebugSeed = 1;
 
 protected:
 	virtual void BeginPlay() override;
@@ -65,6 +61,10 @@ protected:
 
 private:
 	FVoxelGrid Grid;
+
+	// 생성기 출력 스폰 셀 보관 (GetSpawnCells). 아이템 배치(OutItems)는 아직 소비처가
+	// 없어(Task 23) 보관하지 않는다 — 소비처가 생기면 같은 방식으로 보관한다.
+	TArray<FIntVector> SpawnCells;
 
 	// 클라/리슨에서만 연결, 데디 서버는 nullptr (BeginPlay에서 분기).
 	UPROPERTY()

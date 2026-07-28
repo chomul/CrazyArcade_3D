@@ -3,8 +3,10 @@
 #include "CrazyArcade3D.h"
 #include "MapGen/FallbackMapGenerator.h"   // Voxel→MapGen 참조는 설계서 2.2가 확정 — .cpp 에서만 include
 #include "Framework/CA3DRuleSet.h"         // Voxel→Framework 참조도 동일 — .cpp 에서만 include
+#include "Framework/CA3DGameState.h"       // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만 include
 #include "Voxel/HISMVoxelRenderer.h"
 #include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
 #include "EngineUtils.h"   // ⚠️ 임시 (Task 16에서 제거) — 디버그 콘솔 명령의 TActorIterator
 #include "Engine/Engine.h" // ⚠️ 임시 (Task 16에서 제거) — GEngine->GetWorldContexts
 
@@ -30,13 +32,9 @@ void AVoxelWorld::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// ⚠️ 임시 (Task 09에서 제거) — GameMode가 없어 서버가 스스로 초기화.
-	// 데디 분기보다 먼저 두어 데디 서버에서도 그리드가 만들어진다.
-	// 이 시점엔 Renderer가 아직 없어 렌더 빌드는 건너뛰지만, 아래 catch-up 빌드가 처리한다.
-	if (bDebugAutoInit && HasAuthority() && !bGridInitialized)
-	{
-		ServerInitFromSeed(static_cast<uint32>(DebugSeed));
-	}
+	// 그리드 초기화는 여기서 하지 않는다 — 정식 흐름은 ACA3DGameMode(서버)가 시드를 정해
+	// ServerInitFromSeed 를 호출하는 것 (Task 09). GameMode BeginPlay 가 이 액터의
+	// BeginPlay 보다 먼저 돌아도 문제없다 (아래 catch-up 렌더 빌드가 처리).
 
 	if (IsRunningDedicatedServer())
 	{
@@ -149,19 +147,63 @@ void AVoxelWorld::MulticastOnBlocksDestroyed_Implementation(const TArray<FIntVec
 void AVoxelWorld::InitGridFromSeed()
 {
 	// 서버(ServerInitFromSeed)·클라(OnRep_Seed) 공통 경로 — 결정론 생성기이므로
-	// 같은 Seed면 양쪽 그리드가 비트 단위로 동일하다.
+	// 같은 Seed + 같은 룰셋이면 양쪽 그리드가 비트 단위로 동일하다.
+
+	if (bGridInitialized)
+	{
+		return; // 재진입 가드 — 아래 지연 재시도 타이머와 OnRep 중복 호출 대비
+	}
+
+	// 룰셋 해석: 생성기가 Rules(MapSize)를 실제로 소비하므로 서버·클라가 "같은 에셋"을
+	// 봐야 결정론이 성립한다. 출처는 GameState 에 복제된 에셋 포인터 하나뿐이다 (Task 08/09).
+	const UCA3DRuleSet* Rules = nullptr;
+	const AGameStateBase* GameStateBase = GetWorld() ? GetWorld()->GetGameState() : nullptr;
+	if (const ACA3DGameState* CA3DGameState = Cast<ACA3DGameState>(GameStateBase))
+	{
+		Rules = CA3DGameState->Rules;
+	}
+
+	if (!Rules)
+	{
+		if (HasAuthority())
+		{
+			// 정식 흐름(ACA3DGameMode)은 GameState->Rules 세팅 "후" ServerInitFromSeed 를
+			// 호출하므로, 서버에서 여기 도달은 GameState 없는 자동화 테스트 월드나
+			// GameMode 미설정 맵뿐이다. 서버는 기다릴 대상이 없으니 기본 룰셋으로 즉시
+			// 진행한다 (기존 테스트들의 기준 경로와 동일한 기본값).
+			UE_LOG(LogCA3D, Log,
+				TEXT("AVoxelWorld: GameState 룰셋 없음(서버) — 기본 룰셋으로 생성 (정식 흐름은 ACA3DGameMode 경유)"));
+			Rules = NewObject<UCA3DRuleSet>(this);
+		}
+		else if (GameStateBase && !GameStateBase->IsA<ACA3DGameState>())
+		{
+			// GameState 가 이미 도착했는데 우리 타입이 아니다 — Rules 는 영원히 오지 않는다.
+			// 이 구성이면 서버도 위의 기본 룰셋 폴백을 탔을 것이므로 같은 기본값으로 맞춘다.
+			UE_LOG(LogCA3D, Warning,
+				TEXT("AVoxelWorld: GameState 가 ACA3DGameState 아님 — 기본 룰셋으로 생성"));
+			Rules = NewObject<UCA3DRuleSet>(this);
+		}
+		else
+		{
+			// 알려진 함정(리플리케이션 순서): OnRep_Seed 가 GameState 액터/Rules 복제보다 먼저
+			// 도착할 수 있다. 서버와 다른 룰셋으로 생성하면 결정론이 깨지므로 생성하지 않고
+			// 다음 틱에 재시도한다 (에셋 참조는 경로로 복제 — GameState 만 도착하면 즉시 유효.
+			// 고정 지연값이 없는 next-tick 재시도가 가장 단순한 안전책이다).
+			UE_LOG(LogCA3D, Verbose, TEXT("AVoxelWorld: 클라 룰셋 미도착 — 그리드 생성을 다음 틱으로 지연"));
+			GetWorldTimerManager().SetTimerForNextTick(
+				FTimerDelegate::CreateUObject(this, &AVoxelWorld::InitGridFromSeed));
+			return;
+		}
+	}
 
 	// Task 22에서 이 한 줄만 절차 생성기(UProceduralMapGenerator)로 바꾼다.
 	UFallbackMapGenerator* Generator = NewObject<UFallbackMapGenerator>();
 
-	// TODO(Task 08/09): GameState에 복제된 룰셋으로 교체. 지금은 임시로 기본값 사용.
-	const UCA3DRuleSet* Rules = NewObject<UCA3DRuleSet>();
-
-	// 스폰/아이템 소비는 Task 09 GameMode 소관 — 이 Task에선 버린다.
-	TArray<FIntVector> OutSpawns;
+	// 스폰 셀은 보관 — 서버 GameMode 가 GetSpawnCells 로 소비한다 (Task 09).
+	// 아이템 배치(OutItems)는 아직 소비처가 없어(Task 23) 버린다.
 	TArray<FItemPlacement> OutItems;
 
-	if (!Generator->Generate(Seed, Rules, Grid, OutSpawns, OutItems))
+	if (!Generator->Generate(Seed, Rules, Grid, SpawnCells, OutItems))
 	{
 		UE_LOG(LogCA3D, Error, TEXT("AVoxelWorld: Seed %u 맵 생성 실패"), Seed);
 		return;

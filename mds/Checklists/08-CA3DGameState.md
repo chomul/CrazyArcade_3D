@@ -5,15 +5,15 @@
 > 복제 실검증은 Task 09(GameMode 세팅) 이후에만 가능 — 그 전엔 미검증 유지.
 
 ## 빌드 (필수 게이트)
-- [ ] `CrazyArcade3DEditor` 빌드 통과
-- [ ] `CrazyArcade3DServer` 빌드 통과
-- [ ] 프로젝트 파일 재생성 실행
+- [x] `CrazyArcade3DEditor` 빌드 통과 (2026-07-29)
+- [x] `CrazyArcade3DServer` 빌드 통과 (2026-07-29)
+- [x] 프로젝트 파일 재생성 실행 (2026-07-29)
 
 ## 코드 검증 (정적)
-- [ ] `Rules`가 `UPROPERTY(Replicated) TObjectPtr<UCA3DRuleSet>` — 에셋 포인터 복제
-- [ ] `GetLifetimeReplicatedProps`에 전 복제 프로퍼티 등록
-- [ ] 로직 없음 — 데이터 보관만 (갱신은 GameMode, 소비는 UI)
-- [ ] 매직 넘버 없음
+- [x] `Rules`가 `UPROPERTY(Replicated) TObjectPtr<UCA3DRuleSet>` — 에셋 포인터 복제
+- [x] `GetLifetimeReplicatedProps`에 전 복제 프로퍼티 등록 (Rules·AliveCount·MatchStartServerTime 3종)
+- [x] 로직 없음 — 데이터 보관만 (갱신은 GameMode, 소비는 UI)
+- [x] 매직 넘버 없음
 
 ## 동작 검증 (PIE 필수 — 미실행 시 미검증)
 - [ ] (Listen+클라 1, Task 09 이후) 클라 `GameState->Rules != nullptr`
