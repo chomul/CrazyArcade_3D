@@ -50,6 +50,43 @@ public:
 	UPROPERTY(EditAnywhere, Category="Life")
 	float SpawnInvulnTime = 0.f;
 
+	// ── Character (Task 10) ───────────────────────────────
+	// 이동·점프 파생 값은 전부 "셀 단위 계수 × AVoxelWorld::CellSize" 로 계산한다 —
+	// 셀 크기를 바꿔도 게임 감각이 유지된다 (하드코딩 금지).
+	// ⚠️ 아래 계수 전부 임시 — PIE 튜닝 후 사용자 확정 (Task 10 완료 조건).
+
+	// 이동속도: 1초에 몇 칸. CMC MaxWalkSpeed = 이 값 × CellSize.
+	UPROPERTY(EditAnywhere, Category="Character")
+	float MoveSpeedCellsPerSec = 4.f;
+
+	// 점프 정점 높이(셀 단위, 캡슐 바닥 기준). JumpZVelocity = sqrt(2 × g × 계수 × CellSize).
+	// (1, 2) 열린 구간이어야 "1칸은 오르고 2칸은 못 오른다" (GDD 2.1 — 층간 이동은 점프만).
+	// 기본 1.4 = 1칸 + 여유 0.4칸: 턱 위 높이에 머무는 시간을 확보해 수평 이동으로
+	// 턱에 올라설 수 있게 한다 (1.0 초과 빠듯하면 정점 순간에만 턱 높이라 못 올라감).
+	UPROPERTY(EditAnywhere, Category="Character", meta=(ClampMin="1.05", ClampMax="1.95"))
+	float JumpApexCellFactor = 1.4f;
+
+	// CMC MaxStepHeight = 계수 × CellSize. 1.0 미만이어야 1블록을 점프 없이
+	// 걸어 오르는 사고가 없다 (엔진 기본 45 는 셀이 작아지면 1칸을 넘어버림).
+	UPROPERTY(EditAnywhere, Category="Character", meta=(ClampMin="0.0", ClampMax="0.95"))
+	float StepHeightCellFactor = 0.3f;
+
+	// ── Camera (Task 11) ──────────────────────────────────
+	// 클라 시각 전용 값이지만 튜닝 값은 룰셋에 모은다 (코딩 규칙 — 매직 넘버 금지).
+	// ⚠️ 전부 임시 — PIE 튜닝 후 확정.
+
+	// 카메라 붐 길이(셀 단위). TargetArmLength = 계수 × CellSize.
+	UPROPERTY(EditAnywhere, Category="Camera")
+	float CameraDistanceCells = 12.f;
+
+	// 고정 내려보기 각도(도). 45도 스냅 회전은 yaw 만 돈다 (GDD 5장).
+	UPROPERTY(EditAnywhere, Category="Camera")
+	float CameraPitchDeg = -55.f;
+
+	// 45도 스냅 보간 속도 (RInterpTo 지수 계수).
+	UPROPERTY(EditAnywhere, Category="Camera")
+	float CameraYawInterpSpeed = 8.f;
+
 	// ── Map ───────────────────────────────────────────────
 
 	// 바닥 블록 파괴 허용 여부. (미확정)

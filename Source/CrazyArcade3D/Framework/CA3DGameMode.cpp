@@ -3,6 +3,8 @@
 #include "CrazyArcade3D.h"
 #include "Framework/CA3DGameState.h"
 #include "Framework/CA3DRuleSet.h"
+#include "Gameplay/Character/CA3DCharacter.h"        // Framework→Gameplay 허용 (Framework→전부)
+#include "Gameplay/Character/CA3DPlayerController.h"
 #include "Voxel/VoxelWorld.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerStart.h"
@@ -11,8 +13,11 @@ ACA3DGameMode::ACA3DGameMode()
 {
 	GameStateClass = ACA3DGameState::StaticClass();
 
-	// ⚠️ 임시 — DefaultPawnClass 는 엔진 기본(ADefaultPawn) 유지. Task 10에서 ACA3DCharacter 로 교체.
-	// ⚠️ 임시 — PlayerControllerClass 도 엔진 기본 유지. Task 11에서 ACA3DPlayerController 로 교체.
+	// C++ 베이스 지정 (Task 10/11). 메시·애님·입력 에셋을 얹은 BP 서브클래스
+	// (BP_CA3DCharacter / BP_CA3DPlayerController)로의 교체는 에디터에서
+	// BP_CA3DGameMode 의 클래스 오버라이드로 한다 (BP 에 로직 금지 — 에셋 지정만).
+	DefaultPawnClass = ACA3DCharacter::StaticClass();
+	PlayerControllerClass = ACA3DPlayerController::StaticClass();
 }
 
 void ACA3DGameMode::BeginPlay()

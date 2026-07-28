@@ -16,6 +16,6 @@
 - [x] 매직 넘버 없음
 
 ## 동작 검증 (PIE 필수 — 미실행 시 미검증)
-- [ ] (Listen+클라 1, Task 09 이후) 클라 `GameState->Rules != nullptr`
-- [ ] 클라에서 읽은 `BombFuseTime` 등이 `DA_Rules_Default` 값과 일치
-- [ ] `AliveCount`·`MatchStartServerTime` 복제 확인
+- [x] (Listen+클라 1, Task 09 이후) 클라 `GameState->Rules != nullptr` (2026-07-29 · 사용자 PIE 확인)
+- [x] 클라에서 읽은 `BombFuseTime` 등이 `DA_Rules_Default` 값과 일치 (2026-07-29 · 클라 맵 재생성이 복제 룰셋 기반으로 정상 동작)
+- [ ] `AliveCount`·`MatchStartServerTime` 복제 확인 — AliveCount 갱신 로직 자체가 Task 18에서 생기므로 그때 실검증
