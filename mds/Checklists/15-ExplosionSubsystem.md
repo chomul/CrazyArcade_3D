@@ -5,25 +5,26 @@
 > `RequestDetonate` 연쇄 실검증은 Task 16 이후 — 그 전엔 미검증 유지.
 
 ## 빌드 (필수 게이트)
-- [ ] `CrazyArcade3DEditor` 빌드 통과
-- [ ] `CrazyArcade3DServer` 빌드 통과
-- [ ] 프로젝트 파일 재생성 실행
+- [x] `CrazyArcade3DEditor` 빌드 통과 (2026-07-29)
+- [x] `CrazyArcade3DServer` 빌드 통과 (2026-07-29)
+- [x] 프로젝트 파일 재생성 실행 (2026-07-29)
 
 ## 코드 검증 (정적)
-- [ ] `Propagate`가 **static + 부작용 없음** — 멤버·전역 접근 없음, 입력만 읽음 (불변식 2)
-- [ ] 6방향(±X±Y±Z) 전파 규칙이 GDD 2.2와 일치 (Immortal 차단 / Destructible 부수고 멈춤 / Floor 룰 분기 / 연쇄 후 전파 계속)
-- [ ] `RequestDetonate`·`ProcessChainStep` 서버 가드
-- [ ] `ChainStepDelay` 룰셋 참조 (매직 넘버 없음)
-- [ ] 시그니처 확장(bFloorDestructible, BombCells)이 문서 보고와 일치
+- [x] `Propagate`가 **static + 부작용 없음** — 멤버·전역 접근 없음, 입력만 읽음 (불변식 2)
+- [x] 6방향(±X±Y±Z) 전파 규칙이 GDD 2.2와 일치 (Immortal 차단 / Destructible 부수고 멈춤 / Floor 룰 분기 / 연쇄 후 전파 계속)
+- [ ] `RequestDetonate`·`ProcessChainStep` 서버 가드 — **구현 자체가 Task 16으로 이연** (ABomb 부재로 컴파일 불가, TODO 주석으로 명세 보존)
+- [ ] `ChainStepDelay` 룰셋 참조 — 소비처(ProcessChainStep)가 Task 16으로 이연
+- [x] 시그니처 확장(bFloorDestructible, BombCells)이 문서 보고와 일치
 
 ## 동작 검증 — Propagate 유닛 테스트 (실행 필수 — 미실행 시 미검증)
-- [ ] 빈 그리드: Range만큼 6방향 전파, WaterCells 수 일치
-- [ ] Immortal 차단: 그 방향 즉시 멈춤, 셀 미포함
-- [ ] Destructible: BrokenCells 포함 + 그 방향 멈춤
-- [ ] Floor: `bFloorDestructible` true/false 분기 동작
-- [ ] **층간(±Z) 전파** 확인
-- [ ] BombCells 위 폭탄 → ChainedCells 검출 + 전파는 계속
-- [ ] 같은 입력 2회 → 같은 출력 (순수성)
+> 2026-07-29 · `CrazyArcade3D.Gameplay.ExplosionSubsystem` 헤드리스 통과 — 아래 전 항목
+- [x] 빈 그리드: Range만큼 6방향 전파, WaterCells 수 일치 (1+6×Range)
+- [x] Immortal 차단: 그 방향 즉시 멈춤, 셀 미포함
+- [x] Destructible: BrokenCells 포함 + 그 방향 멈춤
+- [x] Floor: `bFloorDestructible` true/false 분기 동작
+- [x] **층간(±Z) 전파** 확인 (+Z 파괴·-Z 차단 케이스)
+- [x] BombCells 위 폭탄 → ChainedCells 검출 + 전파는 계속 (원점 폭탄은 연쇄 제외)
+- [x] 같은 입력 2회 → 같은 출력 (순수성 — 입력 그리드 불변까지 확인)
 
 ## 동작 검증 — 연쇄 (Task 16 이후 PIE)
 - [ ] `RequestDetonate` → `ChainStepDelay` 간격 단계 처리 (로그 타임스탬프)

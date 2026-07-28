@@ -1,6 +1,7 @@
 #include "Gameplay/Character/CA3DCharacter.h"
 
 #include "CrazyArcade3D.h"
+#include "Gameplay/Character/StatusComponent.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
@@ -40,6 +41,14 @@ ACA3DCharacter::ACA3DCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom);
 	FollowCamera->bUsePawnControlRotation = false; // 붐이 회전을 다 처리한다
+
+	// 스탯·생존 상태 (Task 12) — 봇과 플레이어가 완전히 같은 코드 경로를 탄다.
+	Status = CreateDefaultSubobject<UStatusComponent>(TEXT("Status"));
+}
+
+UStatusComponent* ACA3DCharacter::GetStatus() const
+{
+	return Status;
 }
 
 void ACA3DCharacter::BeginPlay()
@@ -114,8 +123,11 @@ void ACA3DCharacter::TryApplyMovementTuning()
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
 	const float CellSize = VoxelWorld->CellSize;
 
-	// 이동속도: 1초에 몇 칸.
-	Movement->MaxWalkSpeed = Rules->MoveSpeedCellsPerSec * CellSize;
+	// 이동속도: 1초에 몇 칸 = 기본 속도. 실제 MaxWalkSpeed 반영은 RefreshMoveSpeed
+	// 단일 경로 — Status 의 MoveSpeedMul·Trapped 상태와 곱해진다 (Task 12).
+	CachedRules = Rules;
+	BaseWalkSpeed = Rules->MoveSpeedCellsPerSec * CellSize;
+	RefreshMoveSpeed();
 
 	// 자동 오르기 한계: 1칸 미만이어야 "층간 이동은 점프만"(GDD 2.1)이 유지된다.
 	Movement->MaxStepHeight = Rules->StepHeightCellFactor * CellSize;
@@ -146,12 +158,34 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 
 	if (!HasAuthority()) return; // 불변식 5 — 낙사 판정은 상태 변경으로 이어지므로 서버 전용
 
-	if (!bKillZLogged && GetActorLocation().Z < KillZ)
+	// 낙사 → ServerKill(Fall). Dead 면 스킵 (중복 호출 방지). 갇힌 채 추락하는 상황은
+	// 막지 않는다 (미결정 정책) — Trapped 여도 그대로 낙사 처리된다.
+	if (Status && Status->LifeState != ELifeState::Dead && GetActorLocation().Z < KillZ)
 	{
-		bKillZLogged = true;
-		UE_LOG(LogCA3D, Log, TEXT("ACA3DCharacter %s: KillZ(%.0f) 아래로 낙하 — 사망 처리는 Task 12 에서 연결"),
-			*GetName(), KillZ);
+		UE_LOG(LogCA3D, Log, TEXT("ACA3DCharacter %s: KillZ(%.0f) 아래로 낙하 — 낙사 처리"), *GetName(), KillZ);
+		Status->ServerKill(EDeathCause::Fall);
 	}
+}
+
+void ACA3DCharacter::RefreshMoveSpeed()
+{
+	// 서버·클라 단일 재계산 경로 — StatusComponent 의 Server*(서버)와 OnRep(클라)
+	// 양쪽이 이 함수만 탄다. 공식이 갈라지면 CMC 예측이 어긋난다 (중복 공식 금지).
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement)
+	{
+		return;
+	}
+
+	if (Status && Status->LifeState == ELifeState::Trapped)
+	{
+		// 갇힘: 미세 이동만 (GDD 2.3). 튜닝 미도착 시 CDO 폴백 (TryApplyMovementTuning 관례).
+		const UCA3DRuleSet* Rules = CachedRules ? CachedRules.Get() : GetDefault<UCA3DRuleSet>();
+		Movement->MaxWalkSpeed = Rules->TrappedMoveSpeed;
+		return;
+	}
+
+	Movement->MaxWalkSpeed = BaseWalkSpeed * (Status ? Status->MoveSpeedMul : 1.f);
 }
 
 FIntVector ACA3DCharacter::GetFootCell() const

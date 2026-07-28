@@ -114,4 +114,15 @@ public:
 	// 외곽 셀 낙하 선택 가중치.
 	UPROPERTY(EditAnywhere, Category="SuddenDeath")
 	float OuterWeightBias = 2.f;
+
+	// ─── Status (Task 12) ───
+	// ⚠️ 아이템 스택 상한은 미확정 항목 — 아래 두 값은 임시. 사용자 확정 시 갱신.
+
+	// 롤러 1개당 이동속도 배율 증가량. (값 미확정 — 임시)
+	UPROPERTY(EditAnywhere, Category="Status")
+	float RollerSpeedStep = 0.15f;
+
+	// 이동속도 배율 상한 (롤러 스택 상한 역할). (값 미확정 — 임시)
+	UPROPERTY(EditAnywhere, Category="Status")
+	float MoveSpeedMulCap = 1.6f;
 };

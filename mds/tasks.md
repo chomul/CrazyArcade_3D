@@ -22,10 +22,10 @@
 - [x] **09. `ACA3DGameMode`** — Framework/CA3DGameMode.h/.cpp (시드 결정+고정 시드 모드, GameState에 Rules 세팅 → VoxelWorld 초기화, 스폰 셀 순서 배정 ChoosePlayerStart) + VoxelWorld 임시 자동 초기화 제거·룰셋을 GameState 복제본으로 교체·스폰 셀 게터 / 자동화 테스트 `CrazyArcade3D.Framework.GameMode` + 두 타깃 빌드 + 에디터 연결(BP_CA3DGameMode·World Settings) + PIE 검증 완료 (맵 생성·스폰·2인 상이 스폰·Rules 복제·고정 시드)
 - [ ] **10. `ACA3DCharacter`** — C++ 완료(Gameplay/Character/CA3DCharacter.h/.cpp — CMC 기본, 룰셋 계수×CellSize 파생 이동속도 4칸/초·점프 정점 1.4칸·스텝 0.3칸 전부 임시, GetFootCell 1차 정의, 서버 KillZ 로그) + 테스트 `CrazyArcade3D.Gameplay.Character` 통과, 두 타깃 빌드 통과 — **에디터 연결(BP_CA3DCharacter)·PIE 체감·이동속도/셀 크기 확정 대기라 미체크.** 점프=1칸·발밑 셀(잠정)은 사용자 확정
 - [ ] **11. `ACA3DPlayerController`** — C++ 완료(Gameplay/Character/CA3DPlayerController.h/.cpp — Enhanced Input 바인딩, 45도 스냅 SpringArm 카메라, WASD 월드 축 기본 + `ca3d.CameraRelativeInput` 토글) — **에디터 연결(IMC/IA·BP 컨트롤러)·PIE 검증 대기라 미체크.** 입력 기준=월드 축(잠정)은 사용자 확정
-- [ ] **12. `UStatusComponent`**
-- [ ] **13. `IPooledActor`**
-- [ ] **14. `UPoolSubsystem`**
-- [ ] **15. `UExplosionSubsystem`** — Propagate 6방향·층간
+- [x] **12. `UStatusComponent`** — Gameplay/Character/StatusComponent.h/.cpp (스탯 5종+LifeState 복제, Server* 4종 권한 가드, Trap 만료 타이머→익사, KillZ 낙사를 ServerKill(Fall)로 연결, 속도 재계산은 캐릭터 RefreshMoveSpeed 단일 경로) + 룰셋에 RollerSpeedStep·MoveSpeedMulCap(임시) / 테스트 `CrazyArcade3D.Gameplay.StatusComponent` 통과, 두 타깃 빌드 통과. PIE 복제 실검증은 체크리스트 12 잔여
+- [x] **13. `IPooledActor`** — Core/PooledActor.h (UINTERFACE 쌍, Acquire/Release 콜백 계약, BP 구현 차단) / 두 타깃 빌드 통과 (순수 인터페이스 — 컴파일 검증만)
+- [x] **14. `UPoolSubsystem`** — Core/PoolSubsystem.h/.cpp (클래스별 프리 리스트+GC 보호 래퍼, Prewarm/Acquire/Release, 계약 위반 ensure) / 테스트 `CrazyArcade3D.Core.PoolSubsystem` 통과 (200개×5회 누수 없음), 두 타깃 빌드 통과. stat unit 실측은 Task 16 실사용 후
+- [x] **15. `UExplosionSubsystem`** — Gameplay/Bomb/ExplosionTypes.h + ExplosionSubsystem.h/.cpp (Propagate static 순수 함수 — 6방향·층간·Immortal 차단·Destructible 멈춤·Floor 룰 분기·연쇄 검출, 불변식 2) / 테스트 `CrazyArcade3D.Gameplay.ExplosionSubsystem` 통과 (순수성 포함 8항목), 두 타깃 빌드 통과. RequestDetonate/ProcessChainStep 연쇄 스케줄링은 ABomb 부재로 Task 16에서 구현 (TODO 주석으로 명세 보존)
 - [ ] **16. `ABomb`** — 파괴→낙하·연쇄 분산·프리뷰 데칼 포함
 - [ ] **17. `APredictedBombVisual`** — 🏁 Listen Server PIE 2인 게이트 포함
 

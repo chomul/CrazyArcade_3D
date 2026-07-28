@@ -7,6 +7,8 @@
 class AVoxelWorld;
 class USpringArmComponent;
 class UCameraComponent;
+class UStatusComponent;
+class UCA3DRuleSet;
 
 // 플레이어와 봇이 완전히 같은 코드 경로를 타는 공용 캐릭터 (Task 10).
 // 이동은 CMC 기본 리플리케이션에 맡긴다 — 커스텀 이동 코드 금지 (예측·보정·리플레이 무료 획득).
@@ -21,8 +23,17 @@ class CRAZYARCADE3D_API ACA3DCharacter : public ACharacter
 public:
 	ACA3DCharacter();   // 캡슐 크기·JumpZVelocity·MaxWalkSpeed 초기값 (전부 튜닝 대상)
 
-	// 서버 전용: 낙사 검사. GetActorLocation().Z < KillZ → 사망 처리(Task 12에서 연결).
+	// 서버 전용: 낙사 검사. GetActorLocation().Z < KillZ → Status->ServerKill(Fall).
+	// 갇힌 채 구멍에 빠지는 상황은 막지 않는다 (미결정 정책 — Task 12 문서).
 	virtual void Tick(float DeltaSeconds) override;
+
+	// 스탯·생존 상태의 단일 출처 (Task 12) — 봇·플레이어 공용.
+	UStatusComponent* GetStatus() const;
+
+	// 이동속도 재계산의 단일 경로 — Trapped 면 룰셋 TrappedMoveSpeed, 아니면
+	// 기본 속도(계수 × CellSize) × Status->MoveSpeedMul. 서버(Server* 직후)와
+	// 클라(OnRep) 양쪽이 이 함수 하나만 탄다 (중복 공식 금지).
+	void RefreshMoveSpeed();
 
 	// 캐릭터의 "발밑 셀" — 폭발 피격·폭탄 설치 위치의 기준 (GDD 2.3 "발판만이 안전하다").
 	// ⚠️ 공중에 있을 때의 정의는 미결정 (설계서 3.2) — 1차 구현은
@@ -42,6 +53,10 @@ protected:
 	// BeginPlay 에서 탐색·캐시 (좌표 변환·CellSize 의 유일한 출처).
 	UPROPERTY()
 	TObjectPtr<AVoxelWorld> VoxelWorld;
+
+	// 상태 컴포넌트 (Task 12) — 생성자에서 부착.
+	UPROPERTY(VisibleAnywhere, Category="Status")
+	TObjectPtr<UStatusComponent> Status;
 
 	// ⚠️ 임시 — 맵 최하층 아래. 룰셋 이동 여부는 튜닝 때 결정 (Task 10 문서).
 	UPROPERTY(EditDefaultsOnly, Category="Character")
@@ -63,8 +78,13 @@ private:
 
 	bool bMovementTuningApplied = false;
 
-	// 낙사 로그 1회 제한 — 틱마다 스팸 방지. 사망 처리(Task 12) 연결 전 임시.
-	bool bKillZLogged = false;
+	// TryApplyMovementTuning 이 캐시 — RefreshMoveSpeed 가 서버·클라 동일 값으로 재계산하는 재료.
+	UPROPERTY()
+	TObjectPtr<const UCA3DRuleSet> CachedRules;
 
-	friend class FCA3DCharacterTest; // 자동화 테스트가 튜닝 재적용·발밑 셀 검증을 위한 접근
+	// 기본 이동속도 = MoveSpeedCellsPerSec × CellSize. 초기값은 생성자 임시값과 동일 근거.
+	float BaseWalkSpeed = 400.f;
+
+	friend class FCA3DCharacterTest;    // 자동화 테스트가 튜닝 재적용·발밑 셀 검증을 위한 접근
+	friend class FStatusComponentTest;  // 상태 전이·속도 재계산 검증을 위한 접근 (Task 12)
 };
