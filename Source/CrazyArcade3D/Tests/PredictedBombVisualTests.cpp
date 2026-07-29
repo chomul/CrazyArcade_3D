@@ -37,8 +37,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPredictedBombVisualTest, "CrazyArcade3D.Gamepl
 
 namespace
 {
+	// ⚠️ 헬퍼 이름에 Pbv 접두사 — 유니티 빌드가 테스트 .cpp 들을 한 번역 단위로 합치면
+	// 무명 네임스페이스가 병합되므로, BombTests.cpp 의 동명 헬퍼와 충돌한다 (C2084).
+	// adaptive unity 때문에 git 커밋 전에는 안 드러나니 이름은 모듈 전체에서 고유해야 한다.
+
 	// 수동 타이머 진행 — Pending 활성화 틱 + 만료 틱 (BombTests·StatusComponentTests 의 GFrameCounter 관례).
-	void AdvanceTimers(UWorld* World, float Seconds)
+	void PbvAdvanceTimers(UWorld* World, float Seconds)
 	{
 		++GFrameCounter;
 		World->GetTimerManager().Tick(KINDA_SMALL_NUMBER); // Pending → Active
@@ -56,7 +60,7 @@ namespace
 		return Count;
 	}
 
-	int32 CountBombs(UWorld* World)
+	int32 PbvCountBombs(UWorld* World)
 	{
 		int32 Count = 0;
 		for (TActorIterator<ABomb> It(World); It; ++It)
@@ -66,7 +70,7 @@ namespace
 		return Count;
 	}
 
-	int32 CountWaterSegments(UWorld* World)
+	int32 PbvCountWaterSegments(UWorld* World)
 	{
 		int32 Count = 0;
 		for (TActorIterator<AWaterSegment> It(World); It; ++It)
@@ -178,12 +182,12 @@ bool FPredictedBombVisualTest::RunTest(const FString& Parameters)
 	// ─── 3. 타이머 부재 (불변식 3 실증) — 퓨즈 2배 시간이 지나도 혼자 아무 일도 안 한다 ───
 	TestFalse(TEXT("⑦ 타이머 없음: 틱 자체가 꺼진 클래스 (bCanEverTick=false)"),
 		Visual->PrimaryActorTick.bCanEverTick);
-	AdvanceTimers(World, Rules->BombFuseTime * 2.f); // 진짜 폭탄이면 이미 폭발했을 시간
+	PbvAdvanceTimers(World, Rules->BombFuseTime * 2.f); // 진짜 폭탄이면 이미 폭발했을 시간
 	TestTrue(TEXT("⑦ 타이머 없음: 시간 경과 후에도 비주얼 생존 (혼자 안 터짐)"), IsValid(Visual));
 	TestFalse(TEXT("⑦ 타이머 없음: 여전히 표시 중"), Visual->IsHidden());
 	TestEqual(TEXT("⑦ 타이머 없음: 예측 목록 불변"), Owner->PredictedBombVisuals.Num(), 1);
-	TestEqual(TEXT("⑦ 타이머 없음: 폭발 부산물(물줄기) 0개"), CountWaterSegments(World), 0);
-	TestEqual(TEXT("⑦ 타이머 없음: 폭탄 액터 0개 (판정 개입 없음)"), CountBombs(World), 0);
+	TestEqual(TEXT("⑦ 타이머 없음: 폭발 부산물(물줄기) 0개"), PbvCountWaterSegments(World), 0);
+	TestEqual(TEXT("⑦ 타이머 없음: 폭탄 액터 0개 (판정 개입 없음)"), PbvCountBombs(World), 0);
 
 	// ─── 4. 서버 거부 — ClientRejectBomb 이 같은 셀 비주얼만 반납 ───
 	Owner->ClientRejectBomb_Implementation(FIntVector(8, 8, 1)); // 다른 셀 거부는 no-op
@@ -215,7 +219,7 @@ bool FPredictedBombVisualTest::RunTest(const FString& Parameters)
 	// ─── 6. 리슨 호스트(권한 있음) — 예측 생략, 바로 서버 경로 (겹침 방지) ───
 	Owner->TryPlaceBombPredicted();
 	TestEqual(TEXT("⑪ 리슨 호스트: 예측 비주얼 생성 안 함"), Owner->PredictedBombVisuals.Num(), 0);
-	TestEqual(TEXT("⑪ 리슨 호스트: ServerPlaceBomb 직행 — 진짜 폭탄 1개"), CountBombs(World), 1);
+	TestEqual(TEXT("⑪ 리슨 호스트: ServerPlaceBomb 직행 — 진짜 폭탄 1개"), PbvCountBombs(World), 1);
 	TestEqual(TEXT("⑪ 리슨 호스트: ActiveBombCount 점유"), Status->ActiveBombCount, 1);
 
 	// ─── 정리 ───
