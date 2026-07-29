@@ -23,9 +23,11 @@ void ADangerDecal::SetCellSize(float CellSize)
 {
 	if (!DecalComponent) return;
 
-	// DecalSize 는 반크기 박스 (X = 투영 깊이). 깊이는 셀 1칸(위아래 반 칸씩 여유),
-	// 바닥 면적은 셀 한 칸에 맞춘다.
-	DecalComponent->DecalSize = FVector(CellSize, CellSize * 0.5f, CellSize * 0.5f);
+	// DecalSize 는 반크기 박스 (X = 투영 깊이). 바닥 면적을 정확히 셀 크기로 잡으면
+	// 이웃 블록 옆면이 박스 경계 평면과 정확히 겹쳐 픽셀 단위로 칠해졌다 빠졌다 한다
+	// (Z-파이팅성 검붉은 얼룩) — 면적은 살짝 안쪽(0.96배)으로 줄이고, 깊이는 위아래
+	// 3/4칸으로 잡아 대상 면(그 칸 발판 윗면, 중심에서 반 칸 아래)만 여유 있게 덮는다.
+	DecalComponent->DecalSize = FVector(CellSize * 0.75f, CellSize * 0.48f, CellSize * 0.48f);
 }
 
 void ADangerDecal::OnAcquiredFromPool()

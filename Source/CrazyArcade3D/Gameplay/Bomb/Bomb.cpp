@@ -87,6 +87,13 @@ void ABomb::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		ServerReleaseSlot();
 	}
 
+	// 그리드 변경 구독 해제 — 파괴 후 죽은 폭탄으로 프리뷰 갱신이 들어오지 않게.
+	if (CachedVoxelWorld && GridChangedHandle.IsValid())
+	{
+		CachedVoxelWorld->OnGridChanged.Remove(GridChangedHandle);
+		GridChangedHandle.Reset();
+	}
+
 	// 클라(+리슨): 프리뷰 데칼 반납. 월드 정리 중에는 풀 조작을 건너뛴다 (죽어가는 액터 반납 금지).
 	if (EndPlayReason == EEndPlayReason::Destroyed)
 	{
@@ -211,6 +218,12 @@ void ABomb::TryShowDangerPreview()
 		return;
 	}
 
+	// 퓨즈 중 다른 폭발이 지형을 바꾸면 재계산 — 설치 시점 스냅샷이 남으면 표시 ≠ 실폭발 (5장 9번).
+	if (!GridChangedHandle.IsValid())
+	{
+		GridChangedHandle = CachedVoxelWorld->OnGridChanged.AddUObject(this, &ABomb::RefreshDangerPreview);
+	}
+
 	const UCA3DRuleSet* Rules = ResolveBombRules(GetWorld());
 	UPoolSubsystem* Pool = GetWorld()->GetSubsystem<UPoolSubsystem>();
 	if (!Pool)
@@ -238,6 +251,14 @@ void ABomb::TryShowDangerPreview()
 			PreviewDecals.Add(Decal);
 		}
 	}
+}
+
+void ABomb::RefreshDangerPreview()
+{
+	if (IsRunningDedicatedServer()) return; // 불변식 5 — 시각 전용
+
+	ReleasePreviewDecals();
+	TryShowDangerPreview();
 }
 
 void ABomb::ReleasePreviewDecals()

@@ -32,6 +32,12 @@ public:
 	// 그리드가 생성됐는가 — 클라의 프리뷰 계산(ABomb)이 OnRep_Seed 선후 관계를 확인하는 용도.
 	bool IsGridInitialized() const { return bGridInitialized; }
 
+	// 그리드 변경(파괴 적용) 알림 — 서버·클라 각자 ApplyDestruction 직후 로컬 브로드캐스트.
+	// 소비처 예: ABomb 위험 프리뷰 갱신 (퓨즈 중 지형이 바뀌면 표시 범위가 실폭발과 어긋나므로 재계산).
+	// Voxel 은 구독자가 누구인지 모른다 — "게임 규칙을 몰라야 함" 의존 규칙 유지.
+	DECLARE_MULTICAST_DELEGATE(FOnGridChanged);
+	FOnGridChanged OnGridChanged;
+
 	// ─── 좌표 변환 (셀 크기를 아는 유일한 곳) ───
 	FIntVector WorldToCell(const FVector& W) const;
 	FVector    CellToWorld(const FIntVector& C) const;      // 셀 중심

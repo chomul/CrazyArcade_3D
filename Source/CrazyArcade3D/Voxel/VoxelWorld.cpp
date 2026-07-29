@@ -238,6 +238,11 @@ void AVoxelWorld::ApplyDestruction(const TArray<FIntVector>& Cells)
 			Renderer->RemoveBlock(Cell, Grid);
 		}
 	}
+
+	if (Cells.Num() > 0)
+	{
+		OnGridChanged.Broadcast();
+	}
 }
 
 // ─── 디버그 콘솔 명령 ──────────────────────────────────────

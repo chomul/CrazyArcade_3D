@@ -76,11 +76,16 @@ private:
 	bool bDetonated = false;     // 연쇄 중복 폭발 방지
 	bool bSlotReturned = false;  // ActiveBombCount 반환 1회 보장
 
+	// 그리드 변경 구독 (클라 시각) — 퓨즈 중 다른 폭발이 지형을 바꾸면 프리뷰를 재계산한다.
+	// 안 하면 설치 시점 스냅샷이 남아 표시 범위 ≠ 실폭발 범위가 된다 (5장 9번 위반).
+	FDelegateHandle GridChangedHandle;
+
 	void OnFuseExpired();        // 서버: ServerForceDetonate → ExplosionSubsystem::RequestDetonate
 
 	// 클라(+리슨): 위험 프리뷰 데칼 — 실폭발과 **같은** Propagate 를 호출한다 (별도 계산 금지 —
 	// 설계서 5장 9번 "표시와 실제가 구조적으로 일치"). 그리드/룰셋 미도착 시 next-tick 재시도.
 	void TryShowDangerPreview();
+	void RefreshDangerPreview(); // 그리드 변경 알림 수신 — 기존 데칼 반납 후 재계산
 	void ReleasePreviewDecals();
 
 	friend class FBombTest; // 자동화 테스트가 퓨즈 타이머·플래그 검증을 위한 접근
