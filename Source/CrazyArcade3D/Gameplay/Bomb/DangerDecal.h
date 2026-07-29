@@ -24,7 +24,7 @@ public:
 
 	// ─── IPooledActor ───
 	virtual void OnAcquiredFromPool() override;
-	virtual void OnReleasedToPool() override;   // 타이머 없음 — 검사만
+	virtual void OnReleasedToPool() override;   // 데칼 가시성 off — 반납 후 투영 잔류 방지
 
 protected:
 	// BP 서브클래스에서 데칼 머티리얼만 지정 — BP 로직 금지.

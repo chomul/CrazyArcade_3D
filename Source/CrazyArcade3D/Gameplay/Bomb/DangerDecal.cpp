@@ -28,10 +28,21 @@ void ADangerDecal::SetCellSize(float CellSize)
 	// (Z-파이팅성 검붉은 얼룩) — 면적은 살짝 안쪽(0.96배)으로 줄이고, 깊이는 위아래
 	// 3/4칸으로 잡아 대상 면(그 칸 발판 윗면, 중심에서 반 칸 아래)만 여유 있게 덮는다.
 	DecalComponent->DecalSize = FVector(CellSize * 0.75f, CellSize * 0.48f, CellSize * 0.48f);
+
+	// DecalSize 는 세터가 없는 프로퍼티 — 렌더 프록시는 생성/이동/재생성 시점의 값을 트랜스폼에
+	// 구워 쓴다 (GetTransformIncludingDecalSize). 신규 스폰 직후엔 프록시가 이미 엔진 기본값
+	// (128,256,256 = 약 5×5칸)으로 만들어져 있어, 명시적으로 재생성하지 않으면 거대 데칼이 남는다
+	// (풀 재사용 경로는 Acquire 의 이동·숨김 해제가 우연히 갱신해 줘서 정상으로 보였다).
+	DecalComponent->MarkRenderStateDirty();
 }
 
 void ADangerDecal::OnAcquiredFromPool()
 {
+	if (DecalComponent)
+	{
+		DecalComponent->SetVisibility(true);
+	}
+
 	if (!bWarnedMissingMaterial && DecalComponent && !DecalComponent->GetDecalMaterial())
 	{
 		bWarnedMissingMaterial = true;
@@ -42,5 +53,11 @@ void ADangerDecal::OnAcquiredFromPool()
 
 void ADangerDecal::OnReleasedToPool()
 {
-	// 타이머·FX 없음 — 정리할 것 없음 (계약상 명시적 구현만 둔다).
+	// 풀은 반납 액터를 옮기지 않고 SetActorHiddenInGame 으로만 숨기는데, UDecalComponent 는
+	// 액터 단위 HiddenInGame 전파를 안정적으로 따르지 않는다 (렌더 프록시가 컴포넌트
+	// 가시성 기준) — 반납 후 옛 셀 위치에 투영이 남아 붉은 얼룩이 되므로 명시적으로 끈다.
+	if (DecalComponent)
+	{
+		DecalComponent->SetVisibility(false);
+	}
 }
