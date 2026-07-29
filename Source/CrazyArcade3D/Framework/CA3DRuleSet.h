@@ -7,6 +7,7 @@
 
 class AWaterSegment;
 class ADangerDecal;
+class APredictedBombVisual;
 
 // 매치 규칙·튜닝 값의 단일 출처. 로직 없음 — 순수 데이터.
 // 인스턴스를 여러 개 만들어 룰셋 프리셋(기본전/스피드전 등)으로 쓴다.
@@ -61,6 +62,11 @@ public:
 	// 위험 구역 프리뷰 데칼 클래스 (클라 시각 — 풀링 대상). 예: BP_DangerDecal.
 	UPROPERTY(EditAnywhere, Category="Bomb")
 	TSubclassOf<ADangerDecal> DangerDecalClass;
+
+	// 폭탄 설치 로컬 예측 비주얼 클래스 (클라 시각 — 풀링 대상, Task 17).
+	// 예: BP_PredictedBombVisual — BP_Bomb 과 같은 메시를 지정한다 (구분 어려워야 정상).
+	UPROPERTY(EditAnywhere, Category="Bomb")
+	TSubclassOf<APredictedBombVisual> PredictedBombVisualClass;
 
 	// ── Life ──────────────────────────────────────────────
 

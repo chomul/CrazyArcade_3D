@@ -99,5 +99,6 @@ private:
 
 	friend class FVoxelWorldTest; // 자동화 테스트가 OnRep_Seed·Multicast 경로(파괴 선도착 큐)를 검증하기 위한 접근
 	friend class FBombTest; // 자동화 테스트가 손그리드 구성(결정론 시나리오)을 위한 접근 (Task 16)
+	friend class FPredictedBombVisualTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 17)
 	friend class FHISMVoxelRendererTest; // BeginPlay가 돌지 않는 테스트 월드에서 Renderer 수동 배선용
 };

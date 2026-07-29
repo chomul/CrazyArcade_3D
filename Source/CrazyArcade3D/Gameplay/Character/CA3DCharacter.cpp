@@ -4,6 +4,8 @@
 #include "Gameplay/Character/StatusComponent.h"
 #include "Gameplay/Bomb/Bomb.h"
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
+#include "Gameplay/Bomb/PredictedBombVisual.h"
+#include "Core/PoolSubsystem.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
@@ -13,6 +15,26 @@
 #include "Camera/CameraComponent.h"
 #include "EngineUtils.h"
 #include "TimerManager.h"
+
+namespace
+{
+	// 룰셋 해석 — 예측 비주얼 클래스의 출처. GameState 복제 포인터 → CDO 폴백
+	// (Bomb.cpp 의 ResolveBombRules 와 동일 관례. 시각 전용이라 CMC 튜닝처럼 대기하지 않는다).
+	const UCA3DRuleSet* ResolveVisualRules(const UWorld* World)
+	{
+		if (World)
+		{
+			if (const ACA3DGameState* GameState = World->GetGameState<ACA3DGameState>())
+			{
+				if (GameState->Rules)
+				{
+					return GameState->Rules;
+				}
+			}
+		}
+		return GetDefault<UCA3DRuleSet>();
+	}
+}
 
 ACA3DCharacter::ACA3DCharacter()
 {
@@ -82,6 +104,26 @@ void ACA3DCharacter::BeginPlay()
 	}
 
 	TryApplyMovementTuning();
+}
+
+void ACA3DCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 서버 응답 전에 캐릭터가 파괴되면 예측 비주얼이 고아로 남는다 — 남은 것 전부 반납.
+	// 월드 정리 중에는 풀 조작을 건너뛴다 (ABomb::EndPlay 관례 — 죽어가는 액터 반납 금지).
+	if (EndPlayReason == EEndPlayReason::Destroyed)
+	{
+		UPoolSubsystem* Pool = GetWorld() ? GetWorld()->GetSubsystem<UPoolSubsystem>() : nullptr;
+		for (const TObjectPtr<APredictedBombVisual>& Visual : PredictedBombVisuals)
+		{
+			if (Pool && IsValid(Visual))
+			{
+				Pool->Release(Visual);
+			}
+		}
+	}
+	PredictedBombVisuals.Empty();
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void ACA3DCharacter::TryApplyMovementTuning()
@@ -266,6 +308,109 @@ bool ACA3DCharacter::TryGetBombPlacementCell(FIntVector& OutCell) const
 	return true;
 }
 
+void ACA3DCharacter::TryPlaceBombPredicted()
+{
+	FIntVector Cell;
+	if (!TryGetBombPlacementCell(Cell))
+	{
+		// 발판 없는 공중(그리드 밖 하향 스캔) — 로컬에서 조용히 거부 (서버 왕복 불필요).
+		UE_LOG(LogCA3D, Verbose, TEXT("ACA3DCharacter %s: 설치 셀 없음 — 요청 생략"), *GetName());
+		return;
+	}
+
+	// 리슨 호스트(권한 있음): 지연이 없어 ABomb 이 같은 프레임에 스폰된다 — 예측 비주얼을
+	// 만들면 진짜 폭탄과 겹치므로 예측을 생략하고 바로 서버 경로를 탄다.
+	// (데디 서버도 이 분기로 빠진다 — APredictedBombVisual 의 데디 가드는 이 스폰 경로가 담당.)
+	if (HasAuthority())
+	{
+		ServerPlaceBomb(Cell);
+		return;
+	}
+
+	// 원격 클라: 로컬 검증 실패는 서버도 거부할 요청 — RPC 없이 조용히 반환 (서버 왕복 절약).
+	if (!TryAcquirePredictedVisual(Cell))
+	{
+		return;
+	}
+
+	ServerPlaceBomb(Cell);
+}
+
+bool ACA3DCharacter::TryAcquirePredictedVisual(const FIntVector& Cell)
+{
+	// 로컬 검증 — 서버 권위 검증(ServerPlaceBomb 4종)의 클라 예측판. 통과해도 최종 판정은
+	// 서버 몫이고, 어긋나면 ClientRejectBomb 이 비주얼만 지운다 (불변식 3 — 상태 불일치 불가능).
+	// "같은 셀 기존 폭탄" 은 서버 전용 레지스트리라 조회 불가 — 같은 셀 예측 중복으로 대신한다.
+	const bool bAlive     = Status && Status->LifeState == ELifeState::Alive;
+	const bool bCellEmpty = VoxelWorld && VoxelWorld->GetBlock(Cell) == EBlockType::Empty;
+
+	bool bNoDupPrediction = true;
+	for (const TObjectPtr<APredictedBombVisual>& Visual : PredictedBombVisuals)
+	{
+		if (IsValid(Visual) && Visual->Cell == Cell)
+		{
+			bNoDupPrediction = false; // 같은 셀 연타 — 이미 예측이 떠 서버 응답 대기 중
+			break;
+		}
+	}
+
+	// 개수 예측치: ActiveBombCount 는 서버 전용(원격 클라에선 항상 0)이라 아직 확정 안 된
+	// 예측 비주얼 수를 더해 연타 초과를 로컬에서 거른다. 확정 후 어긋나면 서버가 거부한다.
+	const bool bHasSlot = Status
+		&& Status->ActiveBombCount + PredictedBombVisuals.Num() < Status->MaxBombCount;
+
+	if (!bAlive || !bCellEmpty || !bNoDupPrediction || !bHasSlot)
+	{
+		UE_LOG(LogCA3D, Verbose,
+			TEXT("ACA3DCharacter %s: 로컬 검증 실패 — 셀 (%d, %d, %d) [Alive %d / Empty %d / 예측중복없음 %d / 슬롯 %d] — RPC 생략"),
+			*GetName(), Cell.X, Cell.Y, Cell.Z, bAlive, bCellEmpty, bNoDupPrediction, bHasSlot);
+		return false;
+	}
+
+	// 풀에서 획득 — 클래스는 룰셋(BP_PredictedBombVisual), 미지정이면 C++ 기본 폴백.
+	// 풀 미확보(정리 중 월드 등)면 비주얼만 생략하고 요청은 진행한다 — 시각 전용, 판정과 무관.
+	if (UPoolSubsystem* Pool = GetWorld() ? GetWorld()->GetSubsystem<UPoolSubsystem>() : nullptr)
+	{
+		const UCA3DRuleSet* Rules = ResolveVisualRules(GetWorld());
+		const TSubclassOf<APredictedBombVisual> VisualClass = Rules->PredictedBombVisualClass
+			? Rules->PredictedBombVisualClass
+			: TSubclassOf<APredictedBombVisual>(APredictedBombVisual::StaticClass());
+
+		APredictedBombVisual* Visual = Pool->Acquire<APredictedBombVisual>(
+			VisualClass, FTransform(VoxelWorld->CellToWorld(Cell)));
+		if (Visual)
+		{
+			Visual->Cell = Cell; // 매칭 키 — 풀 재사용 잔존값을 매번 덮어쓴다 (오염 방지)
+			PredictedBombVisuals.Add(Visual);
+		}
+	}
+	return true;
+}
+
+void ACA3DCharacter::ReleasePredictedVisualAt(const FIntVector& Cell)
+{
+	UPoolSubsystem* Pool = GetWorld() ? GetWorld()->GetSubsystem<UPoolSubsystem>() : nullptr;
+
+	for (int32 Index = PredictedBombVisuals.Num() - 1; Index >= 0; --Index)
+	{
+		APredictedBombVisual* Visual = PredictedBombVisuals[Index];
+		if (!IsValid(Visual))
+		{
+			PredictedBombVisuals.RemoveAt(Index); // 레벨 정리 등으로 파괴된 항목 청소
+			continue;
+		}
+		if (Visual->Cell != Cell)
+		{
+			continue;
+		}
+		if (Pool)
+		{
+			Pool->Release(Visual);
+		}
+		PredictedBombVisuals.RemoveAt(Index);
+	}
+}
+
 void ACA3DCharacter::ServerPlaceBomb_Implementation(FIntVector Cell)
 {
 	if (!HasAuthority()) return; // 불변식 5 (Server RPC 라 항상 서버지만 관례 가드)
@@ -306,7 +451,9 @@ void ACA3DCharacter::ServerPlaceBomb_Implementation(FIntVector Cell)
 
 void ACA3DCharacter::ClientRejectBomb_Implementation(FIntVector Cell)
 {
-	// TODO(Task 17): 같은 셀의 APredictedBombVisual 제거 — 지금은 예측 비주얼이 없어 로그만.
-	UE_LOG(LogCA3D, Verbose, TEXT("ACA3DCharacter %s: 서버가 폭탄 설치 거부 — 셀 (%d, %d, %d)"),
+	// 서버 거부 — 같은 셀의 예측 비주얼만 반납하면 끝 (불변식 3: 예측에 타이머·상태가 없어
+	// 되돌릴 것이 이펙트뿐이다).
+	UE_LOG(LogCA3D, Verbose, TEXT("ACA3DCharacter %s: 서버가 폭탄 설치 거부 — 셀 (%d, %d, %d) 예측 비주얼 반납"),
 		*GetName(), Cell.X, Cell.Y, Cell.Z);
+	ReleasePredictedVisualAt(Cell);
 }

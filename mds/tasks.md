@@ -27,7 +27,7 @@
 - [x] **14. `UPoolSubsystem`** — Core/PoolSubsystem.h/.cpp (클래스별 프리 리스트+GC 보호 래퍼, Prewarm/Acquire/Release, 계약 위반 ensure) / 테스트 `CrazyArcade3D.Core.PoolSubsystem` 통과 (200개×5회 누수 없음), 두 타깃 빌드 통과. stat unit 실측은 Task 16 실사용 후
 - [x] **15. `UExplosionSubsystem`** — Gameplay/Bomb/ExplosionTypes.h + ExplosionSubsystem.h/.cpp (Propagate static 순수 함수 — 6방향·층간·Immortal 차단·Destructible 멈춤·Floor 룰 분기·연쇄 검출, 불변식 2) / 테스트 `CrazyArcade3D.Gameplay.ExplosionSubsystem` 통과 (순수성 포함 8항목), 두 타깃 빌드 통과. RequestDetonate/ProcessChainStep 연쇄 스케줄링은 ABomb 부재로 Task 16에서 구현 (TODO 주석으로 명세 보존)
 - [ ] **16. `ABomb`** — C++ 완료(Gameplay/Bomb/Bomb.h/.cpp 서버 권한 폭탄 + ServerPlaceBomb/ClientRejectBomb RPC + 공중 -Z 스캔 설치 셀(잠정 규칙) + ExplosionSubsystem 연쇄 스케줄링(RequestDetonate/ProcessChainStep 6단계·ChainStepDelay 분산) + WaterSegment/DangerDecal 풀링 FX + ExplosionFXRelay Multicast) + 테스트 `CrazyArcade3D.Gameplay.Bomb` 통과(설치 셀 4종·권위 검증 4종·폭발 단일 경로·연쇄·중복 방지), 두 타깃 빌드 통과 — **에디터 연결(BP_Bomb 등)·PIE 검증(프리뷰 일치·연쇄 체감·stat unit) 대기라 미체크.** 공중 설치 규칙은 잠정 — PIE 체감 후 재확인
-- [ ] **17. `APredictedBombVisual`** — 🏁 Listen Server PIE 2인 게이트 포함
+- [ ] **17. `APredictedBombVisual`** — C++ 완료(Gameplay/Bomb/PredictedBombVisual.h/.cpp 클라 예측 비주얼: bReplicates=false·타이머/틱/판정 0줄(불변식 3)·풀링 + 캐릭터 TryPlaceBombPredicted 로컬 검증 4종(Alive·셀 Empty·같은 셀 예측 중복·개수 예측치) 후 비주얼+RPC, 리슨 호스트는 예측 생략 + ABomb 클라 BeginPlay/ClientRejectBomb 양쪽 Cell 매칭 반납 + 룰셋 PredictedBombVisualClass) + 테스트 `CrazyArcade3D.Gameplay.PredictedBombVisual` 통과(11항목 — 거부 3종·획득·연타·방치 무폭발·반납 매칭·풀 오염 없음·호스트 생략), 전체 회귀 11스위트 통과, 두 타깃 빌드 통과 — **에디터 연결(BP_PredictedBombVisual·룰셋)·PIE 검증(지연 ≥100ms 겹침/깜빡임)·🏁 Listen Server 2인 게이트(그리드 해시 일치) 대기라 미체크**
 
 ## 2주차 — 멀티 / 데디 서버
 

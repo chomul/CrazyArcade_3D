@@ -169,20 +169,12 @@ void ACA3DPlayerController::OnJumpCompleted()
 
 void ACA3DPlayerController::OnPlaceBomb()
 {
-	// 컨트롤러는 입력만 — 셀 계산은 캐릭터(공중 하향 스캔 규칙), 권위 검증은 서버 (게임 상태 계산 금지).
-	ACA3DCharacter* CA3DCharacter = Cast<ACA3DCharacter>(GetPawn());
-	if (!CA3DCharacter) return;
-
-	FIntVector Cell;
-	if (!CA3DCharacter->TryGetBombPlacementCell(Cell))
+	// 컨트롤러는 입력만 — 셀 계산·로컬 검증·예측 비주얼·권위 검증 전부 캐릭터/서버 소관
+	// (게임 상태 계산 금지). 단일 진입점: TryPlaceBombPredicted (Task 17, 데이터 흐름 3.1).
+	if (ACA3DCharacter* CA3DCharacter = Cast<ACA3DCharacter>(GetPawn()))
 	{
-		// 발판 없는 공중(그리드 밖 하향 스캔) — 로컬에서 조용히 거부 (서버 왕복 불필요).
-		UE_LOG(LogCA3D, Verbose, TEXT("ACA3DPlayerController: 설치 셀 없음 — 요청 생략"));
-		return;
+		CA3DCharacter->TryPlaceBombPredicted();
 	}
-
-	// TODO(Task 17): 로컬 예측 비주얼(APredictedBombVisual) 스폰 — 시각 전용, 타이머 금지 (불변식 3).
-	CA3DCharacter->ServerPlaceBomb(Cell);
 }
 
 void ACA3DPlayerController::OnRotateCam(const FInputActionValue& V)

@@ -10,6 +10,7 @@ class UCameraComponent;
 class UStatusComponent;
 class UCA3DRuleSet;
 class ABomb;
+class APredictedBombVisual;
 
 // 플레이어와 봇이 완전히 같은 코드 경로를 타는 공용 캐릭터 (Task 10).
 // 이동은 CMC 기본 리플리케이션에 맡긴다 — 커스텀 이동 코드 금지 (예측·보정·리플레이 무료 획득).
@@ -56,18 +57,29 @@ public:
 	// 스캔이 그리드 아래 밖까지 내려가면(발판 없음) false — 설치 거부.
 	bool TryGetBombPlacementCell(FIntVector& OutCell) const;
 
+	// 설치 입력의 단일 진입점 (컨트롤러·이후 봇이 호출 — Task 17, 데이터 흐름 3.1).
+	// 셀 계산 → 리슨 호스트(권한 있음)는 지연이 없어 예측 생략·바로 서버 경로 →
+	// 원격 클라는 로컬 검증 통과 시 예측 비주얼 획득 후 ServerPlaceBomb.
+	// 로컬 검증 실패는 서버도 거부할 요청 — RPC 없이 조용히 반환 (서버 왕복 절약).
+	void TryPlaceBombPredicted();
+
+	// 클라: Cell 일치하는 예측 비주얼을 풀에 반납하고 목록에서 제거.
+	// 호출처는 서버 확정(ABomb::BeginPlay — 진짜 폭탄으로 교체)과 거부(ClientRejectBomb) 두 곳.
+	void ReleasePredictedVisualAt(const FIntVector& Cell);
+
 	// 클라→서버: 셀에 폭탄 설치 요청. 서버가 권위 검증(개수·셀 Empty·기존 폭탄·Alive) 후
 	// ABomb 스폰 + ServerArm. 실패 시 ClientRejectBomb.
 	UFUNCTION(Server, Reliable)
 	void ServerPlaceBomb(FIntVector Cell);
 
-	// 서버→해당 클라: 설치 거부 통보 — 예측 비주얼(APredictedBombVisual) 제거용.
-	// 핸들러 본문은 Task 17 (현재 로그만).
+	// 서버→해당 클라: 설치 거부 통보 — 같은 셀의 예측 비주얼(APredictedBombVisual)만 반납.
+	// 예측에 상태가 없으므로 이펙트만 지우면 끝 (불변식 3).
 	UFUNCTION(Client, Reliable)
 	void ClientRejectBomb(FIntVector Cell);
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override; // 남은 예측 비주얼 반납
 
 	// BeginPlay 에서 탐색·캐시 (좌표 변환·CellSize 의 유일한 출처).
 	UPROPERTY()
@@ -108,7 +120,16 @@ private:
 	// 기본 이동속도 = MoveSpeedCellsPerSec × CellSize. 초기값은 생성자 임시값과 동일 근거.
 	float BaseWalkSpeed = 400.f;
 
+	// 서버 응답 대기 중인 예측 비주얼 목록 (원격 클라 로컬 전용 — 복제 안 함). 매칭은 Cell 기준.
+	UPROPERTY()
+	TArray<TObjectPtr<APredictedBombVisual>> PredictedBombVisuals;
+
+	// 원격 클라: 로컬 검증(Alive·셀 Empty·같은 셀 예측 없음·개수 예측치) + 예측 비주얼 획득.
+	// false 반환 = 검증 실패 — 호출자(TryPlaceBombPredicted)가 RPC 를 보내지 않는다.
+	bool TryAcquirePredictedVisual(const FIntVector& Cell);
+
 	friend class FCA3DCharacterTest;    // 자동화 테스트가 튜닝 재적용·발밑 셀 검증을 위한 접근
 	friend class FStatusComponentTest;  // 상태 전이·속도 재계산 검증을 위한 접근 (Task 12)
 	friend class FBombTest;             // 설치 검증·공중 스캔·연쇄 검증을 위한 접근 (Task 16)
+	friend class FPredictedBombVisualTest; // 로컬 검증·예측 목록 검증을 위한 접근 (Task 17)
 };

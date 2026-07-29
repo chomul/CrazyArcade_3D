@@ -10,6 +10,7 @@
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
 #include "Components/StaticMeshComponent.h"
+#include "GameFramework/PlayerController.h" // 예측 비주얼 반납 — 로컬 폰 탐색 (Task 17)
 #include "Net/UnrealNetwork.h"
 #include "EngineUtils.h"
 #include "TimerManager.h"
@@ -75,7 +76,17 @@ void ABomb::BeginPlay()
 		return;
 	}
 
-	// TODO(Task 17): 같은 셀의 APredictedBombVisual 제거 배선 (데이터 흐름 3.1).
+	// 서버 확정 도착 — 같은 셀의 예측 비주얼(APredictedBombVisual)을 진짜 폭탄으로 교체하는
+	// 지점 (데이터 흐름 3.1). OwnerChar 는 복제되지 않으므로 로컬 플레이어의 폰 기준이 맞다 —
+	// 예측 목록은 설치자 로컬에만 있고, 남의 폭탄이면 셀 매칭이 안 돼 no-op 이다.
+	if (APlayerController* LocalPC = GetWorld()->GetFirstPlayerController())
+	{
+		if (ACA3DCharacter* LocalChar = Cast<ACA3DCharacter>(LocalPC->GetPawn()))
+		{
+			LocalChar->ReleasePredictedVisualAt(Cell);
+		}
+	}
+
 	TryShowDangerPreview();
 }
 
