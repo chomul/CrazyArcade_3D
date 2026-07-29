@@ -17,6 +17,7 @@
 | `mds/crazy-arcade-3d-gdd-v2.md` | 게임 규칙·아이템·맵·로드맵이 필요할 때 |
 | `mds/tasks.md` | **매 작업 시작 시** — 현재 어디까지 했는지. 진행 상황은 여기서만 갱신 |
 | `mds/build.md` | 빌드가 실패했을 때, 엔진·툴체인을 건드릴 때 |
+| `mds/claude-context-rules.md` | 엔진 소스·빌드 로그·BP 를 다루거나 검색 범위를 정할 때 — 컨텍스트 절약 규칙 |
 
 ## Task 수행 절차
 
@@ -160,6 +161,9 @@ Epic 표준을 따른다. 이름은 **PascalCase**, 약어는 대문자 유지(`
 - **로그는 `LogCA3D` 카테고리** (`CrazyArcade3D.h`).
 - **풀링은 클라 시각 요소만.** 서버 권한 상태를 가진 액터(`ABomb`)는 풀링하지 않는다 — 재사용 시 상태 오염 위험이 이득보다 크다.
 - `stat unit` 을 켜고 개발한다. "다 만들고 최적화"는 3주 프로젝트에 없다.
+- **컨텍스트 절약** (`mds/claude-context-rules.md` 상세): 엔진 소스는 grep 으로 필요한 부분만 ·
+  빌드 에러는 파일+라인+코드만 · BP 는 노드 흐름 요약만 · 검색·분석 시 빌드 산출물
+  (`Binaries/`·`Intermediate/`·`Saved/`·`DerivedDataCache/`·`.vs/` 등)과 `*.uasset`·`*.umap` 자동 제외.
 
 ---
 
