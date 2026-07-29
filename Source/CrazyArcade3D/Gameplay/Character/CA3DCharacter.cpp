@@ -2,6 +2,8 @@
 
 #include "CrazyArcade3D.h"
 #include "Gameplay/Character/StatusComponent.h"
+#include "Gameplay/Bomb/Bomb.h"
+#include "Gameplay/Bomb/ExplosionSubsystem.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
@@ -44,6 +46,9 @@ ACA3DCharacter::ACA3DCharacter()
 
 	// 스탯·생존 상태 (Task 12) — 봇과 플레이어가 완전히 같은 코드 경로를 탄다.
 	Status = CreateDefaultSubobject<UStatusComponent>(TEXT("Status"));
+
+	// 폭탄 클래스 기본값 — BP_Bomb 서브클래스가 메시·이펙트만 덮어쓴다 (BP 로직 금지).
+	BombClass = ABomb::StaticClass();
 }
 
 UStatusComponent* ACA3DCharacter::GetStatus() const
@@ -209,4 +214,93 @@ void ACA3DCharacter::Move(const FVector2D& WorldAxis)
 void ACA3DCharacter::DoJump()
 {
 	Jump(); // CMC 기본 점프 — 정점 높이는 TryApplyMovementTuning 이 "계수 × 셀" 로 설정
+}
+
+// ─── 폭탄 설치 (Task 16 — 데이터 흐름 3.1) ──────────────────────────────────
+
+bool ACA3DCharacter::TryGetBombPlacementCell(FIntVector& OutCell) const
+{
+	if (!VoxelWorld)
+	{
+		return false; // BeginPlay 이전·VoxelWorld 없는 맵 — 설치 불가
+	}
+
+	const FVoxelGrid& Grid = VoxelWorld->GetGrid();
+	FIntVector Cell = GetFootCell();
+
+	// 경계 접촉 보정: 캡슐 바닥이 발판 윗면에 정확히 걸치거나 살짝 파고들면 발밑 셀이
+	// 그 솔리드 셀로 계산될 수 있다 — 한 칸 위에서 시작한다. 두 칸 이상 파묻힘은 비정상 — 거부.
+	if (Grid.IsSolid(Cell))
+	{
+		Cell.Z += 1;
+		if (Grid.IsSolid(Cell))
+		{
+			return false;
+		}
+	}
+
+	// ⚠️ 공중 설치 규칙 (잠정 확정 — 사용자 결정): -Z 스캔으로 첫 솔리드 블록 바로 위의
+	// Empty 셀을 찾는다. 지상에 서 있으면 바로 아래가 솔리드라 첫 반복에서 발밑 셀 그대로.
+	// 그리드 밖(가장자리 구멍 위 공중 등)까지 내려가면 발판이 없다 — 설치 거부.
+	while (true)
+	{
+		const FIntVector Below = Cell - FIntVector(0, 0, 1);
+		if (Below.Z < 0)
+		{
+			return false; // 그리드 아래 밖 — 놓을 발판 없음
+		}
+		if (Grid.IsSolid(Below))
+		{
+			break; // 첫 솔리드 발견 — 그 바로 위 셀이 설치 위치
+		}
+		Cell = Below;
+	}
+
+	OutCell = Cell;
+	return true;
+}
+
+void ACA3DCharacter::ServerPlaceBomb_Implementation(FIntVector Cell)
+{
+	if (!HasAuthority()) return; // 불변식 5 (Server RPC 라 항상 서버지만 관례 가드)
+
+	UWorld* World = GetWorld();
+	UExplosionSubsystem* Explosion = World ? World->GetSubsystem<UExplosionSubsystem>() : nullptr;
+
+	// 권위 검증 4종 (명세): 개수·셀 Empty·기존 폭탄 없음·Alive. 하나라도 실패 → 거부 통보.
+	const bool bAlive     = Status && Status->LifeState == ELifeState::Alive;
+	const bool bHasSlot   = Status && Status->ActiveBombCount < Status->MaxBombCount;
+	const bool bCellEmpty = VoxelWorld && VoxelWorld->GetBlock(Cell) == EBlockType::Empty;
+	const bool bNoBomb    = Explosion && !Explosion->FindBombAt(Cell);
+
+	if (!VoxelWorld || !Explosion || !bAlive || !bHasSlot || !bCellEmpty || !bNoBomb)
+	{
+		UE_LOG(LogCA3D, Log,
+			TEXT("ACA3DCharacter %s: 폭탄 설치 거부 — 셀 (%d, %d, %d) [Alive %d / 슬롯 %d / Empty %d / 폭탄없음 %d]"),
+			*GetName(), Cell.X, Cell.Y, Cell.Z, bAlive, bHasSlot, bCellEmpty, bNoBomb);
+		ClientRejectBomb(Cell);
+		return;
+	}
+
+	// Cell·Range 를 첫 복제 전에 확정해야 클라 BeginPlay 프리뷰가 올바른 값으로 돈다 —
+	// SpawnActorDeferred → ServerArm → FinishSpawning 순서 (Bomb.h 주석).
+	const FTransform SpawnTransform(VoxelWorld->CellToWorld(Cell));
+	ABomb* Bomb = World->SpawnActorDeferred<ABomb>(
+		BombClass ? *BombClass : ABomb::StaticClass(), SpawnTransform, this, this,
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (!Bomb)
+	{
+		ClientRejectBomb(Cell);
+		return;
+	}
+
+	Bomb->ServerArm(this, Status->BombRange, Cell); // ActiveBombCount++ 는 ServerArm 안 (슬롯 점유/반환 대칭)
+	Bomb->FinishSpawning(SpawnTransform);
+}
+
+void ACA3DCharacter::ClientRejectBomb_Implementation(FIntVector Cell)
+{
+	// TODO(Task 17): 같은 셀의 APredictedBombVisual 제거 — 지금은 예측 비주얼이 없어 로그만.
+	UE_LOG(LogCA3D, Verbose, TEXT("ACA3DCharacter %s: 서버가 폭탄 설치 거부 — 셀 (%d, %d, %d)"),
+		*GetName(), Cell.X, Cell.Y, Cell.Z);
 }

@@ -2,7 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "Templates/SubclassOf.h"
 #include "CA3DRuleSet.generated.h"
+
+class AWaterSegment;
+class ADangerDecal;
 
 // 매치 규칙·튜닝 값의 단일 출처. 로직 없음 — 순수 데이터.
 // 인스턴스를 여러 개 만들어 룰셋 프리셋(기본전/스피드전 등)으로 쓴다.
@@ -35,6 +39,18 @@ public:
 	// 폭발 범위 스택 상한. (값 미확정)
 	UPROPERTY(EditAnywhere, Category="Bomb")
 	int32 MaxBombRangeCap = 6;
+
+	// ─── Bomb (Task 16) ───
+	// 폭발 FX 클래스 지정 — BP 서브클래스(메시·머티리얼 에셋만 지정, BP 로직 금지)를 연결한다.
+	// 미지정이면 코드가 C++ 기본 클래스로 폴백한다 (에셋 없이도 판정·동작은 정상 — 경고 로그만).
+
+	// 물줄기 세그먼트 클래스 (클라 FX — 풀링 대상). 예: BP_WaterSegment.
+	UPROPERTY(EditAnywhere, Category="Bomb")
+	TSubclassOf<AWaterSegment> WaterSegmentClass;
+
+	// 위험 구역 프리뷰 데칼 클래스 (클라 시각 — 풀링 대상). 예: BP_DangerDecal.
+	UPROPERTY(EditAnywhere, Category="Bomb")
+	TSubclassOf<ADangerDecal> DangerDecalClass;
 
 	// ── Life ──────────────────────────────────────────────
 

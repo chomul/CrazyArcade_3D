@@ -4,18 +4,25 @@
 > **PIE를 실제로 돌리지 않은 항목은 체크하지 않는다 — 미검증으로 남긴다.**
 
 ## 빌드 (필수 게이트)
-- [ ] `CrazyArcade3DEditor` 빌드 통과
-- [ ] `CrazyArcade3DServer` 빌드 통과
-- [ ] 프로젝트 파일 재생성 실행
+- [x] `CrazyArcade3DEditor` 빌드 통과 (2026-07-29)
+- [x] `CrazyArcade3DServer` 빌드 통과 (2026-07-29)
+- [x] 프로젝트 파일 재생성 실행 (2026-07-29)
 
 ## 코드 검증 (정적)
-- [ ] 퓨즈 타이머가 서버 전용 — 클라에 타이머 코드 없음 (불변식 3)
-- [ ] 풀링 미사용 (스폰/디스트로이)
-- [ ] `ServerPlaceBomb` 검증 4종: 개수·셀 Empty·중복 폭탄·Alive
-- [ ] `bDetonated` 중복 폭발 방지
-- [ ] 퓨즈·잔존 시간 룰셋 참조
-- [ ] 프리뷰 데칼이 `Propagate` 재사용 — 별도 범위 계산 로직 없음
-- [ ] 클라 시각 경로(BeginPlay 연출)에 데디 가드
+- [x] 퓨즈 타이머가 서버 전용 — 클라에 타이머 코드 없음 (불변식 3 — FuseTimer 는 ServerArm 에서만 세팅)
+- [x] 풀링 미사용 (스폰/디스트로이 — ProcessChainStep 이 Destroy, WaterSegment/DangerDecal 만 풀링)
+- [x] `ServerPlaceBomb` 검증 4종: 개수·셀 Empty·중복 폭탄·Alive
+- [x] `bDetonated` 중복 폭발 방지 (+ 자동화 테스트 ⑪·⑫로 동작 확인)
+- [x] 퓨즈·잔존 시간 룰셋 참조 (BombFuseTime·WaterLingerTime·ChainStepDelay — GameState 복제 → CDO 폴백)
+- [x] 프리뷰 데칼이 `Propagate` 재사용 — 별도 범위 계산 로직 없음 (ABomb::TryShowDangerPreview)
+- [x] 클라 시각 경로(BeginPlay 연출)에 데디 가드 (ABomb·ExplosionFXRelay·프리뷰 전부 IsRunningDedicatedServer 가드)
+
+## 동작 검증 — 자동화 (2026-07-29 · `CrazyArcade3D.Gameplay.Bomb` 헤드리스 통과)
+- [x] 설치 셀 계산: 지상 발밑·공중 -Z 스캔·경계 파고듦 보정·발판 없음 거부 (잠정 규칙)
+- [x] 권위 검증: 개수 초과·점유 셀·솔리드 셀·사망 상태 → 거부 / 정상 → 스폰+장전
+- [x] 퓨즈 만료 → Destructible 파괴(ServerDestroyBlocks 단일 경로)·Floor 보존·발밑 셀 피격 Trap·범위 밖 회피
+- [x] 물줄기 세그먼트 Multicast → 풀 획득 (칸 수 일치)
+- [x] 연쇄: 1단계 즉시 + 다음 단계 ChainStepDelay 분산, bDetonated 중복 방지, 슬롯 반환→재설치 가능
 
 ## 동작 검증 (PIE 필수 — 미실행 시 미검증)
 - [ ] 설치 키 → 발밑 셀에 폭탄 → `BombFuseTime` 후 폭발

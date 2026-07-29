@@ -46,6 +46,7 @@ protected:
 	void OnMove(const FInputActionValue& V);
 	void OnJumpStarted();
 	void OnJumpCompleted();
+	void OnPlaceBomb();                           // 셀 계산·검증은 캐릭터/서버 소관 — 여기선 전달만
 	void OnRotateCam(const FInputActionValue& V); // ±45도 스냅, 보간 회전
 
 private:

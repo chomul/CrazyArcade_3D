@@ -12,8 +12,8 @@
 ## 코드 검증 (정적)
 - [x] `Propagate`가 **static + 부작용 없음** — 멤버·전역 접근 없음, 입력만 읽음 (불변식 2)
 - [x] 6방향(±X±Y±Z) 전파 규칙이 GDD 2.2와 일치 (Immortal 차단 / Destructible 부수고 멈춤 / Floor 룰 분기 / 연쇄 후 전파 계속)
-- [ ] `RequestDetonate`·`ProcessChainStep` 서버 가드 — **구현 자체가 Task 16으로 이연** (ABomb 부재로 컴파일 불가, TODO 주석으로 명세 보존)
-- [ ] `ChainStepDelay` 룰셋 참조 — 소비처(ProcessChainStep)가 Task 16으로 이연
+- [x] `RequestDetonate`·`ProcessChainStep` 서버 가드 — Task 16에서 구현 완료 (2026-07-29 · 진입점 RequestDetonate 가 `Bomb->HasAuthority()` 가드, ProcessChainStep 은 private — 서버 경로에서만 도달)
+- [x] `ChainStepDelay` 룰셋 참조 — 소비처(ProcessChainStep 다음 단계 타이머) Task 16에서 구현 (2026-07-29)
 - [x] 시그니처 확장(bFloorDestructible, BombCells)이 문서 보고와 일치
 
 ## 동작 검증 — Propagate 유닛 테스트 (실행 필수 — 미실행 시 미검증)

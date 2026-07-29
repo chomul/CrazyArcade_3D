@@ -99,7 +99,10 @@ void ACA3DPlayerController::SetupInputComponent()
 	{
 		EIC->BindAction(IA_RotateCam, ETriggerEvent::Started, this, &ACA3DPlayerController::OnRotateCam);
 	}
-	// IA_PlaceBomb 바인딩 자리 — 핸들러(로컬 예측 + ServerPlaceBomb RPC)는 Task 16 에서 구현.
+	if (IA_PlaceBomb)
+	{
+		EIC->BindAction(IA_PlaceBomb, ETriggerEvent::Started, this, &ACA3DPlayerController::OnPlaceBomb);
+	}
 }
 
 void ACA3DPlayerController::PlayerTick(float DeltaTime)
@@ -162,6 +165,24 @@ void ACA3DPlayerController::OnJumpCompleted()
 	{
 		CA3DCharacter->StopJumping(); // bPressedJump 해제 — ACharacter 기본 점프 상태 관리
 	}
+}
+
+void ACA3DPlayerController::OnPlaceBomb()
+{
+	// 컨트롤러는 입력만 — 셀 계산은 캐릭터(공중 하향 스캔 규칙), 권위 검증은 서버 (게임 상태 계산 금지).
+	ACA3DCharacter* CA3DCharacter = Cast<ACA3DCharacter>(GetPawn());
+	if (!CA3DCharacter) return;
+
+	FIntVector Cell;
+	if (!CA3DCharacter->TryGetBombPlacementCell(Cell))
+	{
+		// 발판 없는 공중(그리드 밖 하향 스캔) — 로컬에서 조용히 거부 (서버 왕복 불필요).
+		UE_LOG(LogCA3D, Verbose, TEXT("ACA3DPlayerController: 설치 셀 없음 — 요청 생략"));
+		return;
+	}
+
+	// TODO(Task 17): 로컬 예측 비주얼(APredictedBombVisual) 스폰 — 시각 전용, 타이머 금지 (불변식 3).
+	CA3DCharacter->ServerPlaceBomb(Cell);
 }
 
 void ACA3DPlayerController::OnRotateCam(const FInputActionValue& V)

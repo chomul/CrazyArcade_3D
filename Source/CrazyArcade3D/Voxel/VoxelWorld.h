@@ -29,6 +29,9 @@ public:
 	bool IsSolid(const FIntVector& C) const { return Grid.IsSolid(C); }
 	const FVoxelGrid& GetGrid() const { return Grid; }   // Propagate 등 읽기 전용 접근
 
+	// 그리드가 생성됐는가 — 클라의 프리뷰 계산(ABomb)이 OnRep_Seed 선후 관계를 확인하는 용도.
+	bool IsGridInitialized() const { return bGridInitialized; }
+
 	// ─── 좌표 변환 (셀 크기를 아는 유일한 곳) ───
 	FIntVector WorldToCell(const FVector& W) const;
 	FVector    CellToWorld(const FIntVector& C) const;      // 셀 중심
@@ -89,5 +92,6 @@ private:
 	void ApplyDestruction(const TArray<FIntVector>& Cells);
 
 	friend class FVoxelWorldTest; // 자동화 테스트가 OnRep_Seed·Multicast 경로(파괴 선도착 큐)를 검증하기 위한 접근
+	friend class FBombTest; // 자동화 테스트가 손그리드 구성(결정론 시나리오)을 위한 접근 (Task 16)
 	friend class FHISMVoxelRendererTest; // BeginPlay가 돌지 않는 테스트 월드에서 Renderer 수동 배선용
 };

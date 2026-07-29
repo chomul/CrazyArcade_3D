@@ -9,6 +9,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class UStatusComponent;
 class UCA3DRuleSet;
+class ABomb;
 
 // 플레이어와 봇이 완전히 같은 코드 경로를 타는 공용 캐릭터 (Task 10).
 // 이동은 CMC 기본 리플리케이션에 맡긴다 — 커스텀 이동 코드 금지 (예측·보정·리플레이 무료 획득).
@@ -47,6 +48,24 @@ public:
 	void Move(const FVector2D& WorldAxis);
 	void DoJump();
 
+	// ─── 폭탄 설치 (Task 16 — 데이터 흐름 3.1) ───
+
+	// 설치 요청 셀 계산 (서버·클라 공용 — 컨트롤러는 입력만, 셀 계산은 캐릭터 소관).
+	// ⚠️ 공중 설치 규칙 (잠정 확정 — 사용자 결정): 발밑 셀부터 -Z 로 스캔해
+	// 첫 솔리드 블록 **바로 위의 Empty 셀**. 지상에 서 있으면 그냥 발밑 셀.
+	// 스캔이 그리드 아래 밖까지 내려가면(발판 없음) false — 설치 거부.
+	bool TryGetBombPlacementCell(FIntVector& OutCell) const;
+
+	// 클라→서버: 셀에 폭탄 설치 요청. 서버가 권위 검증(개수·셀 Empty·기존 폭탄·Alive) 후
+	// ABomb 스폰 + ServerArm. 실패 시 ClientRejectBomb.
+	UFUNCTION(Server, Reliable)
+	void ServerPlaceBomb(FIntVector Cell);
+
+	// 서버→해당 클라: 설치 거부 통보 — 예측 비주얼(APredictedBombVisual) 제거용.
+	// 핸들러 본문은 Task 17 (현재 로그만).
+	UFUNCTION(Client, Reliable)
+	void ClientRejectBomb(FIntVector Cell);
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -61,6 +80,10 @@ protected:
 	// ⚠️ 임시 — 맵 최하층 아래. 룰셋 이동 여부는 튜닝 때 결정 (Task 10 문서).
 	UPROPERTY(EditDefaultsOnly, Category="Character")
 	float KillZ = -500.f;
+
+	// 서버가 스폰할 폭탄 클래스 — BP_Bomb(메시·이펙트 지정용) 연결. 기본은 C++ ABomb.
+	UPROPERTY(EditDefaultsOnly, Category="Bomb")
+	TSubclassOf<ABomb> BombClass;
 
 	// 카메라 붐 — 45도 스냅 카메라(Task 11)가 컨트롤러 ControlRotation 으로 회전시킨다
 	// (bUsePawnControlRotation). 데디 서버는 BeginPlay 에서 파괴 (불변식 5 — 시각 전용).
@@ -87,4 +110,5 @@ private:
 
 	friend class FCA3DCharacterTest;    // 자동화 테스트가 튜닝 재적용·발밑 셀 검증을 위한 접근
 	friend class FStatusComponentTest;  // 상태 전이·속도 재계산 검증을 위한 접근 (Task 12)
+	friend class FBombTest;             // 설치 검증·공중 스캔·연쇄 검증을 위한 접근 (Task 16)
 };

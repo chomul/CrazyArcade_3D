@@ -8,10 +8,10 @@
 // 전혀 필요 없다 (FVoxelGrid 와 같은 판단). 값 복사·스택 생성이 자유로운 순수 데이터.
 // 컨테이너는 TArray 만 — 결정론 유지 (불변식 4 준용).
 //
-// TODO(Task 16): 서버 전용 ChainedBombs(셀→ABomb 해석 결과)는 ABomb 이 생기는 Task 16 에서
-// 추가한다. TObjectPtr 멤버가 필요해지면 그때 UPROPERTY 요구 여부(USTRUCT 승격 vs
-// TWeakObjectPtr 유지)를 함께 결정한다 — 지금 미리 넣으면 존재하지 않는 타입 참조로
-// 컴파일이 깨진다.
+// 보류 결정 확정 (Task 16): ChainedBombs 멤버는 **추가하지 않는다.**
+// 셀→ABomb 해석은 UExplosionSubsystem::ProcessChainStep 이 서버 레지스트리로 즉석 수행해
+// 곧장 다음 단계 PendingChain 에 넣는다 — 중간 보관이 필요 없고, 이 구조체는 리플렉션·GC
+// 참조 없는 순수 셀 데이터로 유지된다 (액터 포인터를 실으면 USTRUCT 승격이 강제된다).
 struct FExplosionResult
 {
 	TArray<FIntVector> WaterCells;    // 물줄기가 채우는 칸 — 피격·아이템 소멸 판정 대상 (원점 포함)

@@ -26,7 +26,7 @@
 - [x] **13. `IPooledActor`** — Core/PooledActor.h (UINTERFACE 쌍, Acquire/Release 콜백 계약, BP 구현 차단) / 두 타깃 빌드 통과 (순수 인터페이스 — 컴파일 검증만)
 - [x] **14. `UPoolSubsystem`** — Core/PoolSubsystem.h/.cpp (클래스별 프리 리스트+GC 보호 래퍼, Prewarm/Acquire/Release, 계약 위반 ensure) / 테스트 `CrazyArcade3D.Core.PoolSubsystem` 통과 (200개×5회 누수 없음), 두 타깃 빌드 통과. stat unit 실측은 Task 16 실사용 후
 - [x] **15. `UExplosionSubsystem`** — Gameplay/Bomb/ExplosionTypes.h + ExplosionSubsystem.h/.cpp (Propagate static 순수 함수 — 6방향·층간·Immortal 차단·Destructible 멈춤·Floor 룰 분기·연쇄 검출, 불변식 2) / 테스트 `CrazyArcade3D.Gameplay.ExplosionSubsystem` 통과 (순수성 포함 8항목), 두 타깃 빌드 통과. RequestDetonate/ProcessChainStep 연쇄 스케줄링은 ABomb 부재로 Task 16에서 구현 (TODO 주석으로 명세 보존)
-- [ ] **16. `ABomb`** — 파괴→낙하·연쇄 분산·프리뷰 데칼 포함
+- [ ] **16. `ABomb`** — C++ 완료(Gameplay/Bomb/Bomb.h/.cpp 서버 권한 폭탄 + ServerPlaceBomb/ClientRejectBomb RPC + 공중 -Z 스캔 설치 셀(잠정 규칙) + ExplosionSubsystem 연쇄 스케줄링(RequestDetonate/ProcessChainStep 6단계·ChainStepDelay 분산) + WaterSegment/DangerDecal 풀링 FX + ExplosionFXRelay Multicast) + 테스트 `CrazyArcade3D.Gameplay.Bomb` 통과(설치 셀 4종·권위 검증 4종·폭발 단일 경로·연쇄·중복 방지), 두 타깃 빌드 통과 — **에디터 연결(BP_Bomb 등)·PIE 검증(프리뷰 일치·연쇄 체감·stat unit) 대기라 미체크.** 공중 설치 규칙은 잠정 — PIE 체감 후 재확인
 - [ ] **17. `APredictedBombVisual`** — 🏁 Listen Server PIE 2인 게이트 포함
 
 ## 2주차 — 멀티 / 데디 서버

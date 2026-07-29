@@ -6,13 +6,12 @@
 #include "ExplosionSubsystem.generated.h"
 
 struct FVoxelGrid;
+class ABomb;
+class AVoxelWorld;
+class AExplosionFXRelay;
 
 // 폭발 전파 계산(static 순수 함수 Propagate — 불변식 2)
-// + 서버의 연쇄 폭발 프레임 분산 스케줄링(GDD 7.3 — Task 16 에서 추가).
-//
-// Task 15 시점엔 ABomb 이 없어(Task 16 생성) 연쇄 스케줄링 멤버
-// (RequestDetonate / ProcessChainStep / PendingChain / ChainTimer)를 넣으면
-// 존재하지 않는 타입 참조로 컴파일이 깨진다 — 골격 + Propagate 만 둔다 (죽은 코드 금지).
+// + 서버의 연쇄 폭발 프레임 분산 스케줄링(GDD 7.3 — Task 16).
 UCLASS()
 class CRAZYARCADE3D_API UExplosionSubsystem : public UWorldSubsystem
 {
@@ -37,19 +36,53 @@ public:
 		const FVoxelGrid& Grid, const FIntVector& Origin, int32 Range,
 		bool bFloorDestructible, const TArray<FIntVector>& BombCells);
 
-	// ─── 서버 전용 연쇄 스케줄링 — TODO(Task 16, ABomb 생성 후) ───
-	// void RequestDetonate(ABomb* Bomb);
-	//   폭탄 하나가 터졌다 → PendingChain 에 투입 (최상단 HasAuthority 가드 — 불변식 5).
-	//   실제 처리는 ProcessChainStep 이 룰셋 ChainStepDelay(초) 간격 타이머로 단계별 수행 —
-	//   서버 스파이크 제거 + "촤르륵" 연출 동시 획득 (GDD 7.3).
-	//
-	// void ProcessChainStep();  // 단계마다:
-	//   1. PendingChain 에서 이번 단계 폭탄들을 꺼내 각각 Propagate 호출
-	//   2. VoxelWorld->ServerDestroyBlocks(BrokenCells)  (Task 06 경로 — 불변식 1)
-	//   3. 물줄기 셀 목록 Multicast → 클라가 풀(Task 14)에서 FX 획득, WaterLingerTime 후 반납
-	//   4. WaterCells 안의 캐릭터(발밑 셀 기준, Task 10 GetFootCell) → StatusComponent::ServerTrap
-	//   5. WaterCells 안의 아이템 소멸 (Task 23 이후)
-	//   6. ChainedCells → ChainedBombs 해석, 다음 단계 PendingChain 으로 (중복 폭발 방지 플래그 필수)
-	//
-	// 멤버 (Task 16): UPROPERTY() TArray<TObjectPtr<ABomb>> PendingChain; FTimerHandle ChainTimer;
+	// ─── 서버 전용: 연쇄 스케줄링 (Task 16) ───
+
+	// 폭탄 하나가 터졌다 → PendingChain 투입. 큐가 놀고 있으면 즉시 1단계 처리(퓨즈 시각 정확),
+	// 연쇄로 유발된 폭탄은 ProcessChainStep 이 룰셋 ChainStepDelay 간격으로 단계별 처리 —
+	// 서버 스파이크 제거 + "촤르륵" 연출 동시 획득 (GDD 7.3).
+	// 유일한 호출자는 ABomb::ServerForceDetonate — bDetonated 기록이 선행된다 (중복 방지).
+	void RequestDetonate(ABomb* Bomb);
+
+	// ─── 서버 전용: 활성 폭탄 레지스트리 ───
+	// ABomb::ServerArm 이 등록, ServerReleaseSlot(폭발 처리·EndPlay 안전망)이 해제.
+	// 소비처: 설치 검증("그 셀에 폭탄 있음")·연쇄 셀 해석·Propagate 의 BombCells 인자.
+	void RegisterBomb(ABomb* Bomb);
+	void UnregisterBomb(ABomb* Bomb);
+	ABomb* FindBombAt(const FIntVector& Cell) const;
+
+	// 현재 폭탄 셀 목록 — 좌표 사전순 정렬 TArray (결정론 유지 — 불변식 4 준용).
+	TArray<FIntVector> GetActiveBombCellsSorted() const;
+
+private:
+	// 단계마다 (명세 6단계): ① PendingChain 의 폭탄들 Propagate → ② ServerDestroyBlocks(Broken)
+	// (불변식 1) → ③ 물줄기 셀 Multicast(AExplosionFXRelay — 클라 FX) → ④ WaterCells 안
+	// 캐릭터(GetFootCell) ServerTrap → ⑤ 아이템 소멸 TODO(Task 23) → ⑥ 연쇄 셀을 폭탄으로
+	// 해석해 다음 단계 투입(ServerForceDetonate 의 bDetonated 가드가 중복 방지).
+	void ProcessChainStep();
+
+	AVoxelWorld* ResolveVoxelWorld();
+	AExplosionFXRelay* ResolveFXRelay(); // 서버: lazy 스폰·캐시 (Multicast 소유 액터)
+
+	// 연쇄 프레임 분산 (GDD 7.3): 다음 단계에 터질 폭탄들.
+	UPROPERTY()
+	TArray<TObjectPtr<ABomb>> PendingChain;
+
+	// 서버 전용 활성 폭탄 레지스트리 (등록 순서는 서버 로컬 — 판정은 정렬 결과만 쓴다).
+	UPROPERTY()
+	TArray<TObjectPtr<ABomb>> ActiveBombs;
+
+	UPROPERTY()
+	TObjectPtr<AVoxelWorld> CachedVoxelWorld;
+
+	UPROPERTY()
+	TObjectPtr<AExplosionFXRelay> FXRelay;
+
+	FTimerHandle ChainTimer;
+
+	// 단계 처리 중 재진입 방지 — 처리 중 유발된 연쇄(RequestDetonate)는 즉시 처리하지 않고
+	// 단계 종료 시 예약되는 다음 타이머를 기다린다.
+	bool bProcessingStep = false;
+
+	friend class FBombTest; // 자동화 테스트가 PendingChain·타이머 상태 검증을 위한 접근
 };
