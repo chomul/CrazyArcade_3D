@@ -91,6 +91,10 @@ private:
 
 	bool bGridInitialized = false;
 
+	// 파괴 적용 순번 (인스턴스 로컬). 🏁 게이트용 자동 해시 로그의 대조 키 — 서버·클라가
+	// 같은 파괴를 각자 적용하므로 같은 #N 끼리 해시가 같아야 한다 (설계서 5장 11번).
+	int32 DestructionApplyCount = 0;
+
 	// 서버·클라 공통 그리드 생성 경로. 성공 시 bGridInitialized + 렌더 빌드 + 큐 flush.
 	void InitGridFromSeed();
 

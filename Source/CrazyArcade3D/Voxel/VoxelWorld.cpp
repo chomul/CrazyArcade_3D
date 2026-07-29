@@ -7,6 +7,7 @@
 #include "Voxel/HISMVoxelRenderer.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
+#include "UObject/Package.h"   // 🏁 해시 로그의 PIE 인스턴스 식별 (GetPIEInstanceID)
 #include "EngineUtils.h"   // ⚠️ 임시 (Task 16에서 제거) — 디버그 콘솔 명령의 TActorIterator
 #include "Engine/Engine.h" // ⚠️ 임시 (Task 16에서 제거) — GEngine->GetWorldContexts
 
@@ -226,6 +227,49 @@ void AVoxelWorld::InitGridFromSeed()
 	}
 }
 
+// ─── 🏁 그리드 동기화 해시 (설계서 5장 11번 — 1주차 마감 게이트 / 2주차 데디 검증) ───────
+#if !UE_BUILD_SHIPPING
+namespace CA3DGridHash
+{
+	// "데디 서버 / PIE 0" 처럼 인스턴스를 식별한다 — 클라가 2개 이상이면 넷모드만으로 구분이 안 된다.
+	static FString InstanceLabel(const UWorld* World)
+	{
+		if (!World)
+		{
+			return TEXT("월드 없음");
+		}
+
+		const TCHAR* NetModeName;
+		switch (World->GetNetMode())
+		{
+		case NM_ListenServer:    NetModeName = TEXT("리슨 서버");   break;
+		case NM_DedicatedServer: NetModeName = TEXT("데디 서버");   break;
+		case NM_Client:          NetModeName = TEXT("클라이언트"); break;
+		default:                 NetModeName = TEXT("스탠드얼론"); break;
+		}
+
+		const int32 PIEInstance = World->GetPackage() ? World->GetPackage()->GetPIEInstanceID() : INDEX_NONE;
+		return PIEInstance == INDEX_NONE
+			? FString(NetModeName)
+			: FString::Printf(TEXT("%s / PIE %d"), NetModeName, PIEInstance);
+	}
+
+	// Blocks 는 X→Y→Z 평탄화 고정 순서의 uint8 배열이라 CRC 가 플랫폼 무관하게 결정론적이다.
+	static uint32 Compute(const FVoxelGrid& Grid, int32& OutSolidCount)
+	{
+		OutSolidCount = 0;
+		for (const uint8 Block : Grid.Blocks)
+		{
+			if (Block != static_cast<uint8>(EBlockType::Empty))
+			{
+				++OutSolidCount;
+			}
+		}
+		return FCrc::MemCrc32(Grid.Blocks.GetData(), Grid.Blocks.Num());
+	}
+}
+#endif // !UE_BUILD_SHIPPING
+
 void AVoxelWorld::ApplyDestruction(const TArray<FIntVector>& Cells)
 {
 	// 불변식 1 — 파괴의 단일 경로. 이 함수 밖에서 파괴 목적의 Grid.Set 금지.
@@ -242,6 +286,17 @@ void AVoxelWorld::ApplyDestruction(const TArray<FIntVector>& Cells)
 	if (Cells.Num() > 0)
 	{
 		OnGridChanged.Broadcast();
+
+#if !UE_BUILD_SHIPPING
+		// 🏁 게이트 근거를 자동으로 남긴다 — 서버·클라가 **각자 같은 이 함수**를 통과하므로
+		// (불변식 1) 같은 순번(#N)의 해시를 대조하면 지형 동기화가 증명된다. 콘솔 명령을
+		// 잊어도, 파괴 전에 재는 실수를 해도 로그에 남는다는 게 요점.
+		++DestructionApplyCount;
+		int32 SolidCount = 0;
+		const uint32 Hash = CA3DGridHash::Compute(Grid, SolidCount);
+		UE_LOG(LogCA3D, Display, TEXT("그리드 해시 #%d [%s]: %08X (솔리드 %d칸 / 이번 파괴 %d칸)"),
+			DestructionApplyCount, *CA3DGridHash::InstanceLabel(GetWorld()), Hash, SolidCount, Cells.Num());
+#endif
 	}
 }
 
@@ -399,33 +454,20 @@ static FAutoConsoleCommandWithWorldAndArgs GCA3DGridHashCmd(
 					continue;
 				}
 
-				const ENetMode NetMode = W->GetNetMode();
-				const TCHAR* NetModeName =
-					NetMode == NM_ListenServer    ? TEXT("리슨 서버") :
-					NetMode == NM_DedicatedServer ? TEXT("데디 서버") :
-					NetMode == NM_Client          ? TEXT("클라이언트") : TEXT("스탠드얼론");
-
+				const FString Label = CA3DGridHash::InstanceLabel(W); // 자동 로그와 같은 라벨 — 대조 편의
 				if (!VoxelWorld->IsGridInitialized())
 				{
 					UE_LOG(LogCA3D, Warning,
-						TEXT("ca3d.GridHash [%s / PIE %d]: 그리드 미초기화 — OnRep_Seed 이전이거나 서버 미초기화"),
-						NetModeName, Ctx.PIEInstance);
+						TEXT("ca3d.GridHash [%s]: 그리드 미초기화 — OnRep_Seed 이전이거나 서버 미초기화"), *Label);
 					continue;
 				}
 
 				const FVoxelGrid& Grid = VoxelWorld->GetGrid();
 				int32 SolidCount = 0;
-				for (const uint8 Block : Grid.Blocks)
-				{
-					if (Block != static_cast<uint8>(EBlockType::Empty))
-					{
-						++SolidCount;
-					}
-				}
-				const uint32 Hash = FCrc::MemCrc32(Grid.Blocks.GetData(), Grid.Blocks.Num());
+				const uint32 Hash = CA3DGridHash::Compute(Grid, SolidCount);
 
-				UE_LOG(LogCA3D, Display, TEXT("ca3d.GridHash [%s / PIE %d]: %08X (크기 %d×%d×%d, 솔리드 %d칸)"),
-					NetModeName, Ctx.PIEInstance, Hash, Grid.Size.X, Grid.Size.Y, Grid.Size.Z, SolidCount);
+				UE_LOG(LogCA3D, Display, TEXT("ca3d.GridHash [%s]: %08X (크기 %d×%d×%d, 솔리드 %d칸)"),
+					*Label, Hash, Grid.Size.X, Grid.Size.Y, Grid.Size.Z, SolidCount);
 
 				if (Reported == 0)
 				{
