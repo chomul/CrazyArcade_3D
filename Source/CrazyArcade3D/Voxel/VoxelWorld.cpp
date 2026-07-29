@@ -363,4 +363,45 @@ static FAutoConsoleCommandWithWorldAndArgs GCA3DDestroyAimCmd(
 			CA3DVoxelDebug::DestroyCell(VoxelWorld->WorldToCell(Inside));
 		}));
 
+// 🏁 그리드 동기화 검증 (설계서 5장 11번, 체크리스트 17 게이트) — 임시 아님, 2주차 데디 검증에도 쓴다.
+// 명령이 실행된 로컬 월드의 그리드를 해시한다 — 리슨 호스트 창과 클라 창에서 각각 실행해
+// 값이 같으면 지형 동기화 통과. Blocks 는 X→Y→Z 평탄화 고정 순서라 CRC 가 결정론적이다.
+static FAutoConsoleCommandWithWorldAndArgs GCA3DGridHashCmd(
+	TEXT("ca3d.GridHash"),
+	TEXT("이 인스턴스의 복셀 그리드 CRC 출력 — 서버/클라 창에서 각각 실행해 비교 (설계서 5장 11번)"),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+		[](const TArray<FString>& Args, UWorld* World)
+		{
+			AVoxelWorld* VoxelWorld = CA3DVoxelDebug::FindVoxelWorld(World);
+			if (!VoxelWorld)
+			{
+				return;
+			}
+			if (!VoxelWorld->IsGridInitialized())
+			{
+				UE_LOG(LogCA3D, Warning, TEXT("ca3d.GridHash: 그리드 미초기화 — OnRep_Seed 이전이거나 서버 미초기화"));
+				return;
+			}
+
+			const FVoxelGrid& Grid = VoxelWorld->GetGrid();
+			int32 SolidCount = 0;
+			for (const uint8 Block : Grid.Blocks)
+			{
+				if (Block != static_cast<uint8>(EBlockType::Empty))
+				{
+					++SolidCount;
+				}
+			}
+			const uint32 Hash = FCrc::MemCrc32(Grid.Blocks.GetData(), Grid.Blocks.Num());
+
+			const ENetMode NetMode = World->GetNetMode();
+			const TCHAR* NetModeName =
+				NetMode == NM_ListenServer    ? TEXT("리슨 서버") :
+				NetMode == NM_DedicatedServer ? TEXT("데디 서버") :
+				NetMode == NM_Client          ? TEXT("클라이언트") : TEXT("스탠드얼론");
+
+			UE_LOG(LogCA3D, Display, TEXT("ca3d.GridHash [%s]: %08X (크기 %d×%d×%d, 솔리드 %d칸)"),
+				NetModeName, Hash, Grid.Size.X, Grid.Size.Y, Grid.Size.Z, SolidCount);
+		}));
+
 #endif // !UE_BUILD_SHIPPING
