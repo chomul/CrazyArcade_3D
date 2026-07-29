@@ -364,44 +364,103 @@ static FAutoConsoleCommandWithWorldAndArgs GCA3DDestroyAimCmd(
 		}));
 
 // 🏁 그리드 동기화 검증 (설계서 5장 11번, 체크리스트 17 게이트) — 임시 아님, 2주차 데디 검증에도 쓴다.
-// 명령이 실행된 로컬 월드의 그리드를 해시한다 — 리슨 호스트 창과 클라 창에서 각각 실행해
-// 값이 같으면 지형 동기화 통과. Blocks 는 X→Y→Z 평탄화 고정 순서라 CRC 가 결정론적이다.
+//
+// **한 번 실행으로 프로세스 안의 모든 인스턴스를 찍고 스스로 비교한다.** 창마다 따로 실행하는
+// 방식은 못 쓴다 — 콘솔 명령의 World 인자는 포커스한 PIE 창과 무관하게 한 월드로 해석될 수 있고
+// (2026-07-30 실측: 호스트 창·클라 창에서 각각 실행했는데 양쪽 다 클라 월드로 잡혔다),
+// 그러면 "같은 창을 두 번 읽은 값"을 동기화 근거로 착각하게 된다.
+// Blocks 는 X→Y→Z 평탄화 고정 순서라 CRC 가 결정론적이다.
 static FAutoConsoleCommandWithWorldAndArgs GCA3DGridHashCmd(
 	TEXT("ca3d.GridHash"),
-	TEXT("이 인스턴스의 복셀 그리드 CRC 출력 — 서버/클라 창에서 각각 실행해 비교 (설계서 5장 11번)"),
+	TEXT("프로세스 내 모든 인스턴스(서버·클라)의 복셀 그리드 CRC 를 찍고 일치 여부를 판정 (설계서 5장 11번)"),
 	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 		[](const TArray<FString>& Args, UWorld* World)
 		{
-			AVoxelWorld* VoxelWorld = CA3DVoxelDebug::FindVoxelWorld(World);
-			if (!VoxelWorld)
-			{
-				return;
-			}
-			if (!VoxelWorld->IsGridInitialized())
-			{
-				UE_LOG(LogCA3D, Warning, TEXT("ca3d.GridHash: 그리드 미초기화 — OnRep_Seed 이전이거나 서버 미초기화"));
-				return;
-			}
+			int32 Reported = 0;
+			uint32 FirstHash = 0;
+			bool bAllMatch = true;
 
-			const FVoxelGrid& Grid = VoxelWorld->GetGrid();
-			int32 SolidCount = 0;
-			for (const uint8 Block : Grid.Blocks)
+			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
 			{
-				if (Block != static_cast<uint8>(EBlockType::Empty))
+				UWorld* W = Ctx.World();
+				if (!W || (Ctx.WorldType != EWorldType::PIE && Ctx.WorldType != EWorldType::Game))
 				{
-					++SolidCount;
+					continue;
 				}
+
+				AVoxelWorld* VoxelWorld = nullptr;
+				for (TActorIterator<AVoxelWorld> It(W); It; ++It)
+				{
+					VoxelWorld = *It;
+					break; // 레벨에 1개 배치가 계약
+				}
+				if (!VoxelWorld)
+				{
+					continue;
+				}
+
+				const ENetMode NetMode = W->GetNetMode();
+				const TCHAR* NetModeName =
+					NetMode == NM_ListenServer    ? TEXT("리슨 서버") :
+					NetMode == NM_DedicatedServer ? TEXT("데디 서버") :
+					NetMode == NM_Client          ? TEXT("클라이언트") : TEXT("스탠드얼론");
+
+				if (!VoxelWorld->IsGridInitialized())
+				{
+					UE_LOG(LogCA3D, Warning,
+						TEXT("ca3d.GridHash [%s / PIE %d]: 그리드 미초기화 — OnRep_Seed 이전이거나 서버 미초기화"),
+						NetModeName, Ctx.PIEInstance);
+					continue;
+				}
+
+				const FVoxelGrid& Grid = VoxelWorld->GetGrid();
+				int32 SolidCount = 0;
+				for (const uint8 Block : Grid.Blocks)
+				{
+					if (Block != static_cast<uint8>(EBlockType::Empty))
+					{
+						++SolidCount;
+					}
+				}
+				const uint32 Hash = FCrc::MemCrc32(Grid.Blocks.GetData(), Grid.Blocks.Num());
+
+				UE_LOG(LogCA3D, Display, TEXT("ca3d.GridHash [%s / PIE %d]: %08X (크기 %d×%d×%d, 솔리드 %d칸)"),
+					NetModeName, Ctx.PIEInstance, Hash, Grid.Size.X, Grid.Size.Y, Grid.Size.Z, SolidCount);
+
+				if (Reported == 0)
+				{
+					FirstHash = Hash;
+				}
+				else if (Hash != FirstHash)
+				{
+					bAllMatch = false;
+				}
+				++Reported;
 			}
-			const uint32 Hash = FCrc::MemCrc32(Grid.Blocks.GetData(), Grid.Blocks.Num());
 
-			const ENetMode NetMode = World->GetNetMode();
-			const TCHAR* NetModeName =
-				NetMode == NM_ListenServer    ? TEXT("리슨 서버") :
-				NetMode == NM_DedicatedServer ? TEXT("데디 서버") :
-				NetMode == NM_Client          ? TEXT("클라이언트") : TEXT("스탠드얼론");
-
-			UE_LOG(LogCA3D, Display, TEXT("ca3d.GridHash [%s]: %08X (크기 %d×%d×%d, 솔리드 %d칸)"),
-				NetModeName, Hash, Grid.Size.X, Grid.Size.Y, Grid.Size.Z, SolidCount);
+			// 판정 — 로그 한 줄로 게이트 통과 여부가 결정된다 ("잘 되는 것 같음" 금지).
+			if (Reported == 0)
+			{
+				UE_LOG(LogCA3D, Warning, TEXT("ca3d.GridHash: 그리드를 가진 인스턴스 없음 — PIE 중에 실행할 것"));
+			}
+			else if (Reported == 1)
+			{
+				UE_LOG(LogCA3D, Warning,
+					TEXT("ca3d.GridHash: 인스턴스 1개만 발견 — 비교 불가. 2인 PIE(Listen Server + 클라 1)로 실행할 것 "
+						 "(별도 프로세스 데디 서버면 서버 로그를 따로 확인)"));
+			}
+			else if (bAllMatch)
+			{
+				UE_LOG(LogCA3D, Display,
+					TEXT("ca3d.GridHash: ✅ 일치 — 인스턴스 %d개 전부 %08X (지형 동기화 통과, 설계서 5장 11번)"),
+					Reported, FirstHash);
+			}
+			else
+			{
+				UE_LOG(LogCA3D, Error,
+					TEXT("ca3d.GridHash: ❌ 불일치 — 인스턴스 %d개의 해시가 다르다. 지형 비동기 버그 (게이트 실패, 2주차 진행 금지)"),
+					Reported);
+			}
 		}));
 
 #endif // !UE_BUILD_SHIPPING
