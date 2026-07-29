@@ -47,6 +47,12 @@ ACA3DCharacter::ACA3DCharacter()
 	// 스탯·생존 상태 (Task 12) — 봇과 플레이어가 완전히 같은 코드 경로를 탄다.
 	Status = CreateDefaultSubobject<UStatusComponent>(TEXT("Status"));
 
+	// 위험 데칼이 캐릭터 몸에 빨갛게 입혀지는 것 방지 (데칼은 발판 표시용 — 판정과 무관).
+	if (USkeletalMeshComponent* CharMesh = GetMesh())
+	{
+		CharMesh->SetReceivesDecals(false);
+	}
+
 	// 폭탄 클래스 기본값 — BP_Bomb 서브클래스가 메시·이펙트만 덮어쓴다 (BP 로직 금지).
 	BombClass = ABomb::StaticClass();
 }

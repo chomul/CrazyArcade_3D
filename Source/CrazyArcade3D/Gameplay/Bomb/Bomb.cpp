@@ -49,6 +49,7 @@ ABomb::ABomb()
 	MeshComponent->SetupAttachment(RootComponent);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	MeshComponent->SetGenerateOverlapEvents(false);
+	MeshComponent->SetReceivesDecals(false); // 위험 데칼이 폭탄 구체에 빨갛게 입혀지는 것 방지
 }
 
 void ABomb::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

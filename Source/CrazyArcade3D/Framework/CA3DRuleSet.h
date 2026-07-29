@@ -41,6 +41,16 @@ public:
 	int32 MaxBombRangeCap = 6;
 
 	// ─── Bomb (Task 16) ───
+
+	// 시작 시 동시 설치 가능 폭탄 수 — 초기값도 데이터로 노출 (GDD 7.5, 매직 넘버 금지).
+	// 아이템(Balloon)이 +1 씩, MaxBombCountCap 이 상한 (StatusComponent 가 서버에서 적용).
+	UPROPERTY(EditAnywhere, Category="Bomb")
+	int32 InitialBombCount = 1;
+
+	// 시작 시 폭발 전파 범위(칸) — 아이템(Potion)이 +1 씩, MaxBombRangeCap 이 상한.
+	UPROPERTY(EditAnywhere, Category="Bomb")
+	int32 InitialBombRange = 1;
+
 	// 폭발 FX 클래스 지정 — BP 서브클래스(메시·머티리얼 에셋만 지정, BP 로직 금지)를 연결한다.
 	// 미지정이면 코드가 C++ 기본 클래스로 폴백한다 (에셋 없이도 판정·동작은 정상 — 경고 로그만).
 

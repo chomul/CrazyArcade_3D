@@ -86,6 +86,8 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
+	// 서버: 초기 스탯을 룰셋(InitialBombCount/InitialBombRange)에서 로드 — 복제로 클라에 내려간다.
+	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// 클라: 스탯 복제 도착 — 이동속도 재계산 (서버와 같은 단일 경로).

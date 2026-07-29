@@ -28,6 +28,19 @@ void UStatusComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	// ActiveBombCount 는 서버 전용 — 의도적으로 비복제 (설계서 2.5).
 }
 
+void UStatusComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (!GetOwner()->HasAuthority()) return; // 불변식 5 — 초기 스탯은 서버가 정하고 복제로 내려간다
+
+	// 초기 스탯은 룰셋에서 (GDD 7.5 — 폭발 범위도 데이터 노출, 코드 매직 넘버 금지).
+	// Cap 과의 교차 오설정(초기값 > 상한)도 여기서 흡수한다.
+	const UCA3DRuleSet* Rules = ResolveRules();
+	MaxBombCount = FMath::Clamp(Rules->InitialBombCount, 1, Rules->MaxBombCountCap);
+	BombRange    = FMath::Clamp(Rules->InitialBombRange, 1, Rules->MaxBombRangeCap);
+}
+
 void UStatusComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	// 파괴·레벨 전환 중 타이머가 남아 죽은 컴포넌트를 부르지 않게 정리.

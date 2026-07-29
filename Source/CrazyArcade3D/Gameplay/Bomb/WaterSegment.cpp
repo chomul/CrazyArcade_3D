@@ -12,11 +12,17 @@ AWaterSegment::AWaterSegment()
 	// 클라 로컬 시각 전용 — 복제하지 않는다 (서버는 Multicast 로 셀 목록만 보낸다).
 	bReplicates = false;
 
+	// 루트는 빈 SceneComponent — 풀 Acquire 가 SetActorTransform(위치만, 스케일 1)으로 복원하므로
+	// 메시가 루트면 BP 에서 잡은 스케일이 매번 1.0 으로 리셋된다. 메시를 자식으로 두면
+	// BP 의 상대 스케일이 보존된다 (ABomb·ADangerDecal 과 같은 구조).
+	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+
 	// 물줄기는 판정에 관여하지 않는다 (판정은 서버의 WaterCells × GetFootCell) — 컬리전 없음.
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
+	MeshComponent->SetupAttachment(RootComponent);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	MeshComponent->SetGenerateOverlapEvents(false);
-	RootComponent = MeshComponent;
+	MeshComponent->SetReceivesDecals(false); // 위험 데칼이 물줄기 표면에 입혀지지 않게
 }
 
 void AWaterSegment::StartLinger(float Seconds)
