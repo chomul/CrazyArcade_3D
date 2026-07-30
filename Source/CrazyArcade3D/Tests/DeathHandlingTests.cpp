@@ -142,7 +142,8 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 		Capsule->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 	TestTrue(TEXT("② MovementMode == MOVE_None — 시체가 바닥을 뚫고 떨어지지 않는다(관전 시점 고정)"),
 		Movement->MovementMode == MOVE_None);
-	TestFalse(TEXT("② 스켈레탈 메시 숨김 (시각 — 데디 가드 안쪽)"), CharMesh->GetVisibleFlag());
+	// 액터 단위 숨김 — 메시 컴포넌트 하나만 끄면 BP 가 추가한 메시가 남는다 (실제 PIE 버그였다).
+	TestTrue(TEXT("② 액터 숨김 (시각 — 데디 가드 안쪽, BP 추가 메시까지 포함)"), Character->IsHidden());
 	TestTrue(TEXT("② 폰은 살아 있다 — 파괴·풀 반납 없음 (서버 권한 상태 액터 풀링 금지)"),
 		IsValid(Character));
 
@@ -164,11 +165,11 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("④ 사망 후 설치 거부 — 폭탄 여전히 1개"), DhCountBombs(World), 1);
 
 	// ─── 5. 중복 ServerKill 무시 ───
-	// 표식: 메시를 되살려 두고 재-Kill 한다. 사망 처리가 다시 돌면 표식이 지워진다.
-	CharMesh->SetVisibility(true, true);
+	// 표식: 숨김을 되돌려 두고 재-Kill 한다. 사망 처리가 다시 돌면 표식이 지워진다.
+	Character->SetActorHiddenInGame(false);
 	Status->ServerKill(EDeathCause::Water);
 	TestEqual(TEXT("⑤ 중복 Kill: LifeState 그대로 Dead"), Status->LifeState, ELifeState::Dead);
-	TestTrue(TEXT("⑤ 중복 Kill: 사망 처리 재실행 없음 (표식 유지)"), CharMesh->GetVisibleFlag());
+	TestFalse(TEXT("⑤ 중복 Kill: 사망 처리 재실행 없음 (표식 유지)"), Character->IsHidden());
 	TestTrue(TEXT("⑤ 중복 Kill: 위치 불변"), Character->GetActorLocation().Equals(DeathLocation));
 
 	// ─── 6. 갇힘(Trapped): 미세 이동 유지 + 갇힌 채 사망 시 타이머 잔존 없음 ───
@@ -225,7 +226,7 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 			Remote->GetCapsuleComponent()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 		TestTrue(TEXT("⑧ 클라 OnRep: MOVE_None (ReplicatedMovementMode 는 COND_SimulatedOnly — 본인에게 안 온다)"),
 			RemoteMovement->MovementMode == MOVE_None);
-		TestFalse(TEXT("⑧ 클라 OnRep: 메시 숨김"), Remote->GetMesh()->GetVisibleFlag());
+		TestTrue(TEXT("⑧ 클라 OnRep: 액터 숨김"), Remote->IsHidden());
 		TestTrue(TEXT("⑧ 클라 OnRep: 폰 유지 (관전 시점은 죽은 자리 그대로)"), IsValid(Remote));
 
 		// 사망 후 입력 차단은 클라에서도 같은 캐릭터 가드가 담당한다.

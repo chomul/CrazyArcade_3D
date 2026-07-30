@@ -390,12 +390,12 @@ void ACA3DCharacter::ApplyDeathState()
 
 	if (IsRunningDedicatedServer()) return; // 불변식 5 — 이하 시각 전용
 
-	// 액터 전체(SetActorHiddenInGame)가 아니라 **메시만** 끈다. 카메라 붐·카메라가 폰에
-	// 붙어 있어서 액터를 숨기면 관전 시점까지 영향을 받을 수 있다.
-	if (USkeletalMeshComponent* CharMesh = GetMesh())
-	{
-		CharMesh->SetVisibility(false, /*bPropagateToChildren=*/true);
-	}
+	// 액터 전체를 숨긴다 — 스켈레탈 메시(GetMesh)만 끄면 **BP 서브클래스가 추가한 메시
+	// 컴포넌트가 그대로 남는다** (2026-07-30 PIE 에서 시체가 계속 보이던 원인).
+	// 여기서 "무엇이 보이는 컴포넌트인지"를 코드가 알 필요가 없게 액터 단위로 끈다.
+	// 카메라는 영향받지 않는다: bHidden 은 프리미티브 렌더링만 막고, 카메라 시점 계산
+	// (CameraComponent::GetCameraView)과 ViewTarget 자격은 숨김 여부와 무관하다.
+	SetActorHiddenInGame(true);
 }
 
 // ─── 폭탄 설치 (Task 16 — 데이터 흐름 3.1) ──────────────────────────────────
