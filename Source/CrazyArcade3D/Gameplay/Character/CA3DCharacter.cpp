@@ -55,12 +55,24 @@ ACA3DCharacter::ACA3DCharacter()
 	GetCharacterMovement()->JumpZVelocity = 523.8f; // sqrt(2 × 980 × 1.4 × 100) — 정점 1.4칸
 	GetCharacterMovement()->MaxStepHeight = 30.f;   // StepHeightCellFactor 0.3 × 100
 
+	// 즉각 반응 이동 (엔진 기본 2048 은 0.2초에 걸쳐 붙고 떨어져 "미끄러지는" 느낌을 준다).
+	// 실제 값은 RefreshMoveSpeed 가 "속도 ÷ 룰셋 시간" 으로 매번 다시 계산한다.
+	GetCharacterMovement()->MaxAcceleration = 8000.f;              // 400 ÷ MoveAccelTime 0.05
+	GetCharacterMovement()->bUseSeparateBrakingFriction = true;    // 제동은 감속도만 (마찰 0)
+	GetCharacterMovement()->BrakingFriction = 0.f;
+	GetCharacterMovement()->BrakingDecelerationWalking = 8000.f;   // 400 ÷ MoveBrakeTime 0.05
+
 	// 카메라 붐: 컨트롤러의 고정 pitch + 스냅 yaw(ControlRotation)를 그대로 사용.
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
 	CameraBoom->bUsePawnControlRotation = true;
 	CameraBoom->TargetArmLength = 1200.f; // ⚠️ 임시 — CameraDistanceCells 12 × 100. 튜닝이 덮어씀
-	// bDoCollisionTest 기본 true 유지 — 벽 파고들기 방지 (디더 페이드 가림 처리는 3주차).
+
+	// 붐 컬리전 끔 (2026-07-30 사용자 결정): 켜두면 붐이 지형에 닿는 순간 팔 길이를 줄여
+	// 카메라가 캐릭터에 확 붙는다 — 고정 시점 아케이드에서는 시야 배율이 튀는 쪽이
+	// 지형에 살짝 걸치는 것보다 훨씬 나쁘다 (칸 세기가 무너진다).
+	// 가림 블록 처리는 3주차 디더 페이드로 (설계서) — 거리를 줄이는 방식으로는 해결하지 않는다.
+	CameraBoom->bDoCollisionTest = false;
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom);
@@ -230,15 +242,23 @@ void ACA3DCharacter::RefreshMoveSpeed()
 		return;
 	}
 
-	if (Status && Status->LifeState == ELifeState::Trapped)
-	{
-		// 갇힘: 미세 이동만 (GDD 2.3). 튜닝 미도착 시 CDO 폴백 (TryApplyMovementTuning 관례).
-		const UCA3DRuleSet* Rules = CachedRules ? CachedRules.Get() : GetDefault<UCA3DRuleSet>();
-		Movement->MaxWalkSpeed = Rules->TrappedMoveSpeed;
-		return;
-	}
+	// 튜닝 미도착 시 CDO 폴백 (TryApplyMovementTuning 관례).
+	const UCA3DRuleSet* Rules = CachedRules ? CachedRules.Get() : GetDefault<UCA3DRuleSet>();
 
-	Movement->MaxWalkSpeed = BaseWalkSpeed * (Status ? Status->MoveSpeedMul : 1.f);
+	// 갇힘이면 미세 이동만 (GDD 2.3), 아니면 기본 속도 × 아이템 배율.
+	const float Speed = (Status && Status->LifeState == ELifeState::Trapped)
+		? Rules->TrappedMoveSpeed
+		: BaseWalkSpeed * (Status ? Status->MoveSpeedMul : 1.f);
+
+	Movement->MaxWalkSpeed = Speed;
+
+	// 가속·제동은 룰셋의 "시간"에서 파생 — 속도가 변해도(아이템·갇힘) 반응 감각이 일정하다.
+	// 제동 마찰을 0 으로 분리해 감속도만 작용시킨다: 정지 시간 = 속도 ÷ 감속도 로 예측 가능해져
+	// 원하는 칸에 정확히 멈춰 설 수 있다 (미끄러지면 폭탄을 엉뚱한 칸에 놓게 된다).
+	Movement->MaxAcceleration = Speed / FMath::Max(Rules->MoveAccelTime, KINDA_SMALL_NUMBER);
+	Movement->bUseSeparateBrakingFriction = true;
+	Movement->BrakingFriction = 0.f;
+	Movement->BrakingDecelerationWalking = Speed / FMath::Max(Rules->MoveBrakeTime, KINDA_SMALL_NUMBER);
 }
 
 FIntVector ACA3DCharacter::GetFootCell() const

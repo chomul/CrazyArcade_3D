@@ -91,6 +91,19 @@ public:
 	UPROPERTY(EditAnywhere, Category="Character")
 	float MoveSpeedCellsPerSec = 4.f;
 
+	// 정지 → 최대속도까지 걸리는 시간(초). CMC MaxAcceleration = MaxWalkSpeed ÷ 이 값.
+	// 속도(cm/s)가 아니라 **시간**으로 두는 이유: 셀 크기·아이템 속도 배율이 바뀌어도
+	// "얼마나 즉각적인가" 라는 감각이 그대로 유지된다 (가속도로 두면 빨라질수록 굼떠 보인다).
+	// 크레이지 아케이드류는 그리드 칸 맞추기가 핵심이라 거의 즉시(0.05초 ≈ 3프레임)가 기본.
+	UPROPERTY(EditAnywhere, Category="Character", meta=(ClampMin="0.01", ClampMax="1.0"))
+	float MoveAccelTime = 0.05f;
+
+	// 최대속도 → 정지까지 걸리는 시간(초). CMC BrakingDecelerationWalking = MaxWalkSpeed ÷ 이 값.
+	// 제동 마찰(BrakingFriction)은 0 으로 두고 이 감속도 하나만 쓴다 — 정지 거리가 예측 가능해야
+	// 폭탄을 놓을 칸에 정확히 설 수 있다 (미끄러지면 위험 구역 계산이 어긋난 것처럼 느껴진다).
+	UPROPERTY(EditAnywhere, Category="Character", meta=(ClampMin="0.01", ClampMax="1.0"))
+	float MoveBrakeTime = 0.05f;
+
 	// 점프 정점 높이(셀 단위, 캡슐 바닥 기준). JumpZVelocity = sqrt(2 × g × 계수 × CellSize).
 	// (1, 2) 열린 구간이어야 "1칸은 오르고 2칸은 못 오른다" (GDD 2.1 — 층간 이동은 점프만).
 	// 기본 1.4 = 1칸 + 여유 0.4칸: 턱 위 높이에 머무는 시간을 확보해 수평 이동으로

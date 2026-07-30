@@ -18,7 +18,7 @@
 
 ## 동작 검증 (실행 필수 — 미실행 시 미검증)
 - [x] 200개 Acquire → 전부 Release → 재획득 반복 시 액터 총수 일정 (누수 없음) (2026-07-29 · 자동화 테스트 `CrazyArcade3D.Core.PoolSubsystem` — 200개×5회 반복, 중복 대여 검사 포함)
-- [ ] `stat unit` — 반복 중 스파이크 없음 (PIE 영역 — 실사용 Task 16 이후 확인)
+- [x] `stat unit` — 반복 중 스파이크 없음 (2026-07-30 · Task 16 실사용 후 사용자 PIE 확인). 폭탄 36개·연쇄 다수로 물줄기/데칼 풀을 반복 사용해도 이상 없음. 프레임 수치는 로그 미기록
 - [x] Prewarm 후 첫 Acquire가 신규 스폰 없이 반환 (2026-07-29 · 자동화 테스트 — 액터 총수 불변으로 검증)
 - [x] Release된 액터가 보이지 않고 충돌하지 않음 (2026-07-29 · 자동화 테스트 — Hidden·컬리전·틱 상태 검사)
 - [x] Acquire 시 `OnAcquiredFromPool`, Release 시 `OnReleasedToPool` 호출 (2026-07-29 · 자동화 테스트 — 호출 횟수·순서까지 검증)

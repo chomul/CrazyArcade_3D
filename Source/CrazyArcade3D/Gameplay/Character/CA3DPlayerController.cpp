@@ -19,11 +19,13 @@
 // 카메라가 자동으로 따라오고(별도 카메라 액터·SetViewTarget 관리 코드 0줄), 카메라 각의
 // 소유는 여전히 이 컨트롤러(ControlRotation)라 "카메라는 컨트롤러 관심사" 원칙도 유지된다.
 
-// ⚠️ 미확정 — WASD 입력 기준 (설계서 7장). 기본 0 = 월드 축. PIE 비교 후 사용자 확정.
+// WASD 입력 기준 (설계서 7장) — **카메라 기준으로 확정** (2026-07-30 PIE 비교 후 사용자 결정).
+// 월드 축 기준은 카메라를 45도 돌린 뒤 "화면 위 = W" 가 깨져서 방향 감각이 어긋난다.
+// 월드 축 동작은 비교·디버그용으로 0 을 남겨 둔다.
 static TAutoConsoleVariable<int32> CVarCA3DCameraRelativeInput(
 	TEXT("ca3d.CameraRelativeInput"),
-	0,
-	TEXT("WASD 입력 기준. 0 = 월드 축(기본), 1 = 카메라 기준(45도 스냅각에 맞춰 회전)"));
+	1,
+	TEXT("WASD 입력 기준. 1 = 카메라 기준(기본, 45도 스냅각에 맞춰 회전), 0 = 월드 축"));
 
 namespace
 {
@@ -144,7 +146,7 @@ void ACA3DPlayerController::OnMove(const FInputActionValue& V)
 	}
 	else
 	{
-		// 월드 축(기본) — 카메라가 돌아도 W = 월드 +X, D = 월드 +Y 고정.
+		// 월드 축(비교·디버그용) — 카메라가 돌아도 W = 월드 +X, D = 월드 +Y 고정.
 		WorldAxis = FVector2D(Axis.Y, Axis.X);
 	}
 

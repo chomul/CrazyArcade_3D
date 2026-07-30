@@ -20,7 +20,7 @@
 
 ## 동작 검증 (PIE 필수 — 미실행 시 미검증)
 - [ ] (Listen+클라 1) 서버 `ServerApplyItem(Balloon)` → 클라 `MaxBombCount` 복제
-- [ ] `ServerTrap` → `TrappedDuration` 후 자동 `Dead`
+- [x] `ServerTrap` → `TrappedDuration` 후 자동 `Dead` — 2인 PIE 로그 (2026-07-30): `갇힘 — 4.0초 후 익사` → `사망 — 원인 EDeathCause::Water` (두 플레이어 모두)
 - [ ] Trapped 중 이동 속도가 `TrappedMoveSpeed`로 제한
 - [ ] Trapped + 니들 → `ServerEscape` → `Alive` 복귀, 니들 소모
 - [ ] 니들 없이 `ServerEscape` → 무시됨

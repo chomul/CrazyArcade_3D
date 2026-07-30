@@ -27,4 +27,4 @@
 - [x] 같은 입력 2회 → 같은 출력 (순수성 — 입력 그리드 불변까지 확인)
 
 ## 동작 검증 — 연쇄 (Task 16 이후 PIE)
-- [ ] `RequestDetonate` → `ChainStepDelay` 간격 단계 처리 (로그 타임스탬프)
+- [x] `RequestDetonate` → `ChainStepDelay` 간격 단계 처리 (로그 타임스탬프) — 2026-07-30 PIE: 4단 연쇄의 단계 간격 **78 / 70 / 74ms** (룰셋 `ChainStepDelay` 0.07초와 일치)

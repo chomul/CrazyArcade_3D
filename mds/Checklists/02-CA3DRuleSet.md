@@ -15,6 +15,6 @@
 - [x] 미확정 값(캡·무적·바닥 파괴)에 미확정 주석 표기
 
 ## 에디터 검증 (실행 필수 — 미실행 시 미검증)
-- [ ] `Content/Data/DA_Rules_Default` 에셋 생성됨
-- [ ] 에셋에서 값 수정·저장이 코드 수정 없이 가능
-- [ ] 에디터 재시작 후 값 유지
+- [x] `Content/Data/DA_Rules_Default` 에셋 생성됨 (2026-07-30 확인)
+- [x] 에셋에서 값 수정·저장이 코드 수정 없이 가능 — BP 클래스 3종(DangerDecal·WaterSegment·PredictedBombVisual)·초기 폭탄 스탯을 에셋에서 지정해 사용 중
+- [x] 에디터 재시작 후 값 유지 — 여러 세션에 걸쳐 지정값으로 동작 (PIE 로그의 `BP_Bomb_C_*` 등)
