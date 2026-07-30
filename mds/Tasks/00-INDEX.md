@@ -53,6 +53,11 @@
 | 19 | [CA3DGameInstance](19-CA3DGameInstance.md) | `UCA3DGameInstance` | EOS 세션 생성·참가 |
 | 20 | [BotController](20-BotController.md) | `ABotController` | 봇이 플레이어와 같은 경로로 동작 |
 
+| 27 | [DeathHandling](27-DeathHandling.md) | *(클래스 없음 — StatusComponent·CA3DCharacter 확장)* | 죽으면 사라지고 길을 막지 않음 |
+
+**Task 27 은 1 Task = 1 Class 관례의 예외**다 (기존 클래스 확장). 번호는 "나중에 추가됨"이라는 뜻이고
+실제 작업 순서는 `mds/tasks.md` 목록 위치(Task 18 직후)를 따른다.
+
 **배포 방침 (2026-07-30)**: 데디 서버 검증은 **Windows 데디(`CrazyArcade3DServer.exe`)로 진행**하고,
 리눅스 크로스 컴파일은 클라우드에 실제로 올릴 시점으로 이월한다 (사유·착수 절차는 `mds/build.md`).
 Task 18 과 19 사이에 "Windows 데디 서버 실전 확인"(별도 프로세스 + 클라 2, GDD 7.4 점검)을 끼운다.

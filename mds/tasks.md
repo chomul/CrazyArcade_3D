@@ -43,6 +43,9 @@
 - [ ] **18. `ACA3DPlayerState`** — C++ 완료(Framework/CA3DPlayerState.h/.cpp 복제 3필드(ColorIndex·FinalRank·bAlive, 로직 0) + GameMode 승패 판정(PostLogin 색 배정·참가 인원·AliveCount, NotifyPlayerDeath→다음 틱 배칭→ResolvePendingDeaths) + GameState `bMatchEnded` + 룰셋 `MinPlayersForMatchEnd` + StatusComponent 사망 통지 배선) + 테스트 `CrazyArcade3D.Framework.PlayerState` 통과, 전체 회귀 12스위트, 두 타깃 빌드 통과.
       **동시 사망 = 공동 등수, 마지막 전원 동시 사망 = 무승부(1등 공석)** 로 사용자 확정 — `FMath::Max(2, AliveBefore-K+1)` 하한이 우승 자리를 비워 두는 장치.
       — **PIE 검증(색 인덱스 전 클라 동일·복제·최후 1인 종료) 대기라 미체크.** 잔여: 관전 상태 전환 미구현 · 중도 이탈 규칙 미확정
+- [ ] **27. 사망 처리·관전** (`mds/Tasks/27-DeathHandling.md`) — 죽으면 이동 불가 + 메시 숨김 + 컬리전 off
+      (유령 방해 없음). 폰은 파괴·풀링하지 않고 유지 — 부활을 넣을 때 상태만 되돌리면 되게.
+      ⚠️ 새 클래스 없음(StatusComponent·CA3DCharacter 확장) — 1 Task = 1 Class 관례의 예외
 - [ ] **Windows 데디 서버 실전 확인** — PIE 가 아니라 `CrazyArcade3DServer.exe` 를 별도 프로세스로
       띄우고 클라 2개 접속. GDD 7.4 "데디에서 나이아가라·사운드·머티리얼·BP 가 돌지 않는가" 확인 포함
 - [ ] **19. `UCA3DGameInstance`** — EOS 세션·로비 (방 생성 → 공개 목록 → 참가 → 준비·시작)
