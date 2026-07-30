@@ -79,6 +79,11 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+
+	// 지상 ↔ 공중 전환 시 이동 상한을 다시 잡는다 (공중은 지상 속도 × JumpAirSpeedFactor).
+	// 도약 순간의 관성도 여기서 상한으로 깎는다 — CMC 는 이미 상한을 넘은 속도를 스스로
+	// 낮추지 않기 때문에, 안 깎으면 전력 질주 점프가 지상 속도 그대로 날아간다.
+	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override; // 남은 예측 비주얼 반납
 
 	// BeginPlay 에서 탐색·캐시 (좌표 변환·CellSize 의 유일한 출처).

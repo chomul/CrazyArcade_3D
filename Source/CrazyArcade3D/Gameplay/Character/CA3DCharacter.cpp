@@ -62,6 +62,11 @@ ACA3DCharacter::ACA3DCharacter()
 	GetCharacterMovement()->BrakingFriction = 0.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 8000.f;   // 400 ÷ MoveBrakeTime 0.05
 
+	// 공중도 지상과 같은 조작감 — 엔진 기본 AirControl 0.05 는 점프 중 방향 전환이 사실상 안 된다.
+	GetCharacterMovement()->AirControl = 1.f;
+	GetCharacterMovement()->FallingLateralFriction = 0.f;
+	GetCharacterMovement()->BrakingDecelerationFalling = 8000.f;
+
 	// 카메라 붐: 컨트롤러의 고정 pitch + 스냅 yaw(ControlRotation)를 그대로 사용.
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
@@ -246,19 +251,68 @@ void ACA3DCharacter::RefreshMoveSpeed()
 	const UCA3DRuleSet* Rules = CachedRules ? CachedRules.Get() : GetDefault<UCA3DRuleSet>();
 
 	// 갇힘이면 미세 이동만 (GDD 2.3), 아니면 기본 속도 × 아이템 배율.
-	const float Speed = (Status && Status->LifeState == ELifeState::Trapped)
+	const float GroundSpeed = (Status && Status->LifeState == ELifeState::Trapped)
 		? Rules->TrappedMoveSpeed
 		: BaseWalkSpeed * (Status ? Status->MoveSpeedMul : 1.f);
 
+	// 공중에서는 수평 속도만 줄인다 — 체공 시간(점프 높이)은 그대로라 이동 거리가 정확히 계수배가 된다.
+	// MOVE_Falling 도 GetMaxSpeed 로 MaxWalkSpeed 를 쓰므로 상한은 이 한 값으로 통제된다.
+	const float Speed = Movement->IsFalling() ? GroundSpeed * Rules->JumpAirSpeedFactor : GroundSpeed;
+
 	Movement->MaxWalkSpeed = Speed;
 
-	// 가속·제동은 룰셋의 "시간"에서 파생 — 속도가 변해도(아이템·갇힘) 반응 감각이 일정하다.
+	// 가속·제동은 룰셋의 "시간"에서 파생 — 속도가 변해도(아이템·갇힘·공중) 반응 감각이 일정하다.
 	// 제동 마찰을 0 으로 분리해 감속도만 작용시킨다: 정지 시간 = 속도 ÷ 감속도 로 예측 가능해져
 	// 원하는 칸에 정확히 멈춰 설 수 있다 (미끄러지면 폭탄을 엉뚱한 칸에 놓게 된다).
-	Movement->MaxAcceleration = Speed / FMath::Max(Rules->MoveAccelTime, KINDA_SMALL_NUMBER);
+	const float Accel = Speed / FMath::Max(Rules->MoveAccelTime, KINDA_SMALL_NUMBER);
+	const float Brake = Speed / FMath::Max(Rules->MoveBrakeTime, KINDA_SMALL_NUMBER);
+
+	Movement->MaxAcceleration = Accel;
 	Movement->bUseSeparateBrakingFriction = true;
 	Movement->BrakingFriction = 0.f;
-	Movement->BrakingDecelerationWalking = Speed / FMath::Max(Rules->MoveBrakeTime, KINDA_SMALL_NUMBER);
+	Movement->BrakingDecelerationWalking = Brake;
+
+	// 공중에도 같은 가감속을 적용 — 점프 중 조작이 지상과 다르면 착지 칸을 맞추기 어렵다.
+	// AirControl 1.0 = "지상과 동일한 가속을 공중에서도" (엔진 기본 0.05 는 사실상 조작 불가).
+	// 낙하 측면 마찰은 지상 BrakingFriction 과 같은 이유로 0 — 제동은 감속도 하나로만.
+	Movement->AirControl = 1.f;
+	Movement->FallingLateralFriction = 0.f;
+	Movement->BrakingDecelerationFalling = Brake;
+}
+
+void ACA3DCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PrevMovementMode, PreviousCustomMode);
+
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement)
+	{
+		return;
+	}
+
+	const bool bNowFalling  = Movement->MovementMode == MOVE_Falling;
+	const bool bWasFalling  = PrevMovementMode == MOVE_Falling;
+	if (!bNowFalling && !bWasFalling)
+	{
+		return; // 공중 진입·착지와 무관한 전환 (수영·비행 등) — 건드리지 않는다
+	}
+
+	// 상한·가감속을 현재 모드 기준으로 다시 계산 (공중이면 JumpAirSpeedFactor 적용).
+	RefreshMoveSpeed();
+
+	if (bNowFalling)
+	{
+		// 도약 순간의 수평 관성을 공중 상한으로 깎는다. CMC 는 이미 상한을 넘은 속도를
+		// 스스로 낮추지 않아서(가속 시 '현재 속도'를 상한으로 삼는다) 안 깎으면
+		// 전력 질주 점프만 지상 속도 그대로 날아가 거리 계수가 무의미해진다.
+		const FVector Lateral(Movement->Velocity.X, Movement->Velocity.Y, 0.f);
+		if (Lateral.SizeSquared() > FMath::Square(Movement->MaxWalkSpeed))
+		{
+			const FVector Clamped = Lateral.GetClampedToMaxSize(Movement->MaxWalkSpeed);
+			Movement->Velocity.X = Clamped.X;
+			Movement->Velocity.Y = Clamped.Y;
+		}
+	}
 }
 
 FIntVector ACA3DCharacter::GetFootCell() const

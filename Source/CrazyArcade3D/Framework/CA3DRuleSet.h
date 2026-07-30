@@ -104,6 +104,13 @@ public:
 	UPROPERTY(EditAnywhere, Category="Character", meta=(ClampMin="0.01", ClampMax="1.0"))
 	float MoveBrakeTime = 0.05f;
 
+	// 공중 수평 속도 = 지상 속도 × 이 계수. 체공 시간(점프 높이)은 그대로 두고 속도만 줄이므로
+	// **점프 이동 거리가 정확히 이 배율**이 된다. 1.0 이면 지상과 동일(관성 그대로).
+	// 점프는 한 칸 위로 오르는 수단이지 빠르게 가로지르는 수단이 아니어야 한다 —
+	// 지상과 같으면 계속 점프해 이동하는 편이 이득이 되어 칸 단위 위치 싸움이 흐려진다.
+	UPROPERTY(EditAnywhere, Category="Character", meta=(ClampMin="0.1", ClampMax="1.0"))
+	float JumpAirSpeedFactor = 0.7f;
+
 	// 점프 정점 높이(셀 단위, 캡슐 바닥 기준). JumpZVelocity = sqrt(2 × g × 계수 × CellSize).
 	// (1, 2) 열린 구간이어야 "1칸은 오르고 2칸은 못 오른다" (GDD 2.1 — 층간 이동은 점프만).
 	// 기본 1.4 = 1칸 + 여유 0.4칸: 턱 위 높이에 머무는 시간을 확보해 수평 이동으로

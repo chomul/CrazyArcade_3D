@@ -104,6 +104,41 @@ bool FCA3DCharacterTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("점프 +1.2칸: 발밑 셀 한 칸 위 (1차 정의의 특성)"),
 		Character->GetFootCell() == Cell + FIntVector(0, 0, 1));
 
+	// ─── 3. 반응성·공중 이동 — 가감속은 "시간"에서, 공중은 수평 속도만 계수배 ───
+	// 체공 시간(점프 높이)은 그대로 두고 속도만 줄이므로 점프 이동 "거리"가 정확히 계수배가 된다.
+	Movement->SetMovementMode(MOVE_Walking); // 테스트 월드는 바닥이 없어 모드를 명시한다
+	Character->bMovementTuningApplied = false;
+	Character->TryApplyMovementTuning();
+
+	const float GroundSpeed = Movement->MaxWalkSpeed;
+	TestTrue(TEXT("지상: 가속도 == 속도 ÷ MoveAccelTime"),
+		FMath::IsNearlyEqual(Movement->MaxAcceleration, GroundSpeed / Rules->MoveAccelTime, 0.01f));
+	TestTrue(TEXT("지상: 제동 감속도 == 속도 ÷ MoveBrakeTime"),
+		FMath::IsNearlyEqual(Movement->BrakingDecelerationWalking, GroundSpeed / Rules->MoveBrakeTime, 0.01f));
+	TestTrue(TEXT("제동 마찰 0 — 정지 시간이 감속도만으로 결정 (예측 가능한 정지 거리)"),
+		Movement->bUseSeparateBrakingFriction && FMath::IsNearlyZero(Movement->BrakingFriction));
+	TestTrue(TEXT("공중 조작감: AirControl 1.0 (지상과 동일 가속)"),
+		FMath::IsNearlyEqual(Movement->AirControl, 1.f, KINDA_SMALL_NUMBER));
+
+	// 전력 질주 상태로 공중 진입 — 도약 관성이 공중 상한으로 깎여야 한다
+	// (안 깎으면 달리다 뛴 경우만 지상 속도로 날아가 거리 계수가 무의미해진다).
+	Movement->Velocity = FVector(GroundSpeed, 0.f, 0.f);
+	Movement->SetMovementMode(MOVE_Falling);
+
+	const float AirSpeed = GroundSpeed * Rules->JumpAirSpeedFactor;
+	TestTrue(TEXT("공중: 속도 상한 == 지상 × JumpAirSpeedFactor"),
+		FMath::IsNearlyEqual(Movement->MaxWalkSpeed, AirSpeed, 0.01f));
+	TestTrue(TEXT("공중: 도약 관성이 상한으로 깎임"),
+		FMath::IsNearlyEqual(FVector(Movement->Velocity.X, Movement->Velocity.Y, 0.f).Size(), AirSpeed, 0.01f));
+	TestTrue(TEXT("공중: 가감속도 같은 시간 기준으로 재계산"),
+		FMath::IsNearlyEqual(Movement->MaxAcceleration, AirSpeed / Rules->MoveAccelTime, 0.01f)
+		&& FMath::IsNearlyEqual(Movement->BrakingDecelerationFalling, AirSpeed / Rules->MoveBrakeTime, 0.01f));
+
+	// 착지 — 지상 상한 복귀 (공중 계수가 눌러앉지 않는다).
+	Movement->SetMovementMode(MOVE_Walking);
+	TestTrue(TEXT("착지: 지상 속도 상한 복귀"),
+		FMath::IsNearlyEqual(Movement->MaxWalkSpeed, GroundSpeed, 0.01f));
+
 	// ─── 정리 ───
 	World->DestroyWorld(false);
 	return true;
