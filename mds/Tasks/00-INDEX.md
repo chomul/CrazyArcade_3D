@@ -53,6 +53,10 @@
 | 19 | [CA3DGameInstance](19-CA3DGameInstance.md) | `UCA3DGameInstance` | EOS 세션 생성·참가 |
 | 20 | [BotController](20-BotController.md) | `ABotController` | 봇이 플레이어와 같은 경로로 동작 |
 
+**배포 방침 (2026-07-30)**: 데디 서버 검증은 **Windows 데디(`CrazyArcade3DServer.exe`)로 진행**하고,
+리눅스 크로스 컴파일은 클라우드에 실제로 올릴 시점으로 이월한다 (사유·착수 절차는 `mds/build.md`).
+Task 18 과 19 사이에 "Windows 데디 서버 실전 확인"(별도 프로세스 + 클라 2, GDD 7.4 점검)을 끼운다.
+
 ## 3주차 — 콘텐츠
 
 | # | Task | 클래스 | 산출물 검증 |
