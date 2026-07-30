@@ -155,7 +155,10 @@ void UStatusComponent::ServerKill(EDeathCause Cause)
 		World->GetTimerManager().ClearTimer(TrappedTimer); // 갇힌 채 죽어도 타이머 잔존 금지
 	}
 
-	RefreshOwnerMoveSpeed(); // 경로 일관 — Dead 처리(입력 차단·관전)는 Task 18 에서
+	RefreshOwnerMoveSpeed(); // 경로 일관 — 이동 입력 차단 자체는 ACA3DCharacter::Move/DoJump 의 생존 가드
+
+	// 사망 상태 적용 (Task 27) — 컬리전·이동 모드·메시. 클라는 OnRep_Life 가 같은 함수를 탄다.
+	ApplyOwnerDeathState();
 
 	UE_LOG(LogCA3D, Log, TEXT("UStatusComponent %s: 사망 — 원인 %s"),
 		*GetOwner()->GetName(), *UEnum::GetValueAsString(Cause));
@@ -196,9 +199,18 @@ void UStatusComponent::OnRep_Life()
 	// CMC 속도는 시뮬레이션 값 — 데디 가드 밖 (Trapped/Alive 속도 반영).
 	RefreshOwnerMoveSpeed();
 
+	// 사망 상태 적용 — 서버 ServerKill 과 **같은 함수**를 탄다 (경로가 갈리면 어긋난다).
+	// 시각/서버 전용 구분은 ApplyDeathState 안에서 각각 가드한다.
+	// OnRep 은 클라에서만 불린다 — 서버(리슨 호스트 포함)는 ServerKill 에서 이미 통과했다.
+	if (LifeState == ELifeState::Dead)
+	{
+		ApplyOwnerDeathState();
+	}
+
 	if (IsRunningDedicatedServer()) return; // 불변식 5 — 이하 시각 전용
 
-	// TODO(후속 Task): 갇힘 물방울 비주얼·사망 연출·관전 전환. 현재는 시각 에셋 없음 (로그만).
+	// TODO(후속 Task): 갇힘 물방울 비주얼·사망 연출. 관전은 폰을 그대로 두는 방식이라
+	// 별도 전환이 없다 (Task 27 — ELifeState::Spectating 은 아직 쓰지 않는다).
 	UE_LOG(LogCA3D, Verbose, TEXT("UStatusComponent %s: LifeState 복제 도착 — %s"),
 		*GetOwner()->GetName(), *UEnum::GetValueAsString(LifeState));
 }
@@ -227,5 +239,14 @@ void UStatusComponent::RefreshOwnerMoveSpeed()
 	if (ACA3DCharacter* Character = Cast<ACA3DCharacter>(GetOwner()))
 	{
 		Character->RefreshMoveSpeed();
+	}
+}
+
+void UStatusComponent::ApplyOwnerDeathState()
+{
+	// 소유자가 캐릭터가 아닐 수 있다(테스트 폰·후속 관전 전용 폰) — 그 경우 상태만 Dead 로 남는다.
+	if (ACA3DCharacter* Character = Cast<ACA3DCharacter>(GetOwner()))
+	{
+		Character->ApplyDeathState();
 	}
 }

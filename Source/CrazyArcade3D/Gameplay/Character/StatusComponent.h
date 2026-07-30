@@ -106,8 +106,13 @@ private:
 	// ACA3DCharacter::RefreshMoveSpeed 단일 경로를 타게 한다 (중복 공식 금지).
 	void RefreshOwnerMoveSpeed();
 
+	// 사망 상태 적용 위임 (Task 27) — 서버 ServerKill 과 클라 OnRep_Life 가
+	// ACA3DCharacter::ApplyDeathState 단일 경로를 타게 한다 (부활 시 되돌릴 항목이 한 곳에).
+	void ApplyOwnerDeathState();
+
 	// 갇힘 만료 타이머 — 만료 시 ServerKill(Water). ServerEscape/ServerKill 이 해제.
 	FTimerHandle TrappedTimer;
 
 	friend class FStatusComponentTest; // 자동화 테스트가 타이머 가동 여부 검증을 위한 접근
+	friend class FDeathHandlingTest;   // 갇힘 타이머 잔존 여부 검증을 위한 접근 (Task 27)
 };

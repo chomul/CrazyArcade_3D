@@ -328,6 +328,16 @@ FIntVector ACA3DCharacter::GetFootCell() const
 
 void ACA3DCharacter::Move(const FVector2D& WorldAxis)
 {
+	// 생존 가드 (Task 27) — 컨트롤러가 아니라 **캐릭터**에서 막는다. 봇(Task 20)의 AIController 도
+	// 결국 이 함수를 호출하므로, 차단을 여기 두면 플레이어와 봇이 같은 규칙을 자동으로 공유한다.
+	// (컨트롤러에서 막으면 봇 컨트롤러에 같은 가드를 또 넣어야 하고, 하나 빠뜨리면 시체가 걸어다닌다.)
+	// Trapped 는 막지 않는다 — 갇힘 중 미세 이동은 규칙이다 (GDD 2.3). 속도 제한은
+	// RefreshMoveSpeed 가 TrappedMoveSpeed 로 이미 처리한다.
+	if (Status && Status->LifeState == ELifeState::Dead)
+	{
+		return;
+	}
+
 	// 월드 평면 방향을 그대로 CMC 에 전달 — 커스텀 이동 코드 없음.
 	// 대각 입력(크기 √2)은 CMC 가 가속 단계에서 정규화한다.
 	AddMovementInput(FVector(WorldAxis.X, WorldAxis.Y, 0.f));
@@ -335,7 +345,57 @@ void ACA3DCharacter::Move(const FVector2D& WorldAxis)
 
 void ACA3DCharacter::DoJump()
 {
+	if (Status && Status->LifeState == ELifeState::Dead)
+	{
+		return; // Move 와 같은 이유로 캐릭터에서 차단 (봇 공용 경로)
+	}
+
 	Jump(); // CMC 기본 점프 — 정점 높이는 TryApplyMovementTuning 이 "계수 × 셀" 로 설정
+}
+
+void ACA3DCharacter::ApplyDeathState()
+{
+	// ⚠️ 부활을 넣게 되면 되돌릴 것 (Task 27 문서) — 흩어지지 않게 여기 모아둔다:
+	//   · 이 함수가 바꾸는 것: 캡슐 컬리전 · MovementMode · 스켈레탈 메시 가시성
+	//   · 이 함수 밖: UStatusComponent::LifeState (ServerKill),
+	//                 ACA3DPlayerState::bAlive/FinalRank · ACA3DGameState::AliveCount (GameMode — Task 18)
+	// 카메라는 죽은 자리에 그대로 둔다 (자유 관전·추적은 후속) — 그래서 폰을 살려두는 것만으로
+	// 관전 시점 재배선이 0줄이다.
+	//
+	// 서버(ServerKill)·클라(OnRep_Life) 가 같은 이 함수를 통과한다. 아래 두 값을 클라에서도
+	// 직접 적용해야 하는 이유는 "복제로 알아서 맞겨질 것 같지만 안 맞는" 두 가지 때문이다:
+	//   · 컴포넌트 컬리전 설정은 애초에 복제되지 않는다 (UPrimitiveComponent 프로퍼티).
+	//   · ACharacter::ReplicatedMovementMode 는 COND_SimulatedOnly — 정작 **죽은 본인**
+	//     (AutonomousProxy)에게는 오지 않는다. 클라가 스스로 안 멈추면 자기 화면에서만
+	//     시체가 바닥을 뚫고 떨어지고 카메라가 따라 내려간다.
+	// 권위는 여전히 서버의 LifeState 하나뿐이다 — 클라는 그 복제 결과를 그대로 반영할 뿐이라
+	// 불변식 5 를 어기지 않는다 (CMC 값을 서버·클라가 같은 경로로 계산하는 RefreshMoveSpeed 와 같은 관례).
+
+	// GDD "유령 방해 없음" — 시체가 산 사람의 길을 막으면 안 된다.
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	// 컬리전을 끄면 바닥을 뚫고 떨어진다 — 카메라가 폰의 SpringArm 이라 시체가 낙하하면
+	// 관전 시점도 같이 떨어진다. 그래서 이동 자체를 멈춘다.
+	// MOVE_None 진입은 CMC 가 속도·점프 상태·누적 힘을 스스로 비운다(OnMovementModeChanged).
+	// 우리 OnMovementModeChanged 오버라이드와는 충돌하지 않는다: 지상에서 죽으면
+	// (공중 진입도 착지도 아니라) 조기 반환하고, 공중에서 죽으면 RefreshMoveSpeed 로
+	// 상한만 다시 잡는다 — 관성 클램프는 `bNowFalling` 분기라 실행되지 않는다.
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->SetMovementMode(MOVE_None);
+	}
+
+	if (IsRunningDedicatedServer()) return; // 불변식 5 — 이하 시각 전용
+
+	// 액터 전체(SetActorHiddenInGame)가 아니라 **메시만** 끈다. 카메라 붐·카메라가 폰에
+	// 붙어 있어서 액터를 숨기면 관전 시점까지 영향을 받을 수 있다.
+	if (USkeletalMeshComponent* CharMesh = GetMesh())
+	{
+		CharMesh->SetVisibility(false, /*bPropagateToChildren=*/true);
+	}
 }
 
 // ─── 폭탄 설치 (Task 16 — 데이터 흐름 3.1) ──────────────────────────────────

@@ -46,8 +46,17 @@ public:
 	// 이동·점프 입력 바인딩 대상 (호출은 Task 11 의 컨트롤러·이후 봇 AIController 가).
 	// WorldAxis 는 "월드 평면 방향"(X=월드 +X, Y=월드 +Y) — 입력 기준(월드축/카메라)
 	// 변환은 컨트롤러 소관. 캐릭터는 카메라를 모른다.
+	// 사망(Dead) 중에는 둘 다 무시한다 — 차단 지점이 캐릭터인 이유는 각 함수 주석 참조.
 	void Move(const FVector2D& WorldAxis);
 	void DoJump();
+
+	// ─── 사망 처리 (Task 27) ───
+
+	// 사망 시 캐릭터에 적용할 것을 전부 모은 단일 지점 — 서버(UStatusComponent::ServerKill)와
+	// 클라(OnRep_Life)가 **같은 이 함수**를 통과한다 (불변식 1의 정신: 경로가 갈리면 어긋난다).
+	// 폰은 파괴하지도 풀에 반납하지도 않는다 (CLAUDE.md: 서버 권한 상태 액터 풀링 금지) —
+	// 상태만 바꾸므로 부활은 "여기서 바꾼 것을 되돌리기" 하나로 끝난다.
+	void ApplyDeathState();
 
 	// ─── 폭탄 설치 (Task 16 — 데이터 흐름 3.1) ───
 
@@ -137,4 +146,5 @@ private:
 	friend class FStatusComponentTest;  // 상태 전이·속도 재계산 검증을 위한 접근 (Task 12)
 	friend class FBombTest;             // 설치 검증·공중 스캔·연쇄 검증을 위한 접근 (Task 16)
 	friend class FPredictedBombVisualTest; // 로컬 검증·예측 목록 검증을 위한 접근 (Task 17)
+	friend class FDeathHandlingTest;    // 사망 상태 적용·입력 차단 검증을 위한 접근 (Task 27)
 };
