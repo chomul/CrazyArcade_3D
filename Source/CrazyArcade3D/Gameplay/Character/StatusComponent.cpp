@@ -3,8 +3,11 @@
 #include "CrazyArcade3D.h"
 #include "Gameplay/Character/CA3DCharacter.h"
 #include "Gameplay/Item/ItemTypes.h"
-#include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
-#include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
+#include "Framework/CA3DRuleSet.h"     // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
+#include "Framework/CA3DGameState.h"   // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
+#include "Framework/CA3DGameMode.h"    // 사망 통지 대상 (서버 전용) — .cpp 에서만
+#include "Framework/CA3DPlayerState.h" // 사망 통지 인자 — .cpp 에서만
+#include "GameFramework/Pawn.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
@@ -156,7 +159,28 @@ void UStatusComponent::ServerKill(EDeathCause Cause)
 
 	UE_LOG(LogCA3D, Log, TEXT("UStatusComponent %s: 사망 — 원인 %s"),
 		*GetOwner()->GetName(), *UEnum::GetValueAsString(Cause));
-	// TODO(Task 18): GameMode 에 사망 통지 — 생존자 수 갱신·라스트맨 스탠딩 판정·관전 전환.
+
+	// ─ GameMode 통지 (Task 18) ─
+	// 생존자 수 갱신·라스트맨 스탠딩 판정은 서버(GameMode)가 단독으로 한다. 여기서 등수를
+	// 계산하지 않는 이유: 판정 주체가 여럿이면 같은 프레임에 여러 명이 죽었을 때 결과가 갈린다.
+	// 이 지점은 함수 최상단 권한 가드를 이미 통과했으므로 서버 전용 경로다 (불변식 5).
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	ACA3DPlayerState* OwnerState = OwnerPawn ? OwnerPawn->GetPlayerState<ACA3DPlayerState>() : nullptr;
+	if (!OwnerState)
+	{
+		// 봇은 Task 20 에서 ABotController 의 bWantsPlayerState 로 PlayerState 를 갖는다.
+		// 그전까지(그리고 PlayerState 없는 테스트 폰)는 조용히 반환한다 — 사망 자체는 위에서 이미 반영됐다.
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		// 테스트 월드처럼 GameMode 가 ACA3DGameMode 가 아닐 수 있다 → null 가드.
+		if (ACA3DGameMode* GameMode = World->GetAuthGameMode<ACA3DGameMode>())
+		{
+			GameMode->NotifyPlayerDeath(OwnerState);
+		}
+	}
 }
 
 // ─── OnRep (클라) ────────────────────────────────────────────────────────────

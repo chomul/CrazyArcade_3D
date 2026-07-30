@@ -80,7 +80,7 @@ public:
 	// Trapped + 니들 보유 → Alive. 니들 소모, 타이머 해제, 속도 복원.
 	void ServerEscape();
 
-	// → Dead. 타이머 정리. GameMode 통지는 Task 18 (현재 로그만).
+	// → Dead. 타이머 정리 후 GameMode 에 사망 통지 (순위·생존자 수 판정은 GameMode 단독 — Task 18).
 	void ServerKill(EDeathCause Cause);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

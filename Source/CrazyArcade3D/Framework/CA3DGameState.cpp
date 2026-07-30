@@ -9,4 +9,5 @@ void ACA3DGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(ACA3DGameState, Rules);
 	DOREPLIFETIME(ACA3DGameState, AliveCount);
 	DOREPLIFETIME(ACA3DGameState, MatchStartServerTime);
+	DOREPLIFETIME(ACA3DGameState, bMatchEnded);
 }

@@ -153,6 +153,12 @@ public:
 	UPROPERTY(EditAnywhere, Category="Map")
 	FIntVector MapSize = FIntVector(21, 21, 4);
 
+	// ── Match (Task 18) ───────────────────────────────────
+
+	// 승패 판정을 시작할 최소 참가 인원. 1인 PIE 테스트에서 매치가 즉시 끝나는 것을 막는다.
+	UPROPERTY(EditAnywhere, Category="Match")
+	int32 MinPlayersForMatchEnd = 2;
+
 	// ── SuddenDeath ───────────────────────────────────────
 
 	// 서든데스 발동 시각(초).

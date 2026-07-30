@@ -22,9 +22,18 @@ public:
 	UPROPERTY(Replicated)
 	TObjectPtr<UCA3DRuleSet> Rules;
 
-	// 생존자 수 — HUD 표시용. 서버(GameMode)만 갱신 (갱신 로직은 Task 18 승패 판정에서).
+	// 생존자 수 — HUD 표시용. 서버(GameMode)만 갱신 (입장 시 +1, 사망 해소 시 -N).
 	UPROPERTY(Replicated)
 	int32 AliveCount = 0;
+
+	// 매치 종료 여부 (Task 18). 결과 화면(Task 26)의 표시 트리거.
+	//
+	// ⚠️ 무승부는 별도 플래그를 두지 않는다 — 규약:
+	//   bMatchEnded == true 인데 FinalRank == 1 인 ACA3DPlayerState 가 하나도 없으면 무승부다.
+	// 플래그를 하나 더 두면 "종료=true, 무승부=true, 그런데 우승자가 있음" 같은 모순 상태를
+	// 표현할 수 있게 된다. 우승자 유무 자체가 유일한 사실이므로 그것만 남긴다.
+	UPROPERTY(Replicated)
+	bool bMatchEnded = false;
 
 	// 매치 경과 시간 기준점 — 서든데스 카운트다운·HUD 타이머 계산용.
 	// 클라는 GetServerWorldTimeSeconds() - MatchStartServerTime 으로 경과를 구한다.
