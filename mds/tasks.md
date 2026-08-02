@@ -62,7 +62,17 @@
         리눅스 배포도 같은 절차라 그대로 재사용된다
       · 잔여(입력이 필요해 헤드리스 불가): 실전 파괴 해시 일치 · 사망 복제 · 최후 1인 종료 →
         **Task 20(봇) 이 들어오면 한 판 완주로 자동 검증된다**
-- [ ] **19. `UCA3DGameInstance`** — EOS 세션·로비 (방 생성 → 공개 목록 → 참가 → 준비·시작)
+- [~] **19. `UCA3DGameInstance`** — ⏸️ **보류 (2026-08-02 사용자 결정)**. 구현은 끝났고 **꺼져 있다**
+      (`bEnableEOS=false`). 목표가 "게임 자체를 얼마나 빨리 만드느냐"이고 배포가 미정이라
+      로비/세션을 **배포 시점으로 이월**했다. 접속은 IP 직접 — 데디 서버에서 이미 검증된 경로다.
+      만든 것: Framework/CA3DGameInstance.h/.cpp(Device ID 로그인·방 생성/검색/참가/파기·실패 통지 델리게이트)
+      + 자격 증명 로더(모듈 StartupModule 이 `Config/EOSCredentials.ini`→GEngineIni 병합, **gitignore 대상**)
+      + `ca3d.*` 진단 콘솔 + 테스트 `CrazyArcade3D.Framework.GameInstance`(자격 증명 유출 회귀 포함),
+      전체 회귀 15스위트, 두 타깃 빌드 통과. 끈 상태에서 데디 봇 매치가 이전과 동일 동작함을 확인(에러 0).
+      ⛔ **엔진 블로커**: UE 5.8 OSS v1 EOS 는 데스크톱에서 Device ID 로그인이 **구조적으로 불가능**하다 —
+      `UserLoginInfo`(SDK 가 Device ID 로그인에 필수라고 명시)를 채우는 코드가 `#if ADD_USER_LOGIN_INFO`
+      안에 있고 데스크톱 기본값이 꺼짐이라 `nullptr` 이 전달돼 `EOS_InvalidParameters`.
+      자격 증명 문제가 아님을 SDK 직접 호출 성공으로 분리 증명했다. 재개 절차는 `mds/Tasks/19-*.md` "보류 상태" 절
 - [x] **20. `ABotController`** — AI/BotController.h/.cpp (순수 C++ FSM: Evade > Attack > Wander, 위험·설치 판단은
       `Propagate` 재사용, 그리드 BFS(높이차 1칸), 재계획 주기로 매 틱 BFS 회피) + GameMode 봇 채우기
       (참가 등록을 `RegisterParticipant` 단일 경로로 통합 — 사람·봇 공용) + 룰셋 Bot 6종 + 콘솔 `ca3d.BotFill`

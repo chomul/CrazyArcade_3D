@@ -15,6 +15,11 @@ Build/
 # ─── Diversion 메타데이터 (Diversion은 사용자가 별도 관리) ───
 .diversion/
 
+# ─── EOS 자격 증명 (절대 커밋 금지) ───
+# 이 리모트는 public 이다. Client Secret 이 올라가면 남이 우리 제품 이름으로
+# 세션을 만들고 조작할 수 있다. 템플릿(.example)만 추적하고 실제 값은 로컬에만 둔다.
+Config/EOSCredentials.ini
+
 # ─── 기타 ───
 *.tmp
 *.log

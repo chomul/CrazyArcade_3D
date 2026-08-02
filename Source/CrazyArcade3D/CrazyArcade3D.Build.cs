@@ -24,6 +24,16 @@ public class CrazyArcade3D : ModuleRules
 			"Slate",
 			"SlateCore",
 			"UMG",
+
+			// EOS 세션·로비 (Task 19). 전부 Private — 공개 헤더(CA3DGameInstance.h)는
+			// OSS 타입을 노출하지 않으므로 이 의존이 다른 파일로 번지지 않는다.
+			"OnlineSubsystem",
+			"OnlineSubsystemUtils",
+			"CoreOnline",
+			// EOS_Connect_CreateDeviceId 직접 호출용. OSS EOS 가 감싸지 않는 유일한 단계다
+			// (Device ID 자격이 로컬에 없으면 로그인이 EOS_NotFound 로 떨어진다).
+			"EOSShared",
+			"EOSSDK",
 		});
 
 		// 도메인 폴더를 짧은 경로로 include 하기 위한 설정.
@@ -31,8 +41,5 @@ public class CrazyArcade3D : ModuleRules
 		//   #include "../../Voxel/VoxelGrid.h"  (X)
 		PublicIncludePaths.Add(ModuleDirectory);
 
-		// 2주차에 추가 예정:
-		//   PrivateDependencyModuleNames.AddRange(new string[] { "OnlineSubsystem", "OnlineSubsystemUtils" });
-		//   EOS 플러그인은 .uproject 의 Plugins 섹션에 등록
 	}
 }
