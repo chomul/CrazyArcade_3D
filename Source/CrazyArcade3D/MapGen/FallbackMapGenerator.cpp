@@ -3,18 +3,19 @@
 #include "CrazyArcade3D.h"
 #include "Framework/CA3DRuleSet.h"
 #include "Voxel/VoxelGrid.h"
+#include "Math/RandomStream.h" // 결정론 난수의 유일한 출처 (불변식 4)
 
 bool UFallbackMapGenerator::Generate(uint32 Seed, const UCA3DRuleSet* Rules,
                                      FVoxelGrid& OutGrid,
                                      TArray<FIntVector>& OutSpawns,
                                      TArray<FItemPlacement>& OutItems)
 {
-	// Seed는 의도적으로 무시한다 — 폴백 맵은 항상 같은 하드코딩 레이아웃을 반환한다
-	// (결정론 계약 "같은 Seed ⇒ 같은 결과"의 극단형: 모든 Seed ⇒ 같은 결과).
-	(void)Seed;
+	// **지형 레이아웃**은 Seed 를 의도적으로 무시한다 — 폴백 맵은 항상 같은 하드코딩 배치다.
+	// **아이템 배치(6단계)만 Seed 를 쓴다** (Task 23): 같은 맵이라도 매치마다 아이템이 달라야
+	// 첫 수가 매번 같아지지 않는다. 결정론 계약("같은 Seed ⇒ 같은 결과")은 그대로 유지된다.
 
 	OutSpawns.Reset();
-	OutItems.Reset(); // 아이템 배치는 Task 23 — 1주차에는 항상 비워 반환.
+	OutItems.Reset();
 
 	if (Rules == nullptr)
 	{
@@ -135,6 +136,80 @@ bool UFallbackMapGenerator::Generate(uint32 Seed, const UCA3DRuleSet* Rules,
 	{
 		OutGrid.Set(Spawn, EBlockType::Empty);
 	}
+
+	// ── 6. 아이템 배치 (Task 23) ─────────────────────────────────────────
+	// 크아식: 아이템은 바닥에 굴러다니지 않고 **Destructible 블록 "안"에 숨어 있다**.
+	// 그 블록을 부순 사람이 먼저 보는 것이 보상 구조의 핵심이라 배치 대상은 Destructible 뿐이다.
+	// 노출 스폰은 서버(UExplosionSubsystem)가 파괴 시점에 한다 — 생성기는 목록만 만든다
+	// (MapGen 은 Gameplay 액터를 몰라야 한다 — 폴더 의존 규칙).
+	//
+	// 불변식 4 (결정론): 이 블록 안에는 float 연산·FMath::Rand()·TMap 순회가 하나도 없다.
+	//   · 난수는 FRandomStream(Seed) 하나에서만 뽑는다 → 서버·클라가 같은 Seed 로 같은 배치를 만든다
+	//   · 확률 판정은 정수 퍼센트 비교 (Stream.RandRange(0,99) < Percent)
+	//   · 순회 순서는 Z→Y→X 고정 (그리드 평탄화 순서와 동일). 순서가 바뀌면 같은 Seed 라도
+	//     난수 소비 순서가 달라져 배치가 통째로 달라진다 — 여기 루프 순서는 **계약**이다.
+	const int32 DropPercent = FMath::Clamp(Rules->ItemDropPercent, 0, 100);
+
+	// 종류별 가중치 — 순서는 EItemType 선언 순서와 1:1 (인덱스가 곧 종류다).
+	const int32 Weights[5] =
+	{
+		FMath::Max(Rules->ItemWeightBalloon, 0),
+		FMath::Max(Rules->ItemWeightPotion,  0),
+		FMath::Max(Rules->ItemWeightRoller,  0),
+		FMath::Max(Rules->ItemWeightNeedle,  0),
+		FMath::Max(Rules->ItemWeightKick,    0),
+	};
+	int32 WeightTotal = 0;
+	for (const int32 Weight : Weights)
+	{
+		WeightTotal += Weight;
+	}
+
+	if (DropPercent > 0 && WeightTotal > 0)
+	{
+		FRandomStream Stream(static_cast<int32>(Seed));
+
+		for (int32 Z = 0; Z < Size.Z; ++Z)
+		{
+			for (int32 Y = 0; Y < Size.Y; ++Y)
+			{
+				for (int32 X = 0; X < Size.X; ++X)
+				{
+					const FIntVector Cell(X, Y, Z);
+					if (OutGrid.Get(Cell) != EBlockType::Destructible)
+					{
+						continue; // 숨길 곳이 아니다 — 난수도 소비하지 않는다 (순서 계약)
+					}
+
+					if (Stream.RandRange(0, 99) >= DropPercent)
+					{
+						continue; // 빈 블록
+					}
+
+					// 가중 추첨 — [0, WeightTotal) 을 뽑아 가중치를 순서대로 깎는다.
+					int32 Roll = Stream.RandRange(0, WeightTotal - 1);
+					int32 TypeIndex = 0;
+					for (int32 Index = 0; Index < 5; ++Index)
+					{
+						if (Roll < Weights[Index])
+						{
+							TypeIndex = Index;
+							break;
+						}
+						Roll -= Weights[Index];
+					}
+
+					FItemPlacement Placement;
+					Placement.Cell = Cell;
+					Placement.Type = static_cast<EItemType>(TypeIndex);
+					OutItems.Add(Placement);
+				}
+			}
+		}
+	}
+
+	UE_LOG(LogCA3D, Log, TEXT("FallbackMapGenerator: Seed %u — 아이템 %d개 배치 (드랍률 %d%%)"),
+		Seed, OutItems.Num(), DropPercent);
 
 	return true;
 }

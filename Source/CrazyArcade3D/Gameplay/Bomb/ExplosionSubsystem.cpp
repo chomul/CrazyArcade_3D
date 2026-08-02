@@ -5,6 +5,7 @@
 #include "Gameplay/Bomb/ExplosionFXRelay.h"
 #include "Gameplay/Character/CA3DCharacter.h"
 #include "Gameplay/Character/StatusComponent.h"
+#include "Gameplay/Item/ItemPickup.h"
 #include "Voxel/VoxelGrid.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
@@ -226,7 +227,8 @@ void UExplosionSubsystem::ProcessChainStep()
 		}
 	}
 
-	// ── ⑤ 아이템 소멸 — TODO(Task 23): WaterCells 안의 아이템 픽업 제거 ──
+	// ── ⑤ 아이템 (Task 23) ──
+	ProcessStepItems(VoxelWorld, Rules, StepWater, StepBroken);
 
 	// ── 이번 단계 폭탄 정리: 소유자 슬롯 반환 + 파괴 (풀링 금지 — Destroy 로만 수명 관리) ──
 	for (const TObjectPtr<ABomb>& BombPtr : StepBombs)
@@ -250,6 +252,78 @@ void UExplosionSubsystem::ProcessChainStep()
 		GetWorld()->GetTimerManager().SetTimer(ChainTimer,
 			FTimerDelegate::CreateUObject(this, &UExplosionSubsystem::ProcessChainStep),
 			FMath::Max(Rules->ChainStepDelay, KINDA_SMALL_NUMBER), false);
+	}
+}
+
+// ─── 서버 전용: ⑤ 아이템 소멸 → 노출 (Task 23) ──────────────────────────────
+
+void UExplosionSubsystem::ProcessStepItems(AVoxelWorld* VoxelWorld, const UCA3DRuleSet* Rules,
+                                           const TArray<FIntVector>& StepWater, const TArray<FIntVector>& StepBroken)
+{
+	// 호출자(ProcessChainStep)가 이미 서버 전용 경로다 — 여기서는 인자 유효성만 본다.
+	if (!VoxelWorld || !Rules)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// ⚠️ **소멸이 먼저, 노출이 나중**이다. 순서를 뒤집으면 방금 드러난 아이템이 자기를 드러낸
+	// 폭발의 물줄기에 그대로 휩쓸려 즉사할 수 있다 — 플레이어 화면에서는 블록이 부서지고
+	// 아무것도 안 나온 것처럼 보여서 "왜 안 나왔지"가 되고, 그건 버그로도 안 보인다.
+	//
+	// (현재 Propagate 는 Destructible 셀을 BrokenCells 에만 넣고 WaterCells 에는 넣지 않으므로
+	//  같은 단계 안에서 두 목록이 겹치지 않는다. 그래도 이 순서를 계약으로 고정해 두는 이유는
+	//  전파 규칙이 바뀌어도(예: 관통 아이템, 바닥 파괴 허용) 이 보장이 함께 깨지지 않게 하려는 것.)
+
+	// ── ⑤-a 물줄기에 닿은 **기존** 아이템 소멸 — 효과 없이 사라진다 (GDD 3장 심리전) ──
+	for (const FIntVector& WaterCell : StepWater)
+	{
+		if (AItemPickup* Item = FindItemAt(WaterCell))
+		{
+			Item->ServerBurn();
+		}
+	}
+
+	// ── ⑤-b 이번에 부서진 셀에 숨어 있던 아이템 노출 스폰 ──
+	// 클래스는 룰셋(BP_ItemPickup), 미지정이면 C++ 기본 폴백 — 에셋 없이도 획득은 정상.
+	const TSubclassOf<AItemPickup> ItemClass = Rules->ItemPickupClass
+		? Rules->ItemPickupClass
+		: TSubclassOf<AItemPickup>(AItemPickup::StaticClass());
+
+	int32 RevealedCount = 0;
+	for (const FIntVector& BrokenCell : StepBroken)
+	{
+		EItemType ItemType;
+		if (!VoxelWorld->ConsumeItemPlacement(BrokenCell, ItemType))
+		{
+			continue; // 그 블록에는 아무것도 숨겨져 있지 않았다
+		}
+
+		// Type·Cell 을 첫 복제 전에 확정해야 클라 OnRep_Type 이 올바른 메시를 고른다
+		// (ACA3DCharacter::ServerPlaceBomb 의 SpawnActorDeferred → ServerArm 관례).
+		const FTransform SpawnTransform(VoxelWorld->CellToWorld(BrokenCell));
+		AItemPickup* Item = World->SpawnActorDeferred<AItemPickup>(
+			ItemClass, SpawnTransform, nullptr, nullptr,
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		if (!Item)
+		{
+			continue;
+		}
+
+		Item->ServerInit(ItemType, BrokenCell);
+		Item->FinishSpawning(SpawnTransform);
+		++RevealedCount;
+	}
+
+	if (RevealedCount > 0)
+	{
+		UE_LOG(LogCA3D, Log, TEXT("UExplosionSubsystem: 아이템 %d개 노출 (파괴 %d칸 중)"),
+			RevealedCount, StepBroken.Num());
 	}
 }
 
@@ -302,6 +376,34 @@ TArray<FIntVector> UExplosionSubsystem::GetActiveBombCellsSorted() const
 		return A.Z < B.Z;
 	});
 	return Cells;
+}
+
+// ─── 서버 전용: 활성 아이템 레지스트리 (Task 23) ────────────────────────────
+
+void UExplosionSubsystem::RegisterItem(AItemPickup* Item)
+{
+	if (!IsValid(Item) || !Item->HasAuthority()) return; // 불변식 5 — 레지스트리는 서버 전용
+
+	ActiveItems.AddUnique(Item);
+}
+
+void UExplosionSubsystem::UnregisterItem(AItemPickup* Item)
+{
+	// EndPlay(월드 정리 포함)에서 불린다 — 권한 가드 없이 제거만 (UnregisterBomb 와 동일).
+	ActiveItems.Remove(Item);
+}
+
+AItemPickup* UExplosionSubsystem::FindItemAt(const FIntVector& Cell) const
+{
+	for (const TObjectPtr<AItemPickup>& ItemPtr : ActiveItems)
+	{
+		AItemPickup* Item = ItemPtr.Get();
+		if (IsValid(Item) && Item->GetCell() == Cell)
+		{
+			return Item;
+		}
+	}
+	return nullptr;
 }
 
 // ─── 내부 ────────────────────────────────────────────────────────────────────

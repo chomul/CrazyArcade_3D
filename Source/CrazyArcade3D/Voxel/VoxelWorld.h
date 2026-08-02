@@ -5,6 +5,9 @@
 #include "UObject/ScriptInterface.h"
 #include "Voxel/VoxelGrid.h"
 #include "Voxel/VoxelRenderer.h" // 인터페이스 자체가 가벼워 헤더 include 허용
+#include "Gameplay/Item/ItemTypes.h" // FItemPlacement — **데이터 타입 참조까지만** 허용된 기존 예외
+                                     // (MapGenerator.h:5 와 같은 근거). 지형은 아이템 "액터" 를 몰라야
+                                     // 하므로 AItemPickup 참조·스폰은 절대 여기 들어오지 않는다.
 #include "VoxelWorld.generated.h"
 
 class UHISMVoxelRenderer;
@@ -51,6 +54,17 @@ public:
 	// 결정론 생성이라 클라에도 같은 값이 만들어지지만 소비처는 서버뿐이다.
 	const TArray<FIntVector>& GetSpawnCells() const { return SpawnCells; }
 
+	// 생성기가 반환한 아이템 배치 — **데이터로 보관만 한다** (Task 23).
+	// 지형은 "여기 아이템이 숨겨져 있다"는 사실만 알고, 그게 무슨 액터가 되는지·언제 스폰되는지는
+	// 모른다. 스폰은 Gameplay(UExplosionSubsystem)가 파괴 시점에 한다 — 폴더 의존 규칙 유지.
+	const TArray<FItemPlacement>& GetItemPlacements() const { return ItemPlacements; }
+
+	// 서버: 그 셀에 숨겨진 아이템을 꺼내 목록에서 제거한다 (있으면 true).
+	// "조회 + 제거"가 한 함수인 이유: 노출은 셀당 정확히 1회여야 한다. 조회만 제공하면
+	// 호출부마다 제거를 잊을 수 있고, 그러면 같은 셀이 다시 파괴될 때(서든데스 등) 아이템이
+	// 복제된다. 클라는 이 함수를 부르지 않는다 — 클라 목록은 생성 결과 그대로 남는다.
+	bool ConsumeItemPlacement(const FIntVector& Cell, EItemType& OutType);
+
 	// ⚠️ 임시값 — 확정은 Task 10 튜닝에서. 임의 변경 금지, 질문할 것.
 	UPROPERTY(EditAnywhere, Category="Voxel")
 	float CellSize = 100.f;
@@ -82,9 +96,10 @@ protected:
 private:
 	FVoxelGrid Grid;
 
-	// 생성기 출력 스폰 셀 보관 (GetSpawnCells). 아이템 배치(OutItems)는 아직 소비처가
-	// 없어(Task 23) 보관하지 않는다 — 소비처가 생기면 같은 방식으로 보관한다.
+	// 생성기 출력 보관 — 스폰 셀은 GameMode(Task 09), 아이템 배치는 폭발 처리(Task 23)가 소비한다.
+	// 둘 다 복제하지 않는다: 결정론 생성이라 클라도 같은 값을 스스로 만든다 (Seed 하나면 충분).
 	TArray<FIntVector> SpawnCells;
+	TArray<FItemPlacement> ItemPlacements;
 
 	// 클라/리슨에서만 연결, 데디 서버는 nullptr (BeginPlay에서 분기).
 	UPROPERTY()
@@ -123,4 +138,5 @@ private:
 	friend class FHISMVoxelRendererTest; // BeginPlay가 돌지 않는 테스트 월드에서 Renderer 수동 배선용
 	friend class FDeathHandlingTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 27)
 	friend class FBotControllerTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 20)
+	friend class FItemPickupTest; // 자동화 테스트가 손그리드·아이템 배치 주입을 위한 접근 (Task 23)
 };

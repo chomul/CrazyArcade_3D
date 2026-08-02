@@ -209,8 +209,12 @@ bool FFallbackMapGeneratorTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("계단: 2단 위(z=3) Empty (착지 공간)"),
 		Grid.Get(StairStep2High + FIntVector(0, 0, 1)), EBlockType::Empty);
 
-	// --- 7. OutItems 비어 있음 (아이템 배치는 Task 23) ---
-	TestEqual(TEXT("OutItems 비어 있음"), Items.Num(), 0);
+	// --- 7. OutItems — 지형과 달리 **Seed 에 따라 달라진다** (Task 23) ---
+	// 지형 레이아웃은 하드코딩이라 Seed 무관(5번)이지만 아이템은 매치마다 달라야 한다.
+	// 배치 규칙(Destructible 한정)·결정론·니들 희소성은 CrazyArcade3D.Gameplay.ItemPickup 이 본다.
+	UE_LOG(LogCA3D, Display, TEXT("아이템 배치 — Seed 12345: %d개 / Seed 99999: %d개"),
+		Items.Num(), Items2.Num());
+	TestTrue(TEXT("OutItems: 아이템이 배치됨 (기본 룰셋 드랍률 > 0)"), Items.Num() > 0);
 
 	// --- 추가: Destructible 존재 / nullptr Rules 방어 ---
 	int32 DestructibleCount = 0;

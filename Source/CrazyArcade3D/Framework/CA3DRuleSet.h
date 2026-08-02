@@ -8,6 +8,7 @@
 class AWaterSegment;
 class ADangerDecal;
 class APredictedBombVisual;
+class AItemPickup;
 
 // 매치 규칙·튜닝 값의 단일 출처. 로직 없음 — 순수 데이터.
 // 인스턴스를 여러 개 만들어 룰셋 프리셋(기본전/스피드전 등)으로 쓴다.
@@ -145,13 +146,52 @@ public:
 	UPROPERTY(EditAnywhere, Category="Map")
 	bool bFloorDestructible = false;
 
-	// 파괴 블록에 아이템이 배치될 확률(0~1).
-	UPROPERTY(EditAnywhere, Category="Map")
-	float ItemDropRate = 0.3f;
-
 	// 그리드 크기 (X, Y, 층).
 	UPROPERTY(EditAnywhere, Category="Map")
 	FIntVector MapSize = FIntVector(21, 21, 4);
+
+	// ── Item (Task 23) ─────────────────────────────────────
+	// ⚠️ 아래 수치 전부 잠정 — 아이템 스택 상한과 함께 밸런스 패스에서 확정 (CLAUDE.md "아직 안 정한 값").
+	// 여기 값들은 **맵 생성기가 소비**한다 → 정수여야 한다 (불변식 4).
+
+	// 파괴 블록 하나에 아이템이 숨겨질 확률(정수 퍼센트 0~100).
+	// float(예전 ItemDropRate 0~1)가 아니라 정수 퍼센트인 이유: 맵 생성기 안에서는 float 연산이
+	// 금지돼 있다 (불변식 4) — 부동소수 비교는 플랫폼·컴파일 옵션마다 경계값이 갈릴 수 있어
+	// 리눅스 서버와 윈도우 클라의 아이템 배치가 어긋나면 진단이 매우 어렵다.
+	UPROPERTY(EditAnywhere, Category="Item", meta=(ClampMin="0", ClampMax="100"))
+	int32 ItemDropPercent = 30;
+
+	// 종류별 추첨 가중치(정수). 합계에서 하나를 뽑는다 — 0 이면 그 종류는 안 나온다.
+	// 기본값 합계 100 이라 그대로 "퍼센트"로 읽힌다 (30/30/20/5/15).
+	// 니들만 낮게 잡은 것은 GDD 3장 "낮은 드랍률" — 갇힘 탈출은 판을 되돌리는 카드라
+	// 흔하면 물방울에 가두는 플레이 자체가 무의미해진다. 실효 드랍률은
+	// ItemDropPercent 30% × 5/100 = 파괴 블록 100개당 1.5개 수준.
+	UPROPERTY(EditAnywhere, Category="Item", meta=(ClampMin="0"))
+	int32 ItemWeightBalloon = 30;
+
+	UPROPERTY(EditAnywhere, Category="Item", meta=(ClampMin="0"))
+	int32 ItemWeightPotion = 30;
+
+	UPROPERTY(EditAnywhere, Category="Item", meta=(ClampMin="0"))
+	int32 ItemWeightRoller = 20;
+
+	UPROPERTY(EditAnywhere, Category="Item", meta=(ClampMin="0"))
+	int32 ItemWeightNeedle = 5;
+
+	UPROPERTY(EditAnywhere, Category="Item", meta=(ClampMin="0"))
+	int32 ItemWeightKick = 15;
+
+	// 서버가 스폰할 아이템 픽업 클래스 — BP_ItemPickup(종류별 메시 지정용) 연결.
+	// 미지정이면 C++ 기본 클래스로 폴백한다 (에셋 없이도 획득 판정은 정상 — 경고 로그만).
+	// PredictedBombVisualClass 와 같은 관례.
+	UPROPERTY(EditAnywhere, Category="Item")
+	TSubclassOf<AItemPickup> ItemPickupClass;
+
+	// 획득 판정 구체 반지름(셀 단위). 실제 반지름 = 이 계수 × AVoxelWorld::CellSize —
+	// 셀 크기를 바꿔도 "그 칸을 밟으면 먹는다" 는 감각이 유지된다 (하드코딩 금지).
+	// 0.4 = 셀 중심에서 0.4칸. 캐릭터 캡슐 반지름(34)과 합쳐 약 0.74칸 안에 들면 획득.
+	UPROPERTY(EditAnywhere, Category="Item", meta=(ClampMin="0.05", ClampMax="1.0"))
+	float ItemPickupRadiusCells = 0.4f;
 
 	// ── Match (Task 18) ───────────────────────────────────
 

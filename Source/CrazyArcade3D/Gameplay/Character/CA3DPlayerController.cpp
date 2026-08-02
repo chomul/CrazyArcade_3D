@@ -105,6 +105,10 @@ void ACA3DPlayerController::SetupInputComponent()
 	{
 		EIC->BindAction(IA_PlaceBomb, ETriggerEvent::Started, this, &ACA3DPlayerController::OnPlaceBomb);
 	}
+	if (IA_UseNeedle)
+	{
+		EIC->BindAction(IA_UseNeedle, ETriggerEvent::Started, this, &ACA3DPlayerController::OnUseNeedle);
+	}
 }
 
 void ACA3DPlayerController::PlayerTick(float DeltaTime)
@@ -176,6 +180,16 @@ void ACA3DPlayerController::OnPlaceBomb()
 	if (ACA3DCharacter* CA3DCharacter = Cast<ACA3DCharacter>(GetPawn()))
 	{
 		CA3DCharacter->TryPlaceBombPredicted();
+	}
+}
+
+void ACA3DPlayerController::OnUseNeedle()
+{
+	// 컨트롤러는 입력만 — 보유·상태 검사는 전부 캐릭터/서버 소관 (게임 상태 계산 금지).
+	// 단일 진입점: TryUseNeedle (봇도 같은 함수를 탄다 — Task 23).
+	if (ACA3DCharacter* CA3DCharacter = Cast<ACA3DCharacter>(GetPawn()))
+	{
+		CA3DCharacter->TryUseNeedle();
 	}
 }
 

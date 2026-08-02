@@ -58,6 +58,18 @@ public:
 	// 상태만 바꾸므로 부활은 "여기서 바꾼 것을 되돌리기" 하나로 끝난다.
 	void ApplyDeathState();
 
+	// ─── 니들 사용 (Task 23) ───
+
+	// 니들 수동 사용의 **단일 진입점**. 자동 사용이 아니다 (2026-08-02 사용자 확정) —
+	// 갇힌 순간 자동으로 터지면 "니들을 아껴 두었다가 결정적인 순간에 쓴다" 는 선택이 사라진다.
+	// 플레이어(컨트롤러 입력)와 봇(AIController)이 **같은 이 함수**를 부른다:
+	// 서버 권한이면 곧장 ServerEscape, 원격 클라면 RPC 경유 — 규칙은 ServerEscape 한 곳에만 있다.
+	void TryUseNeedle();
+
+	// 클라→서버: 니들 사용 요청. 최종 판정(Trapped + 니들 보유)은 ServerEscape 단독.
+	UFUNCTION(Server, Reliable)
+	void ServerUseNeedle();
+
 	// ─── 폭탄 설치 (Task 16 — 데이터 흐름 3.1) ───
 
 	// 설치 요청 셀 계산 (서버·클라 공용 — 컨트롤러는 입력만, 셀 계산은 캐릭터 소관).
@@ -148,4 +160,5 @@ private:
 	friend class FPredictedBombVisualTest; // 로컬 검증·예측 목록 검증을 위한 접근 (Task 17)
 	friend class FDeathHandlingTest;    // 사망 상태 적용·입력 차단 검증을 위한 접근 (Task 27)
 	friend class FBotControllerTest;    // 봇이 조종하는 캐릭터의 튜닝 수동 적용을 위한 접근 (Task 20)
+	friend class FItemPickupTest;       // 아이템 획득·니들 사용 검증의 튜닝 수동 적용을 위한 접근 (Task 23)
 };

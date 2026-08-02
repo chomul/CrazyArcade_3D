@@ -401,6 +401,44 @@ void ACA3DCharacter::ApplyDeathState()
 	SetActorHiddenInGame(true);
 }
 
+// ─── 니들 사용 (Task 23) ────────────────────────────────────────────────────
+
+void ACA3DCharacter::TryUseNeedle()
+{
+	// 리슨 호스트·데디의 봇·자동화 테스트는 전부 여기서 끝난다 (RPC 없이 곧장 규칙으로).
+	if (HasAuthority())
+	{
+		if (Status)
+		{
+			Status->ServerEscape();
+		}
+		return;
+	}
+
+	// 원격 클라: 서버도 거부할 요청이면 RPC 를 생략한다 (폭탄 설치의 로컬 검증과 같은 절약).
+	// bHasNeedle·LifeState 는 복제되므로 이 판단의 재료가 클라에도 있다. 어긋나더라도
+	// 손해는 없다 — 최종 판정은 서버의 ServerEscape 단독이고, 예측으로 바꾸는 상태가 없다.
+	if (!Status || Status->LifeState != ELifeState::Trapped || !Status->bHasNeedle)
+	{
+		UE_LOG(LogCA3D, Verbose, TEXT("ACA3DCharacter %s: 니들 사용 조건 불충족 — RPC 생략"), *GetName());
+		return;
+	}
+
+	ServerUseNeedle();
+}
+
+void ACA3DCharacter::ServerUseNeedle_Implementation()
+{
+	if (!HasAuthority()) return; // 불변식 5 (Server RPC 라 항상 서버지만 관례 가드)
+
+	// 검증을 여기서 다시 하지 않는다 — ServerEscape 가 Trapped + 니들 보유를 이미 확인하고
+	// 아니면 조용히 무시한다. 조건을 두 곳에 적으면 언젠가 한쪽만 바뀐다.
+	if (Status)
+	{
+		Status->ServerEscape();
+	}
+}
+
 // ─── 폭탄 설치 (Task 16 — 데이터 흐름 3.1) ──────────────────────────────────
 
 bool ACA3DCharacter::TryGetBombPlacementCell(FIntVector& OutCell) const

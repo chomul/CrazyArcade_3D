@@ -115,4 +115,5 @@ private:
 
 	friend class FStatusComponentTest; // 자동화 테스트가 타이머 가동 여부 검증을 위한 접근
 	friend class FDeathHandlingTest;   // 갇힘 타이머 잔존 여부 검증을 위한 접근 (Task 27)
+	friend class FItemPickupTest;      // 니들 탈출 시 타이머 해제 검증을 위한 접근 (Task 23)
 };

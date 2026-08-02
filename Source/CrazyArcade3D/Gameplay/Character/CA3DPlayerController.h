@@ -43,10 +43,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Input")
 	TObjectPtr<UInputAction> IA_RotateCam;  // Axis1D — Q=-1 / E=+1, ±45도 스냅
 
+	// Digital — 니들 수동 사용 (Task 23, 사용자 확정: 자동 사용 아님).
+	// 폭탄과 다른 키여야 한다: 갇힌 상태에서 폭탄 키를 누르는 것과 니들을 쓰는 것은
+	// 전혀 다른 판단인데 한 키에 묶으면 "폭탄 놓으려다 니들을 태워먹는" 사고가 난다.
+	UPROPERTY(EditDefaultsOnly, Category="Input")
+	TObjectPtr<UInputAction> IA_UseNeedle;
+
 	void OnMove(const FInputActionValue& V);
 	void OnJumpStarted();
 	void OnJumpCompleted();
 	void OnPlaceBomb();                           // 셀 계산·검증은 캐릭터/서버 소관 — 여기선 전달만
+	void OnUseNeedle();                           // 판정은 캐릭터/서버 소관 — 여기선 전달만
 	void OnRotateCam(const FInputActionValue& V); // ±45도 스냅, 보간 회전
 
 private:

@@ -391,12 +391,14 @@ void ABotController::Tick(float DeltaSeconds)
 		return; // 맵 생성 전 — 판정할 지형이 없다
 	}
 
-	// 갇힘 — 니들이 있으면 탈출을 시도한다. **플레이어와 같은 진입점**(ServerEscape)이라
-	// 니들 소모·타이머 해제·속도 복원이 사람과 완전히 같은 규칙을 탄다.
+	// 갇힘 — 니들이 있으면 탈출을 시도한다. **플레이어와 같은 진입점**(TryUseNeedle)이라
+	// 니들 소모·타이머 해제·속도 복원이 사람과 완전히 같은 규칙을 탄다. 봇은 서버에서 도므로
+	// TryUseNeedle 이 RPC 없이 곧장 ServerEscape 로 들어간다 (Task 23).
 	// 니들이 없으면 그냥 갇힌 채로 익사한다 (봇 전용 구제책 없음 — 그래야 검증이 된다).
+	// 조건 검사를 여기 남겨 둔 이유는 낭비를 줄이기 위한 것뿐 — 판정 자체는 ServerEscape 소관.
 	if (Status->LifeState == ELifeState::Trapped && Status->bHasNeedle)
 	{
-		Status->ServerEscape();
+		BotChar->TryUseNeedle();
 	}
 
 	if (!bRandomSeeded)

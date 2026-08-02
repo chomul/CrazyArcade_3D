@@ -125,6 +125,24 @@ void AVoxelWorld::ServerDestroyBlocks(const TArray<FIntVector>& Cells)
 	MulticastOnBlocksDestroyed(Cells);
 }
 
+bool AVoxelWorld::ConsumeItemPlacement(const FIntVector& Cell, EItemType& OutType)
+{
+	if (!HasAuthority()) return false; // 불변식 5 — 목록을 바꾸는 함수
+
+	// 배치 수는 파괴 블록 수의 일부(수십 개)라 선형 탐색으로 충분하다. TMap 을 쓰지 않는 이유는
+	// 생성기 출력이 TArray 이고(불변식 4), 여기서 자료구조를 바꾸면 순서 근거가 하나 더 늘기 때문.
+	for (int32 Index = 0; Index < ItemPlacements.Num(); ++Index)
+	{
+		if (ItemPlacements[Index].Cell == Cell)
+		{
+			OutType = ItemPlacements[Index].Type;
+			ItemPlacements.RemoveAt(Index); // 노출은 셀당 1회 — 남겨두면 재파괴 시 복제된다
+			return true;
+		}
+	}
+	return false;
+}
+
 // ─── 리플리케이션 수신 ─────────────────────────────────────
 
 void AVoxelWorld::OnRep_Seed()
@@ -251,11 +269,9 @@ void AVoxelWorld::InitGridFromSeed()
 	// Task 22에서 이 한 줄만 절차 생성기(UProceduralMapGenerator)로 바꾼다.
 	UFallbackMapGenerator* Generator = NewObject<UFallbackMapGenerator>();
 
-	// 스폰 셀은 보관 — 서버 GameMode 가 GetSpawnCells 로 소비한다 (Task 09).
-	// 아이템 배치(OutItems)는 아직 소비처가 없어(Task 23) 버린다.
-	TArray<FItemPlacement> OutItems;
-
-	if (!Generator->Generate(Seed, Rules, Grid, SpawnCells, OutItems))
+	// 스폰 셀은 서버 GameMode 가 GetSpawnCells 로(Task 09), 아이템 배치는 폭발 처리가
+	// ConsumeItemPlacement 로(Task 23) 소비한다 — 둘 다 여기서 보관만 한다.
+	if (!Generator->Generate(Seed, Rules, Grid, SpawnCells, ItemPlacements))
 	{
 		UE_LOG(LogCA3D, Error, TEXT("AVoxelWorld: Seed %u 맵 생성 실패"), Seed);
 		return;

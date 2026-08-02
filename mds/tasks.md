@@ -88,7 +88,21 @@
 
 ## 3주차 — 플레이어블 멀티 데모
 
-_(미정)_
+우선순위 기준: **게임을 빨리 완성하는 것**(2026-08-02 사용자). 체감에 직접 꽂히는 것부터.
+
+- [x] **23. `AItemPickup`** — Gameplay/Item/ItemPickup.h/.cpp (서버 권한 아이템 액터, 복제, 획득→`ServerApplyItem`,
+      물줄기 소멸) + 생성기 아이템 배치(`FRandomStream` + 정수 퍼센트 — 불변식 4) + `ExplosionSubsystem` 배선
+      (소멸 → 노출 순서) + `AVoxelWorld::ConsumeItemPlacement`(데이터만 — 지형은 아이템 액터를 모른다)
+      + 룰셋 Item 카테고리 + 니들 수동 사용 입력 경로 + 테스트 `CrazyArcade3D.Gameplay.ItemPickup`,
+      전체 회귀 16스위트, 두 타깃 빌드 통과.
+      **확정 규칙(사용자)**: 갇힘 중 획득 불가 · 니들은 별도 키 수동 사용 · 킥은 획득 플래그까지만.
+      데디 실전(봇 6대·220초): 노출 7 · **획득 4(니들·킥·풍선·물약)** · 소멸 1 · 에러 0.
+      컬리전(Sphere)과 표시(Mesh)를 분리해 **데디에서도 획득이 동작** — HISM 사건의 재발 방지책.
+      잔여: 에디터 작업(BP_ItemPickup 메시·IA_UseNeedle·IMC 바인딩) 후 PIE 체감 확인
+- [ ] **25·26. HUD·결과 화면** — 남은 폭탄·범위·생존자·순위가 화면에 안 보인다 (아이템 효과 확인 수단)
+- [ ] **24. `USuddenDeathSubsystem`** — 매치가 늘어지는 것을 끊는다
+- [ ] **22. `UProceduralMapGenerator`** — 지금은 고정 맵 하나뿐
+- [ ] (후속) 킥 실제 차기 동작 · 봇 층간 이동 개선(2칸 낙하) · 자유 관전
 
 ## 진행 중 메모
 
