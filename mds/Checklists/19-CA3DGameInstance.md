@@ -11,7 +11,7 @@
 상세와 재개 절차는 Task 문서의 "보류 상태" 절.
 
 ## 빌드 (필수 게이트)
-- [x] `CrazyArcade3DEditor` 빌드 통과 (2026-08-02 · 유니티 병합 강제)
+- [x] `CrazyArcade3DEditor` 빌드 통과 (2026-08-02 · 번역 단위 병합 강제)
 - [x] `CrazyArcade3DServer` 빌드 통과 (2026-08-02 · 동일)
 - [x] `Build.cs` OSS 의존 추가 후 프로젝트 파일 재생성
 

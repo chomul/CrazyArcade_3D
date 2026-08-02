@@ -32,7 +32,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDeathHandlingTest, "CrazyArcade3D.Gameplay.Dea
 
 namespace
 {
-	// ⚠️ 유니티 빌드(build.md): 테스트 .cpp 들이 한 번역 단위로 합쳐지면 무명 네임스페이스가
+	// ⚠️ 번역 단위 병합(build.md): 테스트 .cpp 들이 한 번역 단위로 합쳐지면 무명 네임스페이스가
 	// 병합되어 동명 헬퍼가 C2084 로 충돌한다 — 로컬 헬퍼는 모듈 전체에서 고유한 이름으로 (Dh 접두사).
 	int32 DhCountBombs(UWorld* World)
 	{

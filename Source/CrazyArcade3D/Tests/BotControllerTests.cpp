@@ -15,8 +15,8 @@
 // 로 만든다 (GameMode 가 있어야 AAIController::PostInitializeComponents 가 PlayerState 를 만든다).
 // World->BeginPlay() 는 부르지 않는다 — 지형은 판정이 명확하도록 손으로 구성한다(friend).
 //
-// ⚠️ 무명 네임스페이스 헬퍼 이름은 유니티 빌드에서 모듈 전체와 병합된다 —
-// 접두사 BotTest~ 로 고유하게 유지할 것 (mds/build.md "유니티 빌드" 절).
+// ⚠️ 무명 네임스페이스 헬퍼 이름은 번역 단위 병합에서 모듈 전체와 합쳐진다 —
+// 접두사 BotTest~ 로 고유하게 유지할 것 (mds/build.md "번역 단위 병합 빌드" 절).
 // (BotController.cpp 자신도 Bot~ 접두사 헬퍼를 갖고 있어 Bot~ 만으로는 부족하다.)
 
 #include "Misc/AutomationTest.h"

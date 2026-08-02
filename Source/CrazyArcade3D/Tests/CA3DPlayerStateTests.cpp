@@ -13,8 +13,8 @@
 // 사망 통지 해소는 GameMode 가 SetTimerForNextTick 으로 예약하므로 타이머 매니저를
 // 수동 Tick 해 결정론적으로 진행시킨다 (BombTests 의 GFrameCounter 관례).
 //
-// ⚠️ 무명 네임스페이스 헬퍼 이름은 유니티 빌드에서 모듈 전체와 병합된다 —
-// 접두사 Ps~ 로 고유하게 유지할 것 (mds/build.md "유니티 빌드" 절).
+// ⚠️ 무명 네임스페이스 헬퍼 이름은 번역 단위 병합에서 모듈 전체와 합쳐진다 —
+// 접두사 Ps~ 로 고유하게 유지할 것 (mds/build.md "번역 단위 병합 빌드" 절).
 
 #include "Misc/AutomationTest.h"
 #include "CrazyArcade3D.h"

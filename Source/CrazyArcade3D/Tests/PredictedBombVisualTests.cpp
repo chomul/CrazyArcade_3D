@@ -37,9 +37,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPredictedBombVisualTest, "CrazyArcade3D.Gamepl
 
 namespace
 {
-	// ⚠️ 헬퍼 이름에 Pbv 접두사 — 유니티 빌드가 테스트 .cpp 들을 한 번역 단위로 합치면
+	// ⚠️ 헬퍼 이름에 Pbv 접두사 — UBT 가 테스트 .cpp 들을 한 번역 단위로 합치면
 	// 무명 네임스페이스가 병합되므로, BombTests.cpp 의 동명 헬퍼와 충돌한다 (C2084).
-	// adaptive unity 때문에 git 커밋 전에는 안 드러나니 이름은 모듈 전체에서 고유해야 한다.
+	// 수정 중인 파일은 병합에서 빠지는 탓에 git 커밋 전에는 안 드러난다 —
+	// 이름은 모듈 전체에서 고유해야 한다 (mds/build.md "번역 단위 병합 빌드" 절).
 
 	// 수동 타이머 진행 — Pending 활성화 틱 + 만료 틱 (BombTests·StatusComponentTests 의 GFrameCounter 관례).
 	void PbvAdvanceTimers(UWorld* World, float Seconds)
