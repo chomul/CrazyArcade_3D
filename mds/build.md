@@ -53,6 +53,45 @@ UBT 유니티 빌드는 여러 .cpp 를 `Module.*.cpp` 한 번역 단위로 합�
 - **규칙**: .cpp 로컬 헬퍼라도 이름은 모듈 전체에서 고유하게 (테스트 파일은 접두사 권장, 예: `Pbv~`).
 - **검증**: 커밋 전 `-ForceUnity -DisableAdaptiveUnity` 를 빌드 명령에 붙이면 병합 경로를 강제해 미리 잡는다.
 
+## ⚠️ 데디 서버 exe 는 **쿡된 콘텐츠에서만 돈다** — 언쿡 실행은 즉시 크래시
+
+`CrazyArcade3DServer.exe` 에 `.uproject` 를 넘겨 언쿡으로 띄우면 **엔진 기본 에셋을 읽다가
+시작 도중 죽는다** (2026-08-02 확인).
+
+```
+Assertion failed: ReaderPos + Num <= ReaderSize  [BufferReader.h:52]
+  FBufferReaderBase::Serialize → operator<<(FString) → operator<<(FEngineVersion)
+  → FPackageFileSummary::operator<< → FAsyncArchive::ReadCallback
+```
+
+**우리 코드 문제가 아니다.** 패키지 헤더 파서가 에디터 전용 필드를 조건부 컴파일로 다룬다:
+
+```cpp
+// PackageFileSummary.cpp:354
+#if WITH_EDITORONLY_DATA
+    if (!BaseArchive.IsFilterEditorOnly()) { Record << Sum.PersistentGuid; }  // 16바이트
+#endif
+```
+
+언쿡 패키지에는 이 `PersistentGuid` 가 **파일에 들어 있는데**, 서버 타깃은 `WITH_EDITORONLY_DATA=0`
+이라 그 블록이 통째로 사라진다 → 16바이트를 안 읽고 지나가 **스트림이 어긋난다** → 바로 뒤
+`GenerationCount` 가 GUID 조각을 읽어 쓰레기 값이 되고, 이어지는 엔진 버전 문자열의 길이가
+버퍼를 넘겨 assert. `s.MaxPackageSummarySize` 를 올려도 소용없다 — 그 초기화 함수(`AsyncLoading.cpp:252`)
+자체가 `#if WITH_EDITORONLY_DATA` 라 서버에서는 항상 하드코딩 8192다.
+
+**해법: 쿡·스테이징 후 실행한다.**
+
+```powershell
+$uat  = "C:\UnrealEngine5.8\Engine\Build\BatchFiles\RunUAT.bat"
+$proj = "C:\Sung Unreal Project\CrazyArcade_3D\CrazyArcade3D.uproject"
+& $uat BuildCookRun -project="$proj" -noP4 -nodebuginfo -utf8output `
+    -platform=Win64 -server -serverconfig=Development -noclient -cook -build -stage -pak
+# 산출물: Saved/StagedBuilds/WindowsServer/CrazyArcade3D/Binaries/Win64/CrazyArcade3DServer.exe
+```
+
+클라는 언쿡(에디터 바이너리 `-game`)이어도 붙는다 — 같은 빌드라 클래스·프로퍼티 레이아웃이 같다.
+리눅스 배포도 결국 같은 절차를 타므로(플랫폼만 교체) 이 경험은 그대로 재사용된다.
+
 ## 리눅스 데디 서버 (클라우드 배포 시점으로 이월 — 2026-07-30)
 
 Win64 서버 빌드는 소스 엔진으로 바로 되고, **개발·테스트는 이걸로 충분하다.**
