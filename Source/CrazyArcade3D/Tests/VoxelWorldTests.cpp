@@ -166,6 +166,47 @@ bool FVoxelWorldTest::RunTest(const FString& Parameters)
 			LateInitWorld->GetBlock(C), EBlockType::Empty);
 	}
 
+	// ─── 5. 중간 접속 따라잡기 (2026-08-02 데디 실측 버그의 회귀 테스트) ───
+	// Multicast RPC 는 "그 순간 접속해 있는" 클라에게만 간다. 그래서 이력 복제가 없으면
+	// 늦게 들어온 클라는 시드로 만든 원본 지형만 갖는다 — 실제로 서버가 15칸 부순 뒤 접속한
+	// 클라가 그 15칸을 멀쩡한 벽으로 봤다. 이 테스트는 그 상황을 그대로 재현한다:
+	// 그리드는 이미 만들어져 있고(= 접속 후 시드 처리 완료), 파괴 이력만 뒤늦게 도착한다.
+	{
+		AVoxelWorld* JoinerWorld = World->SpawnActor<AVoxelWorld>();
+		if (TestNotNull(TEXT("중간 접속 검증용 AVoxelWorld 스폰"), JoinerWorld))
+		{
+			JoinerWorld->Seed = 1234u;
+			JoinerWorld->OnRep_Seed();
+			TestTrue(TEXT("중간 접속: 그리드 먼저 생성됨"), JoinerWorld->bGridInitialized);
+
+			// 접속 전에 서버가 부순 셀들 — 이 클라는 Multicast 를 한 번도 못 받았다.
+			const TArray<FIntVector> HistoryCells = CA3DVoxelWorldTest::FindDestructibleCells(JoinerWorld->GetGrid(), 5);
+			TestTrue(TEXT("중간 접속: 이력 셀 확보"), HistoryCells.Num() > 0);
+			for (const FIntVector& C : HistoryCells)
+			{
+				TestNotEqual(TEXT("중간 접속: 따라잡기 전에는 아직 남아 있다"),
+					JoinerWorld->GetBlock(C), EBlockType::Empty);
+			}
+
+			// 복제 프로퍼티 도착 → OnRep 이 "아직 반영 안 된 것"만 골라 적용한다.
+			JoinerWorld->DestroyedCells = HistoryCells;
+			JoinerWorld->OnRep_DestroyedCells();
+
+			for (const FIntVector& C : HistoryCells)
+			{
+				TestEqual(FString::Printf(TEXT("중간 접속: 이력 셀 (%d,%d,%d) 따라잡기 후 Empty"), C.X, C.Y, C.Z),
+					JoinerWorld->GetBlock(C), EBlockType::Empty);
+			}
+
+			// 같은 이력이 또 와도(= 배열 재복제) 두 번 적용되면 안 된다 —
+			// 두 번 적용되면 해시 로그 순번이 서버와 어긋나 동기화 검증 자체를 못 믿게 된다.
+			const int32 ApplyCountBefore = JoinerWorld->DestructionApplyCount;
+			JoinerWorld->OnRep_DestroyedCells();
+			TestEqual(TEXT("중간 접속: 같은 이력 재수신은 무시 (이중 적용 없음)"),
+				JoinerWorld->DestructionApplyCount, ApplyCountBefore);
+		}
+	}
+
 	// ─── 정리 ───
 	World->DestroyWorld(false);
 	return true;

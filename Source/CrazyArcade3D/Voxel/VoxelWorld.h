@@ -65,6 +65,17 @@ protected:
 
 	UFUNCTION() void OnRep_Seed();
 
+	// 파괴 이력 — **중간 접속자를 위한 것**이다.
+	// Multicast RPC 는 "그 순간 접속해 있는" 클라에게만 간다. 그래서 이력이 없으면 늦게 들어온
+	// 클라는 시드로 만든 원본 지형만 갖는다 (2026-08-02 데디 실측: 서버가 15칸 부순 뒤 접속한
+	// 클라가 그 15칸을 멀쩡한 벽으로 봄 — 서버는 통과시키는데 클라는 막히고, 그 반대도 난다).
+	// 프로퍼티 복제는 **접속 시점에 현재 값 전체**를 보내주므로, 이력을 배열로 들고 있는 것만으로
+	// 중간 접속이 해결된다. Multicast 는 그대로 둔다 — 즉시성(같은 프레임 반영)은 그쪽이 낫다.
+	UPROPERTY(ReplicatedUsing=OnRep_DestroyedCells)
+	TArray<FIntVector> DestroyedCells;
+
+	UFUNCTION() void OnRep_DestroyedCells();
+
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnBlocksDestroyed(const TArray<FIntVector>& Cells);
 
@@ -101,9 +112,15 @@ private:
 	// 파괴의 단일 경로 (불변식 1). 서버든 클라든 반드시 이 함수로만 들어온다.
 	void ApplyDestruction(const TArray<FIntVector>& Cells);
 
+	// 아직 적용되지 않은(= 그리드에 아직 남아 있는) 셀만 걸러낸다.
+	// 같은 셀이 Multicast 와 복제 이력(DestroyedCells) 양쪽으로 들어오므로 필요하다 —
+	// 거르지 않으면 같은 파괴가 두 번 적용돼 해시 로그 순번이 서버와 어긋난다.
+	TArray<FIntVector> FilterUnapplied(const TArray<FIntVector>& Cells) const;
+
 	friend class FVoxelWorldTest; // 자동화 테스트가 OnRep_Seed·Multicast 경로(파괴 선도착 큐)를 검증하기 위한 접근
 	friend class FBombTest; // 자동화 테스트가 손그리드 구성(결정론 시나리오)을 위한 접근 (Task 16)
 	friend class FPredictedBombVisualTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 17)
 	friend class FHISMVoxelRendererTest; // BeginPlay가 돌지 않는 테스트 월드에서 Renderer 수동 배선용
 	friend class FDeathHandlingTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 27)
+	friend class FBotControllerTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 20)
 };

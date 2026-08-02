@@ -13,6 +13,10 @@ public class CrazyArcade3D : ModuleRules
 			"Engine",
 			"InputCore",
 			"EnhancedInput",
+			// 봇(Task 20) — ABotController 의 부모 AAIController. BT/블랙보드는 쓰지 않지만
+			// (구조 결정 12: 순수 C++ FSM) 컨트롤러 기반 클래스와 PlayerState 배선은 재사용한다.
+			// 헤더가 AAIController 를 공개 상속하므로 Public 의존이어야 한다.
+			"AIModule",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

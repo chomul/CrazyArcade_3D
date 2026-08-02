@@ -10,8 +10,13 @@ class UHierarchicalInstancedStaticMeshComponent;
 class UStaticMesh;
 struct FVoxelGrid;
 
-// AVoxelWorld에 부착되는 렌더 컴포넌트. 클라 전용 —
-// 생성·빌드 함수 최상단에서 if (IsRunningDedicatedServer()) return; (불변식 5).
+// AVoxelWorld에 부착되는 지형 컴포넌트.
+//
+// ⚠️ 이름은 "렌더러"지만 **데디 서버에서도 살아 있어야 한다** — HISM 인스턴스가 곧 블록의
+// 컬리전이라 이걸 지우면 서버에 바닥이 없어진다 (2026-08-02 실측, AVoxelWorld::BeginPlay 주석).
+// 그래서 여기에는 IsRunningDedicatedServer() 조기 반환을 두지 않는다. 데디는 씬이 없어
+// 렌더 상태를 애초에 만들지 않으므로, 살려둬도 드는 비용은 인스턴스 트랜스폼뿐이고
+// 그건 컬리전에 어차피 필요한 데이터다.
 //
 // 표면 추출: 6방향 이웃 중 하나라도 Empty인 블록만 인스턴스를 만든다.
 // 내부에 완전히 묻힌 블록은 그리지 않다가, 파괴로 노출되는 순간 RemoveBlock의

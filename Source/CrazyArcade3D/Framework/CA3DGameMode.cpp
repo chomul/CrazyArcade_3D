@@ -6,11 +6,22 @@
 #include "Framework/CA3DRuleSet.h"
 #include "Gameplay/Character/CA3DCharacter.h"        // Framework→Gameplay 허용 (Framework→전부)
 #include "Gameplay/Character/CA3DPlayerController.h"
+#include "AI/BotController.h"                        // Framework→AI 허용 (Framework→전부)
 #include "Voxel/VoxelWorld.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"
 #include "TimerManager.h"
+
+// 봇 채우기 스위치 (Task 20). -1 = 룰셋(bFillWithBots·BotFillTargetPlayers)을 따른다.
+// 콘솔 변수를 따로 둔 이유: 룰셋 기본이 false 라 헤드리스 데디 검증에서 에셋을 고치지 않고
+// 켤 수단이 필요하다 — `-ExecCmds="ca3d.BotFill 4"` 한 줄로 4인 매치가 된다.
+// (룰셋 에셋을 바꾸면 그 변경이 다른 모든 실행에 따라붙는다.)
+static TAutoConsoleVariable<int32> CVarCA3DBotFill(
+	TEXT("ca3d.BotFill"),
+	-1,
+	TEXT("봇으로 맞출 총 인원. -1 = 룰셋 따름(기본), 0 = 봇 없음, N = N명이 되도록 부족분을 채움"));
 
 ACA3DGameMode::ACA3DGameMode()
 {
@@ -74,6 +85,14 @@ void ACA3DGameMode::BeginPlay()
 	{
 		UE_LOG(LogCA3D, Error, TEXT("ACA3DGameMode: 스폰 셀 0개 — 맵 생성 실패 여부를 확인할 것"));
 	}
+
+	// ── 5. 봇 채우기 예약 (Task 20) ──────────────────────────
+	// 지금 세지 않고 미루는 이유 두 가지: (a) 사람이 들어와야 "부족분"이 정해진다,
+	// (b) -ExecCmds 의 ca3d.BotFill 이 반영된 뒤에 판단해야 한다.
+	// 지형 초기화가 끝난 뒤에 예약한다 — 그리드가 없으면 봇은 경로도 위험도 계산할 수 없다.
+	GetWorldTimerManager().SetTimer(BotFillTimer,
+		FTimerDelegate::CreateUObject(this, &ACA3DGameMode::SpawnFillBots),
+		FMath::Max(Rules->BotFillDelaySeconds, KINDA_SMALL_NUMBER), false);
 }
 
 void ACA3DGameMode::PostLogin(APlayerController* NewPlayer)
@@ -81,32 +100,7 @@ void ACA3DGameMode::PostLogin(APlayerController* NewPlayer)
 	// 참가 등록을 Super 보다 "먼저" 한다 — Super::PostLogin 이 HandleStartingNewPlayer 로 폰을
 	// 스폰하므로, 폰·컨트롤러가 색 인덱스를 읽는 후속 Task(20 봇 · 26 결과 화면)에서
 	// 한 프레임 늦은 값을 보지 않게 한다. PlayerState 는 Login 단계에서 이미 만들어져 있다.
-	if (HasAuthority()) // 불변식 5 — GameMode 는 서버에만 존재하지만 명시한다
-	{
-		ACA3DPlayerState* NewState = NewPlayer ? NewPlayer->GetPlayerState<ACA3DPlayerState>() : nullptr;
-		if (NewState)
-		{
-			NewState->ColorIndex = MatchParticipantCount; // 접속 순서 = 색 (GDD 5장, 1종 캐릭터 + 색 구분)
-			NewState->FinalRank = 0;
-			NewState->bAlive = true;
-			++MatchParticipantCount;
-
-			// AliveCount 는 GameState 의 값이지만 갱신 주체는 서버(GameMode) 단독이다 —
-			// 클라·PlayerState 가 각자 세면 동시 사망에서 값이 갈린다.
-			if (ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>())
-			{
-				++CA3DGameState->AliveCount;
-			}
-
-			UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 참가자 입장 — 총 %d명, ColorIndex %d"),
-				MatchParticipantCount, NewState->ColorIndex);
-		}
-		else
-		{
-			UE_LOG(LogCA3D, Warning,
-				TEXT("ACA3DGameMode::PostLogin: ACA3DPlayerState 없음 — PlayerStateClass 오버라이드를 확인할 것 (승패 판정에서 제외된다)"));
-		}
-	}
+	RegisterParticipant(NewPlayer);
 
 	Super::PostLogin(NewPlayer);
 
@@ -158,6 +152,98 @@ AActor* ACA3DGameMode::ChoosePlayerStart_Implementation(AController* Player)
 
 	SpawnStartActors[CellIndex] = Start;
 	return Start;
+}
+
+// ─── 참가 등록·봇 채우기 (Task 20, 서버 전용) ────────────────────────────────
+
+void ACA3DGameMode::RegisterParticipant(AController* NewController)
+{
+	if (!HasAuthority()) return; // 불변식 5 — GameMode 는 서버에만 존재하지만 명시한다
+
+	ACA3DPlayerState* NewState = NewController ? NewController->GetPlayerState<ACA3DPlayerState>() : nullptr;
+	if (!NewState)
+	{
+		UE_LOG(LogCA3D, Warning,
+			TEXT("ACA3DGameMode::RegisterParticipant: ACA3DPlayerState 없음 — PlayerStateClass 오버라이드(봇은 bWantsPlayerState)를 확인할 것 (승패 판정에서 제외된다)"));
+		return;
+	}
+
+	NewState->ColorIndex = MatchParticipantCount; // 참가 순서 = 색 (GDD 5장, 1종 캐릭터 + 색 구분)
+	NewState->FinalRank = 0;
+	NewState->bAlive = true;
+	++MatchParticipantCount;
+
+	// AliveCount 는 GameState 의 값이지만 갱신 주체는 서버(GameMode) 단독이다 —
+	// 클라·PlayerState 가 각자 세면 동시 사망에서 값이 갈린다.
+	if (ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>())
+	{
+		++CA3DGameState->AliveCount;
+	}
+
+	UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 참가자 입장 — 총 %d명, ColorIndex %d%s"),
+		MatchParticipantCount, NewState->ColorIndex, NewState->IsABot() ? TEXT(" (봇)") : TEXT(""));
+}
+
+void ACA3DGameMode::SpawnFillBots()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const UCA3DRuleSet* EffectiveRules = Rules ? Rules : GetDefault<UCA3DRuleSet>();
+
+	// 콘솔 변수가 룰셋을 덮어쓴다 (-1 = 룰셋 따름). 룰셋 기본이 false 인 이유는 룰셋 주석 참조 —
+	// 봇이 조용히 켜져 있으면 기존 PIE·자동화 테스트의 인원수가 바뀐다.
+	const int32 Override = CVarCA3DBotFill.GetValueOnGameThread();
+	const int32 TargetPlayers = (Override >= 0)
+		? Override
+		: (EffectiveRules->bFillWithBots ? EffectiveRules->BotFillTargetPlayers : 0);
+
+	const int32 Needed = TargetPlayers - MatchParticipantCount;
+	if (Needed <= 0)
+	{
+		UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 봇 채우기 없음 — 목표 %d명 / 현재 참가 %d명%s"),
+			TargetPlayers, MatchParticipantCount, (Override >= 0) ? TEXT(" (ca3d.BotFill)") : TEXT(""));
+		return;
+	}
+
+	int32 SpawnedCount = 0;
+	for (int32 Index = 0; Index < Needed; ++Index)
+	{
+		FActorSpawnParameters Params;
+		Params.ObjectFlags |= RF_Transient; // 컨트롤러는 레벨 저장 대상이 아니다
+
+		ABotController* Bot = World->SpawnActor<ABotController>(ABotController::StaticClass(), Params);
+		if (!Bot)
+		{
+			UE_LOG(LogCA3D, Error, TEXT("ACA3DGameMode: ABotController 스폰 실패 — 봇 채우기 중단"));
+			break;
+		}
+
+		// PlayerState 는 bWantsPlayerState 덕분에 스폰 시점(PostInitializeComponents)에 이미 붙어 있다.
+		// 이름을 여기서 주는 이유: 결과 화면·킬 피드가 봇을 사람과 같은 목록으로 보여줘야
+		// "한 판 완주" 검증이 눈으로 확인된다.
+		if (ACA3DPlayerState* BotState = Bot->GetPlayerState<ACA3DPlayerState>())
+		{
+			BotState->SetIsABot(true);
+			BotState->SetPlayerName(FString::Printf(TEXT("Bot %d"), ++BotNameCounter));
+		}
+
+		RegisterParticipant(Bot); // 사람과 **같은** 등록 경로 (ColorIndex·AliveCount)
+
+		// 폰 부착도 엔진 기본 파이프라인 그대로 — ChoosePlayerStart_Implementation 의
+		// 스폰 셀 배정이 그대로 재사용된다 (봇 전용 스폰 경로를 만들면 그만큼 검증이 빠진다).
+		RestartPlayer(Bot);
+		++SpawnedCount;
+	}
+
+	UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 봇 %d대 투입 — 목표 %d명 / 총 참가 %d명%s"),
+		SpawnedCount, TargetPlayers, MatchParticipantCount,
+		(Override >= 0) ? TEXT(" (ca3d.BotFill)") : TEXT(""));
 }
 
 // ─── 승패 판정 (Task 18, 서버 전용) ──────────────────────────────────────────

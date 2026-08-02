@@ -25,7 +25,7 @@ AVoxelWorld::AVoxelWorld()
 
 	// 렌더러는 생성자 CreateDefaultSubobject (Task 07) — BP_VoxelWorld 서브클래스에서
 	// BlockMeshes 디폴트를 편집할 수 있어야 하기 때문 (BeginPlay NewObject는 BP 디폴트를 못 받는다).
-	// 데디 서버에서는 BeginPlay에서 파괴한다.
+	// ⚠️ 데디 서버에서도 살려둔다 — 이 컴포넌트가 지형의 유일한 컬리전이다 (BeginPlay 주석).
 	HISMRendererComponent = CreateDefaultSubobject<UHISMVoxelRenderer>(TEXT("HISMRenderer"));
 }
 
@@ -37,18 +37,22 @@ void AVoxelWorld::BeginPlay()
 	// ServerInitFromSeed 를 호출하는 것 (Task 09). GameMode BeginPlay 가 이 액터의
 	// BeginPlay 보다 먼저 돌아도 문제없다 (아래 catch-up 렌더 빌드가 처리).
 
-	if (IsRunningDedicatedServer())
-	{
-		// 데디 서버는 시각이 필요 없다 (불변식 5) — 렌더러 컴포넌트를 파괴해 메모리 절약.
-		// Renderer 는 nullptr 유지 (호출부는 전부 null 가드).
-		if (HISMRendererComponent)
-		{
-			HISMRendererComponent->DestroyComponent();
-			HISMRendererComponent = nullptr;
-		}
-		return;
-	}
-
+	// ⚠️ 데디 서버에서도 이 컴포넌트를 **파괴하면 안 된다.** 이름은 "렌더러"지만
+	// 지형의 **유일한 컬리전**이기도 하다 — HISM 인스턴스가 곧 블록의 물리 형상이다.
+	//
+	// 예전 구현은 "시각 전용이니 데디에서는 파괴한다"(불변식 5)고 판단해 지웠는데,
+	// 그 결과 **데디 서버에 바닥이 없어 모든 캐릭터가 MOVE_Falling 으로 지형을 통과**했다
+	// (2026-08-02 실측: 봇 5대가 지상 판정 3.6%, Z 가 바닥면 아래로 내려감).
+	// 서버가 이동 권한을 가지므로 이건 게임 전체가 성립하지 않는 버그다.
+	//
+	// **PIE 로는 절대 안 잡힌다**: PIE 의 "Play as Dedicated Server" 는 에디터 프로세스라
+	// IsRunningDedicatedServer() 가 false 다 → HISM 이 살아 있어 멀쩡히 걸어다닌다.
+	// 진짜 서버 exe(또는 에디터 `-server`)에서만 재현된다.
+	//
+	// 그래서 데디에서도 Renderer 로 배선한다. 인스턴스 추가·제거(RemoveBlock)를 계속
+	// 태워야 **부순 블록의 컬리전이 남지 않는다** — 파괴가 서버에서만 안 반영되면
+	// 서버는 없는 벽에 막히고 클라는 지나간다.
+	// 렌더링 비용은 어차피 0이다: 데디는 씬이 없어 프리미티브가 렌더 상태를 만들지 않는다.
 	Renderer = HISMRendererComponent.Get();
 
 	// 순서 함정: 클라에서 OnRep_Seed 가 BeginPlay 보다 먼저 도착할 수 있다.
@@ -65,6 +69,7 @@ void AVoxelWorld::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifet
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AVoxelWorld, Seed);
+	DOREPLIFETIME(AVoxelWorld, DestroyedCells);
 }
 
 // ─── 좌표 변환 ─────────────────────────────────────────────
@@ -113,6 +118,10 @@ void AVoxelWorld::ServerDestroyBlocks(const TArray<FIntVector>& Cells)
 	if (!HasAuthority()) return; // 불변식 5
 
 	ApplyDestruction(Cells);
+
+	// 이력 누적이 먼저다 — 이 배열이 중간 접속자가 보는 "지금까지 무슨 일이 있었나" 전부다.
+	DestroyedCells.Append(Cells);
+
 	MulticastOnBlocksDestroyed(Cells);
 }
 
@@ -126,6 +135,26 @@ void AVoxelWorld::OnRep_Seed()
 	InitGridFromSeed();
 }
 
+void AVoxelWorld::OnRep_DestroyedCells()
+{
+	// 중간 접속자의 따라잡기 경로. 접속 시점에 이 배열의 **전체 값**이 한 번에 도착하므로,
+	// 여기서 아직 적용 안 된 셀만 골라 넣으면 그 클라의 지형이 서버와 같아진다.
+	// 이미 접속해 있던 클라에게는 보통 할 일이 없다 — Multicast 가 먼저 처리했기 때문이다.
+	if (!bGridInitialized)
+	{
+		// 그리드 생성 전 도착 — Seed 와 이 배열은 같은 초기 번들에 실려 순서가 보장되지 않는다.
+		PendingDestroyQueue.Append(DestroyedCells);
+		return;
+	}
+
+	const TArray<FIntVector> Missing = FilterUnapplied(DestroyedCells);
+	if (Missing.Num() > 0)
+	{
+		UE_LOG(LogCA3D, Log, TEXT("AVoxelWorld: 파괴 이력 따라잡기 %d칸 (중간 접속 보정)"), Missing.Num());
+		ApplyDestruction(Missing);
+	}
+}
+
 void AVoxelWorld::MulticastOnBlocksDestroyed_Implementation(const TArray<FIntVector>& Cells)
 {
 	// 리슨 서버/서버 로컬 실행 중복 방지 — 서버는 ServerDestroyBlocks에서
@@ -134,13 +163,35 @@ void AVoxelWorld::MulticastOnBlocksDestroyed_Implementation(const TArray<FIntVec
 
 	if (bGridInitialized)
 	{
-		ApplyDestruction(Cells);
+		// 복제 이력(OnRep_DestroyedCells)이 먼저 처리했을 수 있으므로 남은 것만 적용한다.
+		const TArray<FIntVector> Fresh = FilterUnapplied(Cells);
+		if (Fresh.Num() > 0)
+		{
+			ApplyDestruction(Fresh);
+		}
 	}
 	else
 	{
 		// 그리드 초기화 전 선도착 — 큐에 쌓아두고 OnRep_Seed 직후 flush.
 		PendingDestroyQueue.Append(Cells);
 	}
+}
+
+TArray<FIntVector> AVoxelWorld::FilterUnapplied(const TArray<FIntVector>& Cells) const
+{
+	TArray<FIntVector> Result;
+	Result.Reserve(Cells.Num());
+	for (const FIntVector& Cell : Cells)
+	{
+		// 아직 솔리드로 남아 있다 = 이 파괴가 아직 반영되지 않았다.
+		// AddUnique 인 이유: 입력 자체에 같은 셀이 두 번 들어올 수 있다(Multicast + 복제 이력이
+		// 한 큐에 쌓인 경우). 그대로 두면 "이번 파괴 N칸" 집계가 부풀어 해시 로그 판독이 어긋난다.
+		if (Grid.Get(Cell) != EBlockType::Empty)
+		{
+			Result.AddUnique(Cell);
+		}
+	}
+	return Result;
 }
 
 // ─── 내부 공통 경로 ───────────────────────────────────────
@@ -219,10 +270,16 @@ void AVoxelWorld::InitGridFromSeed()
 	}
 
 	// 선도착 파괴 큐 flush — 서버는 실제로 안 쌓이지만 공통 경로를 유지한다.
+	// 같은 셀이 Multicast 와 복제 이력 양쪽에서 들어와 중복될 수 있어 걸러서 적용한다.
 	if (PendingDestroyQueue.Num() > 0)
 	{
-		UE_LOG(LogCA3D, Log, TEXT("AVoxelWorld: 선도착 파괴 셀 %d개 flush"), PendingDestroyQueue.Num());
-		ApplyDestruction(PendingDestroyQueue);
+		const TArray<FIntVector> Fresh = FilterUnapplied(PendingDestroyQueue);
+		UE_LOG(LogCA3D, Log, TEXT("AVoxelWorld: 선도착 파괴 셀 %d개 flush (중복 제외 %d개 적용)"),
+			PendingDestroyQueue.Num(), Fresh.Num());
+		if (Fresh.Num() > 0)
+		{
+			ApplyDestruction(Fresh);
+		}
 		PendingDestroyQueue.Empty();
 	}
 }

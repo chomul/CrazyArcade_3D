@@ -147,4 +147,5 @@ private:
 	friend class FBombTest;             // 설치 검증·공중 스캔·연쇄 검증을 위한 접근 (Task 16)
 	friend class FPredictedBombVisualTest; // 로컬 검증·예측 목록 검증을 위한 접근 (Task 17)
 	friend class FDeathHandlingTest;    // 사망 상태 적용·입력 차단 검증을 위한 접근 (Task 27)
+	friend class FBotControllerTest;    // 봇이 조종하는 캐릭터의 튜닝 수동 적용을 위한 접근 (Task 20)
 };

@@ -159,6 +159,43 @@ public:
 	UPROPERTY(EditAnywhere, Category="Match")
 	int32 MinPlayersForMatchEnd = 2;
 
+	// ── Bot (Task 20) ─────────────────────────────────────
+	// 봇은 "인원을 채워 한 판을 완주시키는" 수단이다 (헤드리스 데디에서 사람 8명은 모을 수 없다).
+
+	// 인원 부족분을 봇으로 채울지. **기본 false** — 켜져 있으면 기존 PIE·자동화 테스트의
+	// 인원수가 조용히 바뀌어(승패 판정 게이트·스폰 셀 배정) 원인 찾기 어려운 차이를 만든다.
+	// 켜는 방법은 두 가지: 룰셋 에셋에서 체크, 또는 콘솔 변수 `ca3d.BotFill <N>`
+	// (헤드리스 데디는 -ExecCmds="ca3d.BotFill 4" — 콘솔 변수가 이 값을 덮어쓴다).
+	UPROPERTY(EditAnywhere, Category="Bot")
+	bool bFillWithBots = false;
+
+	// 봇까지 포함해 맞출 총 인원. (⚠️ 잠정 — 4인 기준으로 잡았다. 8인 완주 테스트 때 재확인)
+	UPROPERTY(EditAnywhere, Category="Bot", meta=(ClampMin="0", ClampMax="8"))
+	int32 BotFillTargetPlayers = 4;
+
+	// 매치 시작 후 봇을 채우기까지의 대기(초). 사람이 먼저 들어와야 "부족분"이 정해진다.
+	// -ExecCmds 로 넘긴 콘솔 변수가 반영될 시간을 버는 역할도 겸한다.
+	// (⚠️ 잠정 — 실제 로비(Task 19)가 들어오면 "전원 준비 완료" 신호로 대체될 값이다.)
+	UPROPERTY(EditAnywhere, Category="Bot", meta=(ClampMin="0.0"))
+	float BotFillDelaySeconds = 3.f;
+
+	// FSM 재계획 주기(초). **매 틱 BFS 를 돌리지 않기 위한 값** — 봇 8대가 매 틱 탐색하면
+	// 서버 틱이 튄다. 이 주기 사이에는 캐시된 경로를 따라간다.
+	// (⚠️ 잠정 — 짧을수록 똑똑해 보이고 길수록 싸다. PIE stat unit 으로 확정)
+	UPROPERTY(EditAnywhere, Category="Bot", meta=(ClampMin="0.05", ClampMax="2.0"))
+	float BotReplanInterval = 0.4f;
+
+	// 봇의 폭탄 설치 최소 간격(초). 난이도 조절이 아니라 **연속 설치로 자기 탈출로를 스스로
+	// 막는 것**을 줄이는 값이다 (설치 판단은 매번 탈출로를 확인하지만, 놓는 순간 지형은
+	// 아직 안 바뀌었고 다음 폭탄이 그 길을 덮을 수 있다). (⚠️ 잠정)
+	UPROPERTY(EditAnywhere, Category="Bot", meta=(ClampMin="0.0"))
+	float BotBombCooldown = 2.f;
+
+	// BFS 탐색 노드 상한. 21×21×4 맵의 한 층이 441칸이므로 512면 같은 층 대부분을 덮는다.
+	// 상한이 있어야 지형이 뚫려 탐색 공간이 커져도 서버 비용이 예측 가능하다. (⚠️ 잠정)
+	UPROPERTY(EditAnywhere, Category="Bot", meta=(ClampMin="16"))
+	int32 BotMaxPathNodes = 512;
+
 	// ── SuddenDeath ───────────────────────────────────────
 
 	// 서든데스 발동 시각(초).

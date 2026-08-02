@@ -25,8 +25,9 @@ UHISMVoxelRenderer::UHISMVoxelRenderer()
 
 void UHISMVoxelRenderer::BuildFromGrid(const FVoxelGrid& Grid)
 {
-	if (IsRunningDedicatedServer()) return; // 불변식 5 — 시각 전용
-
+	// ⚠️ 데디 서버 가드를 두지 않는다 (2026-08-02 수정). HISM 인스턴스가 곧 블록의 **컬리전**이라
+	// 서버에서 안 만들면 바닥이 없어 캐릭터가 지형을 통과한다 — 서버가 이동 권한을 가지므로 치명적이다.
+	// 불변식 5 는 "시각만 만지는 함수"에 적용되는데, 이 함수는 시각이 아니라 형상을 만든다.
 	Clear();
 
 	int32 SolidCount = 0;
@@ -69,7 +70,8 @@ void UHISMVoxelRenderer::BuildFromGrid(const FVoxelGrid& Grid)
 
 void UHISMVoxelRenderer::RemoveBlock(const FIntVector& Cell, const FVoxelGrid& Grid)
 {
-	if (IsRunningDedicatedServer()) return; // 불변식 5 — 시각 전용
+	// ⚠️ 여기도 데디 가드를 두면 안 된다 — 서버에서만 파괴가 반영되지 않으면
+	// **서버는 없는 벽에 막히고 클라는 그 자리를 지나간다** (BuildFromGrid 주석).
 
 	// 1. 그 셀의 인스턴스 제거. 파괴 후 Grid는 이미 Empty라 타입을 그리드에서 못 얻는다 —
 	//    모든 타입 맵에서 탐색한다. (셀은 한 타입에만 존재하므로 찾으면 break.)

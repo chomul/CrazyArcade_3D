@@ -40,9 +40,11 @@
 > GDD 8장 2주차 항목 중 **"서버 권한 구조 이전 + 폭탄 로컬 예측", "시드 전송 + 파괴 리플리케이션"은
 > 1주차에 달성 완료** (불변식 5로 처음부터 권한 분리 / Task 16·17 + 게이트로 동기화 실증). 남은 것:
 
-- [ ] **18. `ACA3DPlayerState`** — C++ 완료(Framework/CA3DPlayerState.h/.cpp 복제 3필드(ColorIndex·FinalRank·bAlive, 로직 0) + GameMode 승패 판정(PostLogin 색 배정·참가 인원·AliveCount, NotifyPlayerDeath→다음 틱 배칭→ResolvePendingDeaths) + GameState `bMatchEnded` + 룰셋 `MinPlayersForMatchEnd` + StatusComponent 사망 통지 배선) + 테스트 `CrazyArcade3D.Framework.PlayerState` 통과, 전체 회귀 12스위트, 두 타깃 빌드 통과.
+- [x] **18. `ACA3DPlayerState`** — C++ 완료(Framework/CA3DPlayerState.h/.cpp 복제 3필드(ColorIndex·FinalRank·bAlive, 로직 0) + GameMode 승패 판정(PostLogin 색 배정·참가 인원·AliveCount, NotifyPlayerDeath→다음 틱 배칭→ResolvePendingDeaths) + GameState `bMatchEnded` + 룰셋 `MinPlayersForMatchEnd` + StatusComponent 사망 통지 배선) + 테스트 `CrazyArcade3D.Framework.PlayerState` 통과, 두 타깃 빌드 통과.
       **동시 사망 = 공동 등수, 마지막 전원 동시 사망 = 무승부(1등 공석)** 로 사용자 확정 — `FMath::Max(2, AliveBefore-K+1)` 하한이 우승 자리를 비워 두는 장치.
-      — **PIE 검증(색 인덱스 전 클라 동일·복제·최후 1인 종료) 대기라 미체크.** 잔여: 관전 상태 전환 미구현 · 중도 이탈 규칙 미확정
+      **실전 검증 완료(2026-08-02, Task 20 봇 매치)** — 쿡된 데디 서버에서 ColorIndex 순차 배정(0·1·…),
+      **동시 사망 2명에게 공동 3등**이 실제로 발화, 최후 1인에서 `매치 종료: 우승자 확정`.
+      잔여: 관전 상태 전환 미구현 · 중도 이탈 규칙 미확정
 - [x] **27. 사망 처리·관전** — C++ 완료(`ACA3DCharacter::ApplyDeathState` 단일 지점: 캡슐 컬리전 off·`MOVE_None`·**액터 숨김**(데디 가드) + `Move`/`DoJump` 생존 가드(캐릭터에 둬서 봇도 같은 경로) + 서버 `ServerKill`·클라 `OnRep_Life` 가 같은 함수 통과) + 테스트 `CrazyArcade3D.Gameplay.DeathHandling` 통과, 전체 회귀 13스위트, 두 타깃 빌드 통과 + **PIE 검증 통과(2026-08-02 — 시체 소멸·유령 방해 없음·관전 시점 그 자리 고정·갇힘 중 점프 차단)**.
       폰은 파괴·풀링하지 않고 유지 — 부활은 이 함수가 바꾼 것을 되돌리기만 하면 된다.
       **컬리전·이동 모드는 서버·클라 각자 적용** — 복제되지 않는 값(`bActorEnableCollision` 미복제 / `ReplicatedMovementMode` 는 COND_SimulatedOnly)이라 서버 가드로 감싸면 죽은 본인 화면이 깨진다 (Task 문서 "정정" 절).
@@ -61,7 +63,17 @@
       · 잔여(입력이 필요해 헤드리스 불가): 실전 파괴 해시 일치 · 사망 복제 · 최후 1인 종료 →
         **Task 20(봇) 이 들어오면 한 판 완주로 자동 검증된다**
 - [ ] **19. `UCA3DGameInstance`** — EOS 세션·로비 (방 생성 → 공개 목록 → 참가 → 준비·시작)
-- [ ] **20. `ABotController`** — 봇으로 인원 채우기 (🎯 "데디 서버로 8인 한 판 완주"의 현실적 수단)
+- [x] **20. `ABotController`** — AI/BotController.h/.cpp (순수 C++ FSM: Evade > Attack > Wander, 위험·설치 판단은
+      `Propagate` 재사용, 그리드 BFS(높이차 1칸), 재계획 주기로 매 틱 BFS 회피) + GameMode 봇 채우기
+      (참가 등록을 `RegisterParticipant` 단일 경로로 통합 — 사람·봇 공용) + 룰셋 Bot 6종 + 콘솔 `ca3d.BotFill`
+      + 테스트 `CrazyArcade3D.AI.BotController`, 전체 회귀 14스위트, 두 타깃 빌드 통과.
+      **봇도 `ACA3DPlayerState` 를 갖는다**(`bWantsPlayerState`) — Task 18 판정이 사람과 봇을 구분하지 않는다.
+      🎯 **데디 서버 한 판 완주 달성(2026-08-02)**: 사람 입력 0으로 공동 4등→공동 3등(2명 동시)→공동 2등→우승자 확정,
+      파괴 29건, 서버·클라 해시 23지점 전부 일치. Task 18·27 의 미검증 항목이 이걸로 함께 해소됐다.
+      ⛔ **이 과정에서 데디 전용 버그 2건 발견·수정** (`mds/Checklists/dedi-server-windows.md`):
+      ① 데디에 지형 컬리전이 없었다(HISM 을 "시각 전용"으로 보고 파괴 — 캐릭터가 지형 통과, 지상 판정 3.6%→58%)
+      ② 중간 접속 클라가 접속 전 파괴를 못 받아 지형이 달랐다(→ `DestroyedCells` 복제 이력 + 미적용분 따라잡기)
+      한계(구현자 보고): 2칸 이상 낙하 경로 미계획 · 공중 설치 안 함 · 폭탄 차기/아이템 없음 (체크리스트 20)
 - [ ] (이월) 리눅스 크로스 컴파일 툴체인 — 클라우드 배포 시점에 착수 (`mds/build.md`)
 
 ## 3주차 — 플레이어블 멀티 데모

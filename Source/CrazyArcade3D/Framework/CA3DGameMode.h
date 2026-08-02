@@ -2,12 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Engine/TimerHandle.h"
 #include "CA3DGameMode.generated.h"
 
 class UCA3DRuleSet;
 class AVoxelWorld;
 class APlayerStart;
 class ACA3DPlayerState;
+class AController;
 
 // 서버 전용 매치 진행자 (Task 09). 클라는 이 클래스를 모른다.
 // 룰셋 소유, 시드 결정, VoxelWorld 초기화, 스폰 배정, 승패 판정(Task 18).
@@ -46,6 +48,15 @@ protected:
 	int32 FixedSeed = 1;
 
 private:
+	// 참가 등록의 **단일 경로** (Task 20) — 사람(PostLogin)과 봇(SpawnFillBots)이 둘 다 여기를
+	// 통과한다. ColorIndex 배정·MatchParticipantCount·AliveCount 가 두 벌로 갈라지면
+	// "봇이 낀 매치에서만 승패 판정이 어긋나는" 진단 최악의 버그가 된다.
+	void RegisterParticipant(AController* NewController);
+
+	// 룰셋(bFillWithBots·BotFillTargetPlayers) 또는 콘솔 변수 `ca3d.BotFill` 이 요구하는
+	// 인원까지 ABotController 를 스폰해 채운다. BeginPlay 가 BotFillDelaySeconds 후로 예약.
+	void SpawnFillBots();
+
 	// 쌓인 사망 통지를 한 번에 해소한다 — 공동 등수 부여 → AliveCount 갱신 → 종료 판정.
 	// NotifyPlayerDeath 가 예약한 다음 틱 타이머에서만 불린다.
 	void ResolvePendingDeaths();
@@ -76,6 +87,15 @@ private:
 	// 승패 판정을 켤지 정한다 — 1인 PIE 테스트에서 시작하자마자 끝나는 것을 막는 게이트.
 	int32 MatchParticipantCount = 0;
 
+	// ─── 봇 채우기 (Task 20, 서버 전용) ───
+
+	// 봇 표시 이름(`Bot 1`, `Bot 2` …)의 번호. 참가 순번(ColorIndex)과 달리 봇끼리만 세므로
+	// 사람이 섞여도 이름이 건너뛰지 않는다.
+	int32 BotNameCounter = 0;
+
+	FTimerHandle BotFillTimer;
+
 	friend class FCA3DGameModeTest;    // 자동화 테스트가 Rules·고정 시드 주입과 스폰 배정 검증을 위한 접근
 	friend class FCA3DPlayerStateTest; // 자동화 테스트가 참가 인원·사망 버퍼를 직접 구성하기 위한 접근
+	friend class FBotControllerTest;   // 자동화 테스트가 봇 채우기·참가 등록을 직접 호출하기 위한 접근 (Task 20)
 };
