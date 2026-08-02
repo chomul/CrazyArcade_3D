@@ -345,9 +345,12 @@ void ACA3DCharacter::Move(const FVector2D& WorldAxis)
 
 void ACA3DCharacter::DoJump()
 {
-	if (Status && Status->LifeState == ELifeState::Dead)
+	// Move 와 같은 이유로 캐릭터에서 차단 (봇 공용 경로). 다만 **Move 와 조건이 다르다** —
+	// 갇힘(Trapped)은 이동은 허용하되(미세 이동, GDD 2.3) **점프는 막는다**: 물방울에
+	// 갇힌 채로 뛰어오르면 갇힘의 의미가 사라진다 (2026-08-02 확정).
+	if (Status && Status->LifeState != ELifeState::Alive)
 	{
-		return; // Move 와 같은 이유로 캐릭터에서 차단 (봇 공용 경로)
+		return;
 	}
 
 	Jump(); // CMC 기본 점프 — 정점 높이는 TryApplyMovementTuning 이 "계수 × 셀" 로 설정
@@ -356,7 +359,7 @@ void ACA3DCharacter::DoJump()
 void ACA3DCharacter::ApplyDeathState()
 {
 	// ⚠️ 부활을 넣게 되면 되돌릴 것 (Task 27 문서) — 흩어지지 않게 여기 모아둔다:
-	//   · 이 함수가 바꾸는 것: 캡슐 컬리전 · MovementMode · 스켈레탈 메시 가시성
+	//   · 이 함수가 바꾸는 것: 캡슐 컬리전 · MovementMode · 액터 숨김(bHidden)
 	//   · 이 함수 밖: UStatusComponent::LifeState (ServerKill),
 	//                 ACA3DPlayerState::bAlive/FinalRank · ACA3DGameState::AliveCount (GameMode — Task 18)
 	// 카메라는 죽은 자리에 그대로 둔다 (자유 관전·추적은 후속) — 그래서 폰을 살려두는 것만으로

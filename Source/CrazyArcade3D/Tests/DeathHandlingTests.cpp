@@ -197,6 +197,11 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 			Captive->GetCapsuleComponent()->GetCollisionEnabled() != ECollisionEnabled::NoCollision);
 		TestTrue(TEXT("⑥ Trapped: 이동 모드 유지"), CaptiveMovement->MovementMode == MOVE_Walking);
 
+		// 이동과 달리 **점프는 막힌다** (2026-08-02 확정) — 갇힘의 의미가 사라지므로.
+		Captive->bPressedJump = false;
+		Captive->DoJump();
+		TestFalse(TEXT("⑥ Trapped: 점프는 막힌다 (이동과 조건이 다르다)"), Captive->bPressedJump);
+
 		// 갇힌 채 익사 — 타이머가 남으면 죽은 컴포넌트를 다시 부른다.
 		CaptiveStatus->ServerKill(EDeathCause::Water);
 		TestEqual(TEXT("⑦ 갇힘 중 사망: Dead"), CaptiveStatus->LifeState, ELifeState::Dead);
