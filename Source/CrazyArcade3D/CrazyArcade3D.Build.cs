@@ -17,14 +17,15 @@ public class CrazyArcade3D : ModuleRules
 			// (구조 결정 12: 순수 C++ FSM) 컨트롤러 기반 클래스와 PlayerState 배선은 재사용한다.
 			// 헤더가 AAIController 를 공개 상속하므로 Public 의존이어야 한다.
 			"AIModule",
+			// HUD·위젯 (Task 25/26) — UI/MatchWidget.h 가 UUserWidget 을 **공개 상속**하고
+			// 공개 헤더가 Slate 타입(ESlateVisibility 등)을 노출하므로 Public 의존이어야 한다.
+			"UMG",
+			"Slate",
+			"SlateCore",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"Slate",
-			"SlateCore",
-			"UMG",
-
 			// EOS 세션·로비 (Task 19). 전부 Private — 공개 헤더(CA3DGameInstance.h)는
 			// OSS 타입을 노출하지 않으므로 이 의존이 다른 파일로 번지지 않는다.
 			"OnlineSubsystem",

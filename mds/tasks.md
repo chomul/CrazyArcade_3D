@@ -99,7 +99,25 @@
       데디 실전(봇 6대·220초): 노출 7 · **획득 4(니들·킥·풍선·물약)** · 소멸 1 · 에러 0.
       컬리전(Sphere)과 표시(Mesh)를 분리해 **데디에서도 획득이 동작** — HISM 사건의 재발 방지책.
       잔여: 에디터 작업(BP_ItemPickup 메시·IA_UseNeedle·IMC 바인딩) 후 PIE 체감 확인
-- [ ] **25·26. HUD·결과 화면** — 남은 폭탄·범위·생존자·순위가 화면에 안 보인다 (아이템 효과 확인 수단)
+- [x] **25·26. HUD·결과 화면** — C++ 완료(UI/CA3DHUD.h/.cpp — 위젯 수명 관리 + **캔버스 텍스트 폴백**(`ca3d.DebugHUD`
+      -1 자동/0 끄기/1 강제, `#if !UE_BUILD_SHIPPING`) / UI/MatchWidget.h/.cpp — GDD 5장 HUD 3요소 + 결과 화면,
+      표시 가공·순위 정렬·무승부 판정을 **static 순수 함수**로 분리) + `ACA3DGameMode` 생성자 `HUDClass` 배선
+      + Build.cs UMG·Slate·SlateCore 를 Public 으로 승격 + 테스트 `CrazyArcade3D.UI.MatchWidget`,
+      **전체 회귀 17스위트 실패 0**, 두 타깃 빌드 통과.
+      ⭐ **에디터 작업 0 으로도 값이 보인다** — WBP 미제작 상태에서 클라 스크린샷으로 확인
+      (`생존 1  0:00` / `폭탄 0/1  범위 1  속도 x1.00  니들 X  킥 X`, 한글 글리프 정상).
+      · 명세 변경 2건: `BindWidget`(필수) → **`BindWidgetOptional`** (필수면 이름이 다 맞을 때까지 WBP 가
+        컴파일조차 안 돼 첫 제작이 막힌다 — 대신 `NativeConstruct` 가 미바인딩 이름을 한 줄로 경고) ·
+        `ShowResult(Ranking)` → **`ShowResult()`** (순위 수집이 HUD·위젯 두 곳에 생기는 것을 막으려고 출처를 한 곳에서 읽음)
+      · **서든데스 경고는 상태를 지어내지 않았다** — 항상 Collapsed, `UpdateSuddenDeathWarning(bool)` 호출 한 줄이
+        Task 24 연결 지점(주석으로 명시). 없는 값을 추측해 채우면 진짜 구현과 충돌한다
+      · 갱신은 **폴링 + 스냅샷 비교** — `OnRep` 을 UI 가 잡으면 Framework→UI 역방향 의존이 생긴다.
+        `FMatchStatSnapshot` 이 같으면 문자열을 다시 만들지 않고, StatusComponent 포인터는 **폰이 바뀔 때만** 재해석
+      · **데디 검증 통과(GDD 7.4)** — 쿡·스테이징한 `CrazyArcade3DServer.exe` 봇 4인 75초 완주에서
+        HUD·위젯·Slate·UMG 생성 흔적 **0건**, Error·Warning 0건 (`AGameModeBase` 는 데디에서 HUD 를 스폰하지 않고,
+        `ACA3DHUD::BeginPlay` 최상단 가드가 이중 방어)
+      · **UI→Gameplay(StatusComponent) 읽기 예외** — GDD 5장 ① 의 출처가 여기뿐이라 불가피. 읽기만 하며 주석에 명시
+      · 잔여: 에디터 작업(WBP_Match·BP_CA3DHUD) 후 PIE 검증 — 아이템 획득 즉시 갱신·사망 시 생존자 수·결과 화면 전환
 - [ ] **24. `USuddenDeathSubsystem`** — 매치가 늘어지는 것을 끊는다
 - [ ] **22. `UProceduralMapGenerator`** — 지금은 고정 맵 하나뿐
 - [ ] (후속) 킥 실제 차기 동작 · 봇 층간 이동 개선(2칸 낙하) · 자유 관전

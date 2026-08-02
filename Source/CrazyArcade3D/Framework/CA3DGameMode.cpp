@@ -7,6 +7,7 @@
 #include "Gameplay/Character/CA3DCharacter.h"        // Framework→Gameplay 허용 (Framework→전부)
 #include "Gameplay/Character/CA3DPlayerController.h"
 #include "AI/BotController.h"                        // Framework→AI 허용 (Framework→전부)
+#include "UI/CA3DHUD.h"                              // Framework→UI 허용 (Framework→전부)
 #include "Voxel/VoxelWorld.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerStart.h"
@@ -33,6 +34,11 @@ ACA3DGameMode::ACA3DGameMode()
 	// BP_CA3DGameMode 의 클래스 오버라이드로 한다 (BP 에 로직 금지 — 에셋 지정만).
 	DefaultPawnClass = ACA3DCharacter::StaticClass();
 	PlayerControllerClass = ACA3DPlayerController::StaticClass();
+
+	// HUD 배선 (Task 25) — C++ 기본값으로 두면 **에디터 작업 0 으로도** 화면에 값이 뜬다.
+	// BP_CA3DGameMode 는 이 값을 오버라이드하지 않으므로 그대로 상속받는다.
+	// (WBP_Match 를 만든 뒤에는 BP_CA3DHUD 를 만들어 MatchWidgetClass 만 지정하면 된다.)
+	HUDClass = ACA3DHUD::StaticClass();
 }
 
 void ACA3DGameMode::BeginPlay()
