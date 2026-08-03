@@ -117,7 +117,12 @@
         HUD·위젯·Slate·UMG 생성 흔적 **0건**, Error·Warning 0건 (`AGameModeBase` 는 데디에서 HUD 를 스폰하지 않고,
         `ACA3DHUD::BeginPlay` 최상단 가드가 이중 방어)
       · **UI→Gameplay(StatusComponent) 읽기 예외** — GDD 5장 ① 의 출처가 여기뿐이라 불가피. 읽기만 하며 주석에 명시
-      · 잔여: 에디터 작업(WBP_Match·BP_CA3DHUD) 후 PIE 검증 — 아이템 획득 즉시 갱신·사망 시 생존자 수·결과 화면 전환
+      · **에디터 작업 완료(2026-08-04)** — `Content/UI/WBP_Match` + `BP_CA3DHUD`, `BP_CA3DGameMode` 의
+        `HUDClass` 오버라이드. 계층 구조·배치값·함정은 `mds/Tasks/26-MatchWidget.md` 에 남겼다.
+        실행 로그로 확인: `매치 위젯 표시 — WBP_Match_C` · `결과 화면 표시 — 3명, 우승자 있음` ·
+        **`미바인딩 위젯` 경고 0건**(= 11개 바인딩 전부 연결. `BindWidgetOptional` 이라 경고 부재가 유일한 증거).
+        사용자 PIE 세션에서는 **무승부 경로**(`bMatchEnded` + Rank==1 없음)도 처음 발동해 정상 표시됐다
+      · 잔여 미검증: 서든데스 경고(Task 24 대기) · 로비 복귀 동선(Task 19 보류) · 갇힘/사망 시 HUD 표현
 - [ ] **24. `USuddenDeathSubsystem`** — 매치가 늘어지는 것을 끊는다
 - [ ] **22. `UProceduralMapGenerator`** — 지금은 고정 맵 하나뿐
 - [ ] (후속) 킥 실제 차기 동작 · 봇 층간 이동 개선(2칸 낙하) · 자유 관전

@@ -16,7 +16,8 @@
 ## 에디터 연결
 - [x] `HUDClass` 지정 — **C++ 기본값**(`ACA3DGameMode` 생성자)으로 배선.
       BP_CA3DGameMode 는 이 값을 오버라이드하지 않으므로 에디터 작업 없이 상속받는다
-- [ ] (선택) `BP_CA3DHUD` 생성 후 `MatchWidgetClass` = WBP_Match 지정 — WBP 제작 후
+- [x] `BP_CA3DHUD` 생성 후 `MatchWidgetClass` = WBP_Match 지정 (2026-08-04) —
+      `BP_CA3DGameMode` 의 `HUDClass` 를 `BP_CA3DHUD` 로 오버라이드
 
 ## 동작 검증 (실행 필수 — 미실행 시 미검증)
 - [x] **캔버스 폴백이 실제로 그려진다** (2026-08-03) — 클라 실행 스크린샷으로 확인:
