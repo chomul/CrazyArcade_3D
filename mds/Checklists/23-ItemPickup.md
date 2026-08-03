@@ -47,7 +47,7 @@
       실제 제작 이름을 따른다), `IMC_Default` 에 바인딩
 - [x] 아이템 메시가 보이는가 — `Content/Meshes/ItemPickUp/SM_{Balloon,Potion,Roller,Needle,Kick}`
       + `Content/Materials/M_Item/MI_*` 를 `BP_ItemPickup` 의 `ItemMeshes` 에 지정
-- [ ] (Listen+클라) 획득·소멸이 전 클라에서 동일하게 보임 — **미검증**
+- [x] (Listen+클라) 획득·소멸이 전 클라에서 동일하게 보임
 
 ## 미구현 (범위 밖 — 명시)
 - 킥의 실제 차기 동작(폭탄 미끄러짐·벽/캐릭터 충돌) — 별도 Task 필요
