@@ -228,12 +228,25 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 
 	if (!HasAuthority()) return; // 불변식 5 — 낙사 판정은 상태 변경으로 이어지므로 서버 전용
 
-	// 낙사 → ServerKill(Fall). Dead 면 스킵 (중복 호출 방지). 갇힌 채 추락하는 상황은
+	// 낙사 → ServerKill. Dead 면 스킵 (중복 호출 방지). 갇힌 채 추락하는 상황은
 	// 막지 않는다 (미결정 정책) — Trapped 여도 그대로 낙사 처리된다.
 	if (Status && Status->LifeState != ELifeState::Dead && GetActorLocation().Z < KillZ)
 	{
-		UE_LOG(LogCA3D, Log, TEXT("ACA3DCharacter %s: KillZ(%.0f) 아래로 낙하 — 낙사 처리"), *GetName(), KillZ);
-		Status->ServerKill(EDeathCause::Fall);
+		// 사망 원인 분기 (Task 24): 서든데스 진행 중이면 SuddenDeath, 아니면 Fall.
+		//
+		// ⚠️ "누가 이 구멍을 냈는가" 를 추적하지 않고 **시각으로만** 판정한다. 추적하려면
+		// 파괴된 셀마다 원인(폭탄 소유자 / 서든데스)을 기록해야 하는데, 그건 FVoxelGrid 가
+		// "누가 왜 부쉈는지" 를 알아야 한다는 뜻이고 Voxel 의 독립성(폴더 의존 규칙 —
+		// "지형은 게임 규칙을 몰라야 함")이 그 자리에서 무너진다. 통계·킬 피드용 분류에
+		// 그만한 비용을 치를 이유가 없다.
+		// 실질적으로도 어긋나지 않는다: 서든데스 전에는 바닥이 파괴되지 않아
+		// (bFloorDestructible=false) 구멍 자체가 생기지 않는다 — 그때의 낙사는 맵 밖 추락뿐이다.
+		const ACA3DGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ACA3DGameState>() : nullptr;
+		const bool bSuddenDeath = GameState && GameState->bSuddenDeathActive;
+
+		UE_LOG(LogCA3D, Log, TEXT("ACA3DCharacter %s: KillZ(%.0f) 아래로 낙하 — 낙사 처리 (%s)"),
+			*GetName(), KillZ, bSuddenDeath ? TEXT("서든데스") : TEXT("추락"));
+		Status->ServerKill(bSuddenDeath ? EDeathCause::SuddenDeath : EDeathCause::Fall);
 	}
 }
 

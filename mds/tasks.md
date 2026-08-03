@@ -124,7 +124,32 @@
         사용자 PIE 세션에서는 **무승부 경로**(`bMatchEnded` + Rank==1 없음)도 처음 발동해 정상 표시됐다
       · 잔여 미검증은 **선행 Task 대기 2건뿐** — 서든데스 경고(Task 24) · 로비 복귀 동선(Task 19 보류).
         볼 수 있는 것은 전부 확인됐다 (갇힘/사망 시 패널 접힘·`-` 표시 포함)
-- [ ] **24. `USuddenDeathSubsystem`** — 매치가 늘어지는 것을 끊는다
+- [x] **24. `USuddenDeathSubsystem`** — C++ 완료(Gameplay/SuddenDeath/SuddenDeathSubsystem.h/.cpp —
+      서버 낙하 스케줄러 + `ASuddenDeathRelay`(Multicast 소유 액터) + `ASuddenDeathDropMarker`(풀링 마커)).
+      두 타깃 빌드 통과, **전체 회귀 18스위트 실패 0** (신규 `CrazyArcade3D.Gameplay.SuddenDeath`).
+      · **사용자 확정(2026-08-04)**: 서든데스 낙하만 바닥을 부순다 — 신규 `bSuddenDeathDestroysFloor=true`,
+        기존 `bFloorDestructible=false` 유지. 초반 150초는 발판이 보장되고 서든데스부터 구멍이 뚫린다.
+        `DropInterval=1.0` · `DropsPerWave=1` · `DropExplosionRange=2`
+      · ⭐ **`Propagate` 를 한 줄도 안 고쳤다** — 불변식 2 덕에 `bFloorDestructible` 이 이미 인자다.
+        서든데스는 거기에 자기 룰셋 값을 넘기기만 한다. 순수 함수로 둔 대가를 여기서 회수했다
+      · **폭발 적용부를 폭탄과 공유** — `ApplyExplosionCells`(②~⑤ 파괴·FX·갇힘·아이템)를 추출해
+        `ProcessChainStep` 과 `ServerApplyExplosionAt` 이 같은 본체를 탄다. 따로 구현했으면
+        "폭탄으로 부순 블록과 서든데스로 부순 블록이 다르게 동작"하는 어긋남이 조용히 생겼을 자리다.
+        연쇄 스케줄링(단계 분산·`ChainStepDelay`·재진입 가드)은 이동하지 않아 폭탄 회귀 0
+      · **낙사 원인은 시각으로 판정** — `bSuddenDeathActive` 면 `SuddenDeath`, 아니면 `Fall`.
+        "누가 이 구멍을 냈나"를 추적하려면 `FVoxelGrid` 가 파괴 원인을 알아야 하고 그 순간
+        Voxel 독립성이 무너진다. 통계용 분류에 그만한 비용을 치르지 않는다
+      · 명세 변경 3건: `MulticastWarnDrop` 을 서브시스템 → `ASuddenDeathRelay` 로 (UHT 는 RPC 를
+        액터에만 허용 — `AExplosionFXRelay` 와 같은 사정) · 시그니처를 셀 1개 → **웨이브 배열**
+        (`DropInterval`(1.0) < `DropWarningTime`(1.5) 이라 예고 중인 웨이브가 동시에 여러 개다.
+        핸들을 하나만 두면 뒤 웨이브가 앞 웨이브를 덮어써 앞 웨이브가 영영 안 떨어진다) ·
+        `DropMarkerClass` 타입을 `AActor` → `ASuddenDeathDropMarker` (`UPoolSubsystem::Acquire` 가
+        `IPooledActor` 미구현 시 ensure 로 실패 — 순수 AActor 면 낙하마다 터진다)
+      · **HUD 서든데스 경고 연결 완료** — `UpdateSuddenDeathWarning(GameState->bSuddenDeathActive)`.
+        Task 25·26 의 마지막 미검증 항목이 이걸로 닫힌다 (표시 확인은 PIE)
+      · 잔여: PIE 검증(마커 보고 회피·낙사 원인 집계·페이싱) · 데디 exe 마커 스킵 확인 ·
+        에디터 작업(`BP_DropMarker` 생성 후 `DA_Rules_Default` 의 `DropMarkerClass` 지정)
+      · ⚠️ 튜닝 대기: **낙하의 약 21%가 부술 것 없는 Immortal 외벽 위에 떨어진다** (체크리스트 24 참조)
 - [ ] **22. `UProceduralMapGenerator`** — 지금은 고정 맵 하나뿐
 - [ ] (후속) 킥 실제 차기 동작 · 봇 층간 이동 개선(2칸 낙하) · 자유 관전
 

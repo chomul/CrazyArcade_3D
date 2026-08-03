@@ -46,6 +46,20 @@ public:
 	// 유일한 호출자는 ABomb::ServerForceDetonate — bDetonated 기록이 선행된다 (중복 방지).
 	void RequestDetonate(ABomb* Bomb);
 
+	// ─── 서버 전용: 폭탄이 아닌 폭발의 공용 진입점 (Task 24) ───
+	//
+	// 계산된 폭발을 **실제로 적용**한다: 블록 파괴(불변식 1) → 물줄기 FX Multicast →
+	// 물줄기 안 캐릭터 갇힘 → 아이템 소멸/노출 → 물줄기에 닿은 폭탄 연쇄 유발.
+	//
+	// 서든데스 낙하(USuddenDeathSubsystem)가 이 함수를 통과하는 이유: 적용부를 따로 구현하면
+	// "폭탄으로 부순 블록과 서든데스로 부순 블록이 다르게 동작"(아이템이 안 나온다, 물줄기가
+	// 안 보인다, 갇히지 않는다) 하는 어긋남이 생기고, 그건 한참 뒤에나 눈에 띈다.
+	// ProcessChainStep 과 **같은 ApplyExplosionCells 본체**를 공유한다.
+	//
+	// bDestroyFloor 는 인자다 — Propagate 가 룰셋을 모르는 것과 같은 이유로, 호출자가
+	// 자기 규칙(폭탄은 bFloorDestructible, 서든데스는 bSuddenDeathDestroysFloor)을 넘긴다.
+	void ServerApplyExplosionAt(const FIntVector& Origin, int32 Range, bool bDestroyFloor);
+
 	// ─── 서버 전용: 활성 폭탄 레지스트리 ───
 	// ABomb::ServerArm 이 등록, ServerReleaseSlot(폭발 처리·EndPlay 안전망)이 해제.
 	// 소비처: 설치 검증("그 셀에 폭탄 있음")·연쇄 셀 해석·Propagate 의 BombCells 인자.
@@ -71,6 +85,12 @@ private:
 	// 주석) → ⑥ 연쇄 셀을 폭탄으로 해석해 다음 단계 투입(ServerForceDetonate 의 bDetonated
 	// 가드가 중복 방지).
 	void ProcessChainStep();
+
+	// ②~⑤ 단계 본체 — "이미 계산이 끝난 폭발 결과를 세상에 반영하는" 부분만 떼어낸 것.
+	// ProcessChainStep(폭탄 연쇄)과 ServerApplyExplosionAt(서든데스 낙하)의 **유일한** 적용 경로다.
+	// 연쇄 스케줄링(단계 분산·ChainStepDelay·재진입 가드)은 여기 없다 — 그건 연쇄만의 관심사다.
+	void ApplyExplosionCells(AVoxelWorld* VoxelWorld, const UCA3DRuleSet* Rules,
+	                         const TArray<FIntVector>& StepWater, const TArray<FIntVector>& StepBroken);
 
 	// ⑤ 단계 본체 — 물줄기 안 기존 아이템 소멸 + 이번에 부서진 셀의 숨은 아이템 노출.
 	void ProcessStepItems(AVoxelWorld* VoxelWorld, const UCA3DRuleSet* Rules,

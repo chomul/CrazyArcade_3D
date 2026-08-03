@@ -6,6 +6,7 @@
 #include "Framework/CA3DRuleSet.h"
 #include "Gameplay/Character/CA3DCharacter.h"        // Framework→Gameplay 허용 (Framework→전부)
 #include "Gameplay/Character/CA3DPlayerController.h"
+#include "Gameplay/SuddenDeath/SuddenDeathSubsystem.h"
 #include "AI/BotController.h"                        // Framework→AI 허용 (Framework→전부)
 #include "UI/CA3DHUD.h"                              // Framework→UI 허용 (Framework→전부)
 #include "Voxel/VoxelWorld.h"
@@ -99,6 +100,13 @@ void ACA3DGameMode::BeginPlay()
 	GetWorldTimerManager().SetTimer(BotFillTimer,
 		FTimerDelegate::CreateUObject(this, &ACA3DGameMode::SpawnFillBots),
 		FMath::Max(Rules->BotFillDelaySeconds, KINDA_SMALL_NUMBER), false);
+
+	// ── 6. 서든데스 예약 (Task 24) ───────────────────────────
+	// 매치 시작 시각 기준 SuddenDeathStart 초 뒤. 지형 초기화 이후에 예약하는 이유는 봇과 같다 —
+	// 그리드가 없으면 낙하 지점을 고를 수 없다.
+	GetWorldTimerManager().SetTimer(SuddenDeathTimer,
+		FTimerDelegate::CreateUObject(this, &ACA3DGameMode::StartSuddenDeath),
+		FMath::Max(Rules->SuddenDeathStart, KINDA_SMALL_NUMBER), false);
 }
 
 void ACA3DGameMode::PostLogin(APlayerController* NewPlayer)
@@ -252,6 +260,62 @@ void ACA3DGameMode::SpawnFillBots()
 		(Override >= 0) ? TEXT(" (ca3d.BotFill)") : TEXT(""));
 }
 
+// ─── 서든데스 (Task 24, 서버 전용) ───────────────────────────────────────────
+
+void ACA3DGameMode::StartSuddenDeath()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>();
+	if (!CA3DGameState || CA3DGameState->bMatchEnded)
+	{
+		return; // 서든데스 시각 전에 이미 승부가 났다 — 시작하지 않는다
+	}
+
+	// 플래그를 먼저 세운다 — 첫 낙하로 구멍이 나기 전에 클라 HUD 경고와
+	// 낙사 원인 분기(ACA3DCharacter)가 이미 서든데스 상태를 보고 있어야 한다.
+	CA3DGameState->bSuddenDeathActive = true;
+
+	if (USuddenDeathSubsystem* SuddenDeath = World->GetSubsystem<USuddenDeathSubsystem>())
+	{
+		SuddenDeath->ServerStart();
+	}
+	else
+	{
+		UE_LOG(LogCA3D, Error, TEXT("ACA3DGameMode: USuddenDeathSubsystem 없음 — 서든데스 낙하 불가"));
+	}
+
+	UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 서든데스 발동 (매치 경과 %.1f초)"),
+		CA3DGameState->GetServerWorldTimeSeconds() - CA3DGameState->MatchStartServerTime);
+}
+
+void ACA3DGameMode::StopSuddenDeath()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	// 아직 발동 전이면 예약 자체를 취소한다 — 매치가 먼저 끝났는데 뒤늦게 시작되면 안 된다.
+	GetWorldTimerManager().ClearTimer(SuddenDeathTimer);
+
+	if (ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>())
+	{
+		CA3DGameState->bSuddenDeathActive = false;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		if (USuddenDeathSubsystem* SuddenDeath = World->GetSubsystem<USuddenDeathSubsystem>())
+		{
+			SuddenDeath->ServerStop();
+		}
+	}
+}
+
 // ─── 승패 판정 (Task 18, 서버 전용) ──────────────────────────────────────────
 
 void ACA3DGameMode::NotifyPlayerDeath(ACA3DPlayerState* DeadState)
@@ -375,6 +439,13 @@ void ACA3DGameMode::ResolvePendingDeaths()
 	{
 		// 무승부 — 우승 자리를 비워 둔 채 종료한다 (FinalRank == 1 부재가 곧 무승부).
 		CA3DGameState->bMatchEnded = true;
+	}
+
+	// 매치가 끝났으면 서든데스도 끝난다 — 결과 화면이 떠 있는데 블록이 계속 떨어지면 안 된다.
+	// (종료 판정이 두 갈래(우승/무승부)라 각 갈래에 넣지 않고 결과 플래그 하나로 본다.)
+	if (CA3DGameState->bMatchEnded)
+	{
+		StopSuddenDeath();
 	}
 
 	UE_LOG(LogCA3D, Log,

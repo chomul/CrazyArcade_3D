@@ -9,6 +9,7 @@ class AWaterSegment;
 class ADangerDecal;
 class APredictedBombVisual;
 class AItemPickup;
+class ASuddenDeathDropMarker;
 
 // 매치 규칙·튜닝 값의 단일 출처. 로직 없음 — 순수 데이터.
 // 인스턴스를 여러 개 만들어 룰셋 프리셋(기본전/스피드전 등)으로 쓴다.
@@ -246,9 +247,41 @@ public:
 	UPROPERTY(EditAnywhere, Category="SuddenDeath")
 	float DropWarningTime = 1.5f;
 
-	// 외곽 셀 낙하 선택 가중치.
+	// 외곽 셀 낙하 선택 가중치. 중심 셀을 1.0 으로 보고 **최외곽 셀이 몇 배로 잘 뽑히는가** —
+	// 중심 거리에 비례해 선형 보간된다 (USuddenDeathSubsystem::PickDropCell).
+	// 1.0 이면 균등, 2.0 이면 최외곽이 중심의 2배. 바깥부터 무너뜨려 판을 좁히기 위한 값이다.
 	UPROPERTY(EditAnywhere, Category="SuddenDeath")
 	float OuterWeightBias = 2.f;
+
+	// ── SuddenDeath (Task 24, 2026-08-04 사용자 확정) ─────────
+
+	// **서든데스 낙하만** 바닥(z=0)을 부순다. 일반 폭탄은 위의 bFloorDestructible(=false)을 그대로 따른다.
+	// 이 둘을 분리한 이유가 서든데스의 전부다: 초반 SuddenDeathStart 초 동안은 발판이 보장되어
+	// 폭탄으로는 절대 구멍이 나지 않고, 서든데스가 시작돼야 비로소 바닥이 뚫려 낙사가 시작된다.
+	// 한 값으로 합치면 "폭탄으로 발판이 사라지는 판" 이 되어 GDD 2.3(발판만이 안전하다)이 무너진다.
+	UPROPERTY(EditAnywhere, Category="SuddenDeath")
+	bool bSuddenDeathDestroysFloor = true;
+
+	// 낙하 주기(초) — 한 웨이브에서 다음 웨이브까지.
+	// DropWarningTime 보다 짧아도 된다 (웨이브가 겹쳐 예고 중인 웨이브가 여러 개가 될 뿐).
+	UPROPERTY(EditAnywhere, Category="SuddenDeath", meta=(ClampMin="0.05"))
+	float DropInterval = 1.f;
+
+	// 주기당 낙하 개수. 맵 축소 속도를 올리려면 주기를 줄이는 대신 이 값을 올린다 —
+	// 같은 웨이브의 예고가 한 번에 보여서 "피할 수 있는가" 라는 요건이 유지된다.
+	UPROPERTY(EditAnywhere, Category="SuddenDeath", meta=(ClampMin="1"))
+	int32 DropsPerWave = 1;
+
+	// 낙하 폭발 범위(칸). 폭탄 기본(InitialBombRange=1)보다 넓게 두어 낙하 한 발이
+	// 기둥을 관통해 바닥까지 닿게 한다 (원점 위 칸 → 아래로 2칸이면 블록 1장 + 바닥).
+	UPROPERTY(EditAnywhere, Category="SuddenDeath", meta=(ClampMin="0"))
+	int32 DropExplosionRange = 2;
+
+	// 낙하 예고 마커 클래스 (클라 시각 — 풀링 대상). 예: BP_DropMarker.
+	// 미지정이면 마커 없이 진행한다 — 예고가 안 보일 뿐 낙하·판정은 정상 (경고 로그 1회).
+	// WaterSegmentClass·DangerDecalClass 와 같은 관례.
+	UPROPERTY(EditAnywhere, Category="SuddenDeath")
+	TSubclassOf<ASuddenDeathDropMarker> DropMarkerClass;
 
 	// ─── Status (Task 12) ───
 	// ⚠️ 아이템 스택 상한은 미확정 항목 — 아래 두 값은 임시. 사용자 확정 시 갱신.

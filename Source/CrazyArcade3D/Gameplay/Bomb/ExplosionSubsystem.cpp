@@ -202,33 +202,8 @@ void UExplosionSubsystem::ProcessChainStep()
 		}
 	}
 
-	// ── ② 블록 파괴 — 단일 경로 (불변식 1): ServerDestroyBlocks → ApplyDestruction + Multicast ──
-	if (StepBroken.Num() > 0)
-	{
-		VoxelWorld->ServerDestroyBlocks(StepBroken);
-	}
-
-	// ── ③ 물줄기 셀 Multicast → 클라 풀 FX (소유 액터 선택 근거는 ExplosionFXRelay.h) ──
-	if (AExplosionFXRelay* Relay = ResolveFXRelay())
-	{
-		Relay->MulticastWaterCells(StepWater);
-	}
-
-	// ── ④ 피격 — WaterCells 안의 캐릭터를 발밑 셀 기준으로 판정 (GDD 2.3 "발판만이 안전하다").
-	// 제자리 점프는 발밑 셀이 그대로라 피격, 다른 발판에 올라가면 셀이 달라져 회피.
-	// 순회 순서는 판정 결과에 영향 없다 (각 캐릭터 독립 — 불변식 4의 순서 민감 영역 아님).
-	for (TActorIterator<ACA3DCharacter> It(GetWorld()); It; ++It)
-	{
-		ACA3DCharacter* Character = *It;
-		UStatusComponent* Status = Character ? Character->GetStatus() : nullptr;
-		if (Status && Status->LifeState == ELifeState::Alive && StepWater.Contains(Character->GetFootCell()))
-		{
-			Status->ServerTrap();
-		}
-	}
-
-	// ── ⑤ 아이템 (Task 23) ──
-	ProcessStepItems(VoxelWorld, Rules, StepWater, StepBroken);
+	// ── ②~⑤ 적용 — 서든데스 낙하와 공유하는 단일 본체 (Task 24) ──
+	ApplyExplosionCells(VoxelWorld, Rules, StepWater, StepBroken);
 
 	// ── 이번 단계 폭탄 정리: 소유자 슬롯 반환 + 파괴 (풀링 금지 — Destroy 로만 수명 관리) ──
 	for (const TObjectPtr<ABomb>& BombPtr : StepBombs)
@@ -253,6 +228,86 @@ void UExplosionSubsystem::ProcessChainStep()
 			FTimerDelegate::CreateUObject(this, &UExplosionSubsystem::ProcessChainStep),
 			FMath::Max(Rules->ChainStepDelay, KINDA_SMALL_NUMBER), false);
 	}
+}
+
+// ─── 서버 전용: 폭발 적용 본체 (②~⑤) — 연쇄·서든데스 공용 ──────────────────
+
+void UExplosionSubsystem::ApplyExplosionCells(AVoxelWorld* VoxelWorld, const UCA3DRuleSet* Rules,
+                                              const TArray<FIntVector>& StepWater, const TArray<FIntVector>& StepBroken)
+{
+	// 호출자(ProcessChainStep · ServerApplyExplosionAt)가 이미 서버 전용 경로다 — 인자 유효성만 본다.
+	if (!VoxelWorld || !Rules)
+	{
+		return;
+	}
+
+	// ── ② 블록 파괴 — 단일 경로 (불변식 1): ServerDestroyBlocks → ApplyDestruction + Multicast ──
+	if (StepBroken.Num() > 0)
+	{
+		VoxelWorld->ServerDestroyBlocks(StepBroken);
+	}
+
+	// ── ③ 물줄기 셀 Multicast → 클라 풀 FX (소유 액터 선택 근거는 ExplosionFXRelay.h) ──
+	if (AExplosionFXRelay* Relay = ResolveFXRelay())
+	{
+		Relay->MulticastWaterCells(StepWater);
+	}
+
+	// ── ④ 피격 — WaterCells 안의 캐릭터를 발밑 셀 기준으로 판정 (GDD 2.3 "발판만이 안전하다").
+	// 제자리 점프는 발밑 셀이 그대로라 피격, 다른 발판에 올라가면 셀이 달라져 회피.
+	// 순회 순서는 판정 결과에 영향 없다 (각 캐릭터 독립 — 불변식 4의 순서 민감 영역 아님).
+	//
+	// 서든데스 낙하도 **물폭탄**이라 여기 그대로 걸린다 — 맞으면 즉사가 아니라 갇힘이다.
+	// 서든데스로 죽는 것은 낙하에 맞아서가 아니라 그 결과로 뚫린 구멍에 빠져서다.
+	for (TActorIterator<ACA3DCharacter> It(GetWorld()); It; ++It)
+	{
+		ACA3DCharacter* Character = *It;
+		UStatusComponent* Status = Character ? Character->GetStatus() : nullptr;
+		if (Status && Status->LifeState == ELifeState::Alive && StepWater.Contains(Character->GetFootCell()))
+		{
+			Status->ServerTrap();
+		}
+	}
+
+	// ── ⑤ 아이템 (Task 23) ──
+	ProcessStepItems(VoxelWorld, Rules, StepWater, StepBroken);
+}
+
+void UExplosionSubsystem::ServerApplyExplosionAt(const FIntVector& Origin, int32 Range, bool bDestroyFloor)
+{
+	UWorld* World = GetWorld();
+	if (!World || World->GetNetMode() == NM_Client) return; // 불변식 5 — 상태 변경은 서버 전용
+
+	AVoxelWorld* VoxelWorld = ResolveVoxelWorld();
+	if (!VoxelWorld)
+	{
+		UE_LOG(LogCA3D, Error, TEXT("UExplosionSubsystem: 월드에 AVoxelWorld 없음 — 외부 폭발 적용 불가"));
+		return;
+	}
+
+	const UCA3DRuleSet* Rules = ResolveChainRules(World);
+
+	// 폭탄 셀 목록을 넘기는 이유: 낙하가 폭탄 위를 덮으면 그 폭탄도 터져야 한다 (폭탄끼리와 동일).
+	const TArray<FIntVector> BombCells = GetActiveBombCellsSorted();
+
+	const FExplosionResult Result = Propagate(VoxelWorld->GetGrid(), Origin, Range, bDestroyFloor, BombCells);
+
+	ApplyExplosionCells(VoxelWorld, Rules, Result.WaterCells, Result.BrokenCells);
+
+	// 연쇄 유발은 **적용을 끝낸 뒤**다. RequestDetonate 는 큐가 비어 있으면 그 자리에서 한 단계를
+	// 처리하는데, 파괴 전에 부르면 그 단계가 아직 안 부서진 그리드를 읽어 이번 폭발과 어긋난다.
+	// 유발 자체는 폭탄끼리의 연쇄와 같은 경로(ServerForceDetonate → RequestDetonate)를 탄다.
+	for (const FIntVector& ChainedCell : Result.ChainedCells)
+	{
+		if (ABomb* Chained = FindBombAt(ChainedCell))
+		{
+			Chained->ServerForceDetonate();
+		}
+	}
+
+	UE_LOG(LogCA3D, Verbose, TEXT("UExplosionSubsystem: 외부 폭발 적용 (%d,%d,%d) 범위 %d — 물줄기 %d칸 / 파괴 %d칸 / 연쇄 %d"),
+		Origin.X, Origin.Y, Origin.Z, Range,
+		Result.WaterCells.Num(), Result.BrokenCells.Num(), Result.ChainedCells.Num());
 }
 
 // ─── 서버 전용: ⑤ 아이템 소멸 → 노출 (Task 23) ──────────────────────────────

@@ -41,5 +41,15 @@ public:
 	UPROPERTY(Replicated)
 	float MatchStartServerTime = 0.f;
 
+	// 서든데스 진행 여부 (Task 24). 갱신 주체는 **GameMode 단독** — 이 클래스는 로직이 없다.
+	// (낙하 스케줄러인 USuddenDeathSubsystem 이 직접 쓰지 않는 이유: GameState 갱신 주체가
+	//  둘이 되면 "구동 중인데 플래그는 false" 같은 모순 상태가 표현 가능해진다.)
+	//
+	// 소비처 둘 다 **읽기 전용**:
+	//   · UMatchWidget — HUD 서든데스 경고 표시 (GDD 5장 ③)
+	//   · ACA3DCharacter — KillZ 낙사의 사망 원인 분기 (Fall / SuddenDeath)
+	UPROPERTY(Replicated)
+	bool bSuddenDeathActive = false;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

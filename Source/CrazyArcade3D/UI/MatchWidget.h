@@ -168,10 +168,10 @@ protected:
 	UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ResultText;
 
 private:
-	// Task 24 연결 지점. 지금은 상태 출처가 없어 항상 숨김이다 —
-	// 없는 값을 추측해 채우면 진짜 구현과 충돌하므로 필드를 만들지 않는다.
-	// USuddenDeathSubsystem 이 들어오면 인자를 그 상태로 바꾸고 호출 한 줄만 이으면 된다.
-	void UpdateSuddenDeathWarning(bool bImminent);
+	// 서든데스 경고 표시/숨김 (Task 24 연결 완료).
+	// 인자의 출처는 ACA3DGameState::bSuddenDeathActive — GameMode 가 서든데스 발동 시
+	// 세우고 매치 종료 시 내리는 복제 플래그다. 위젯은 읽기만 한다.
+	void UpdateSuddenDeathWarning(bool bActive);
 
 	// 폰이 바뀌었으면(사망·리스폰·관전 전환) StatusComponent 포인터를 다시 해석한다.
 	void RefreshPawnCache();

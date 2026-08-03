@@ -61,6 +61,16 @@ private:
 	// NotifyPlayerDeath 가 예약한 다음 틱 타이머에서만 불린다.
 	void ResolvePendingDeaths();
 
+	// ─── 서든데스 (Task 24, 서버 전용) ───
+	// GameState 플래그를 **여기서만** 쓴다 — 낙하 스케줄러(USuddenDeathSubsystem)가 직접 쓰면
+	// GameState 갱신 주체가 둘이 되어 "구동 중인데 플래그는 false" 같은 모순이 표현 가능해진다.
+
+	// BeginPlay 가 Rules->SuddenDeathStart 초 뒤로 예약. 플래그 세팅 + 낙하 루프 시작.
+	void StartSuddenDeath();
+
+	// 매치 종료 지점에서 호출 — 플래그 해제 + 예고 중인 웨이브까지 취소.
+	void StopSuddenDeath();
+
 	// 레벨에서 탐색해 캐시 (BeginPlay).
 	UPROPERTY()
 	TObjectPtr<AVoxelWorld> VoxelWorld;
@@ -95,7 +105,12 @@ private:
 
 	FTimerHandle BotFillTimer;
 
+	// ─── 서든데스 (Task 24) ───
+
+	FTimerHandle SuddenDeathTimer;
+
 	friend class FCA3DGameModeTest;    // 자동화 테스트가 Rules·고정 시드 주입과 스폰 배정 검증을 위한 접근
 	friend class FCA3DPlayerStateTest; // 자동화 테스트가 참가 인원·사망 버퍼를 직접 구성하기 위한 접근
 	friend class FBotControllerTest;   // 자동화 테스트가 봇 채우기·참가 등록을 직접 호출하기 위한 접근 (Task 20)
+	friend class FSuddenDeathTest;     // 자동화 테스트가 서든데스 시작·정지 배선을 직접 호출하기 위한 접근 (Task 24)
 };

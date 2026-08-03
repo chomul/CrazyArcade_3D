@@ -349,10 +349,11 @@ void UMatchWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		ShowResult();
 	}
 
-	// ⑤ 서든데스 경고 — Task 24 가 상태를 만들기 전까지는 항상 숨김.
-	//    ⚠️ 여기가 유일한 연결 지점이다: USuddenDeathSubsystem 이 들어오면
-	//    UpdateSuddenDeathWarning(SuddenDeath->IsImminent()) 로 바꾸면 끝난다.
-	UpdateSuddenDeathWarning(false);
+	// ⑤ 서든데스 경고 (Task 24 연결 완료) — 출처는 GameState 의 복제 플래그 하나다.
+	//    서브시스템(서버 전용)을 클라에서 조회하지 않는 이유: 낙하 스케줄러는 서버에만 돌고
+	//    클라에는 상태가 없다. GameMode 가 GameState 에 써 준 플래그가 클라가 아는 전부이며,
+	//    UI 는 그걸 **읽기만** 한다 (UI→Framework 읽기 전용).
+	UpdateSuddenDeathWarning(GameState->bSuddenDeathActive);
 }
 
 void UMatchWidget::ShowResult()
@@ -395,11 +396,11 @@ void UMatchWidget::ShowResult()
 		Rows.Num(), IsDrawResult(Rows, true) ? TEXT("무승부") : TEXT("우승자 있음"));
 }
 
-void UMatchWidget::UpdateSuddenDeathWarning(bool bImminent)
+void UMatchWidget::UpdateSuddenDeathWarning(bool bActive)
 {
 	if (SuddenDeathWarning)
 	{
-		SuddenDeathWarning->SetVisibility(bImminent ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		SuddenDeathWarning->SetVisibility(bActive ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 }
 
