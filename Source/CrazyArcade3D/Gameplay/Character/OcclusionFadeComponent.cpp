@@ -50,8 +50,10 @@ namespace
 	static TAutoConsoleVariable<int32> CVarCA3DDebugOcclusionFade(
 		TEXT("ca3d.DebugOcclusionFade"),
 		0,
-		TEXT("1 = 가림으로 판정된 블록에 디버그 박스를 그린다.\n")
-		TEXT("머티리얼 작업 전에 C++ 판정이 맞는지 눈으로 확인하는 용도."),
+		TEXT("1 = 가림으로 판정된 블록에 디버그 박스.\n")
+		TEXT("2 = 박스 + **인스턴스에 실제로 들어간 페이드 값**을 블록 위에 표시.\n")
+		TEXT("   숫자가 0.8 인데 벽이 그대로면 원인은 100% 머티리얼 쪽이다 (C++ 은 할 일을 다 했다는 뜻).\n")
+		TEXT("   숫자가 -1 이면 그 셀에 렌더 인스턴스가 없다 (내부에 묻힌 블록)."),
 		ECVF_Cheat);
 }
 
@@ -298,13 +300,24 @@ void UOcclusionFadeComponent::RefreshOccluders()
 
 	// ENABLE_DRAW_DEBUG 가드: Shipping 빌드에는 DrawDebug* 심볼 자체가 없다.
 #if ENABLE_DRAW_DEBUG
-	if (CVarCA3DDebugOcclusionFade.GetValueOnGameThread() != 0)
+	const int32 DebugLevel = CVarCA3DDebugOcclusionFade.GetValueOnGameThread();
+	if (DebugLevel != 0)
 	{
 		const float CellSize = VoxelWorld->CellSize;
 		for (const FIntVector& Cell : CurrentTargets)
 		{
-			DrawDebugBox(GetWorld(), VoxelWorld->CellToWorld(Cell),
-				FVector(CellSize * 0.5f), FColor::Cyan, /*bPersistent=*/false, TraceInterval);
+			const FVector CellCenter = VoxelWorld->CellToWorld(Cell);
+			DrawDebugBox(GetWorld(), CellCenter, FVector(CellSize * 0.5f), FColor::Cyan,
+				/*bPersistent=*/false, TraceInterval);
+
+			if (DebugLevel >= 2)
+			{
+				// 인스턴스에서 **되읽은** 값 — 우리가 넣은 변수가 아니라 렌더 데이터 그 자체다.
+				// 이게 0.8 인데 벽이 멀쩡하면 C++ 은 끝났고 머티리얼만 남았다는 증거가 된다.
+				const float Actual = VoxelWorld->GetCellFade(Cell);
+				DrawDebugString(GetWorld(), CellCenter, FString::Printf(TEXT("%.2f"), Actual),
+					nullptr, Actual < 0.f ? FColor::Red : FColor::Yellow, TraceInterval);
+			}
 		}
 		DrawDebugLine(GetWorld(), CameraLocation, PawnLocation, FColor::Yellow,
 			false, TraceInterval);

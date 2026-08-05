@@ -39,6 +39,9 @@ public:
 	// 머티리얼이 이 값을 안 읽으면 아무 일도 안 일어난다 — 에셋 작업 전에도 안전하다.
 	virtual bool SetCellFade(const FIntVector& Cell, float Value) override;
 
+	// 진단용 되읽기 (ca3d.DebugOcclusionFade 2) — 인터페이스 주석 참조.
+	virtual float GetCellFade(const FIntVector& Cell) const override;
+
 protected:
 	// 블록 타입별 메시 — BP 서브클래스에서 에셋만 지정 (BP에 로직 금지).
 	// 머티리얼은 메시/BP가 가진 그대로 사용 — 동적 머티리얼 생성 금지 (GDD 7.4).

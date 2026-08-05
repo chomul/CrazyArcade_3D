@@ -231,6 +231,32 @@ bool UHISMVoxelRenderer::SetCellFade(const FIntVector& Cell, float Value)
 	return false; // 그 셀에 인스턴스가 없다 (파괴됐거나 내부에 묻힌 블록) — 호출부가 추적을 끊는다
 }
 
+float UHISMVoxelRenderer::GetCellFade(const FIntVector& Cell) const
+{
+	for (const TPair<EBlockType, TMap<FIntVector, int32>>& TypePair : CellToInstance)
+	{
+		const int32* Index = TypePair.Value.Find(Cell);
+		if (!Index)
+		{
+			continue;
+		}
+
+		const TObjectPtr<UHierarchicalInstancedStaticMeshComponent>* HISM = HISMs.Find(TypePair.Key);
+		if (!HISM || !*HISM || (*HISM)->NumCustomDataFloats <= 0)
+		{
+			continue;
+		}
+
+		const int32 DataIndex = *Index * (*HISM)->NumCustomDataFloats;
+		if ((*HISM)->PerInstanceSMCustomData.IsValidIndex(DataIndex))
+		{
+			return (*HISM)->PerInstanceSMCustomData[DataIndex];
+		}
+	}
+
+	return -1.f;
+}
+
 UHierarchicalInstancedStaticMeshComponent* UHISMVoxelRenderer::GetOrCreateHISM(EBlockType Type)
 {
 	if (const TObjectPtr<UHierarchicalInstancedStaticMeshComponent>* Found = HISMs.Find(Type))

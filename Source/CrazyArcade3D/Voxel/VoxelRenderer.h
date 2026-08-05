@@ -41,4 +41,9 @@ public:
 	// 기본 구현은 no-op: 그리디 메싱으로 교체할 때 셀 단위 페이드가 불가능해도
 	// 인터페이스를 만족시킬 수 있어야 한다 (그 경우 가림 처리는 다른 방식으로 간다).
 	virtual bool SetCellFade(const FIntVector& Cell, float Value) { return false; }
+
+	// 진단용 — 그 셀의 렌더 인스턴스에 **실제로 들어가 있는** 페이드 값을 되읽는다.
+	// 없으면 -1. "C++ 이 값을 넣었는가"와 "머티리얼이 그 값을 쓰는가"를 가르는 유일한 방법이다:
+	// 여기서 0.8 이 나오는데 화면이 그대로면 원인은 100% 머티리얼 쪽이다.
+	virtual float GetCellFade(const FIntVector& Cell) const { return -1.f; }
 };

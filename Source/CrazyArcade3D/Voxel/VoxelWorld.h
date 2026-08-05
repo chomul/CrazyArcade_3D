@@ -56,6 +56,9 @@ public:
 	// 여기서 값을 해석하지 않는다 — 지형은 "왜" 페이드하는지 몰라야 한다.
 	bool SetCellFade(const FIntVector& Cell, float Value);
 
+	// 진단용 되읽기 — 인스턴스에 실제로 들어간 값. 없으면 -1 (IVoxelRenderer::GetCellFade).
+	float GetCellFade(const FIntVector& Cell) const;
+
 	// ─── 서버 전용 ───
 	void ServerInitFromSeed(uint32 InSeed);
 	void ServerDestroyBlocks(const TArray<FIntVector>& Cells);

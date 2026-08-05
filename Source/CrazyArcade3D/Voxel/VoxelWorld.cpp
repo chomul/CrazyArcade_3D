@@ -110,6 +110,11 @@ bool AVoxelWorld::SetCellFade(const FIntVector& Cell, float Value)
 	return Renderer->SetCellFade(Cell, Value);
 }
 
+float AVoxelWorld::GetCellFade(const FIntVector& Cell) const
+{
+	return Renderer ? Renderer->GetCellFade(Cell) : -1.f;
+}
+
 FVector AVoxelWorld::CellToWorldFloor(const FIntVector& C) const
 {
 	// X/Y는 셀 중심, Z만 셀 바닥면.
