@@ -5,6 +5,7 @@
 #include "OcclusionFadeComponent.generated.h"
 
 class AVoxelWorld;
+class UMaterialParameterCollection;
 
 // 카메라와 내 캐릭터 사이를 막는 블록을 옅게 만든다 (GDD 5장 "가림 처리 = 반투명 디더 페이드").
 //
@@ -46,6 +47,17 @@ private:
 	// 페이드 값을 목표치로 한 걸음 옮기고 렌더러에 기록한다. 0 에 도달한 칸은 추적 해제.
 	void AdvanceFades(float DeltaTime);
 
+	// 캐릭터의 **화면 위치·크기**를 머티리얼 파라미터 컬렉션에 써 넣는다.
+	//
+	// 블록 단위 페이드(SetCellFade)가 "어느 블록이 가리는가"라면 이쪽은 "그 블록의 어느 픽셀이
+	// 캐릭터를 덮는가"다. 둘을 곱해야 몸통이 가려진 그 자리만 뚫린다 —
+	// 화면 마스크만 쓰면 캐릭터 **뒤쪽** 벽과 발밑 바닥에도 구멍이 뚫리고,
+	// 블록 판정만 쓰면 벽 한 칸이 통째로 사라져 지형이 헷갈린다.
+	//
+	// ⚠️ **매 프레임** 돌아야 한다 (RefreshOccluders 의 0.1초 주기가 아니라).
+	// 구멍이 캐릭터를 0.1초 늦게 따라가면 움직일 때마다 몸이 구멍 밖으로 삐져나온다.
+	void UpdateMaskParameters();
+
 	AVoxelWorld* ResolveVoxelWorld(); // lazy 탐색·캐시 (ABomb 관례)
 
 	UPROPERTY()
@@ -64,11 +76,21 @@ private:
 	// 로그 스팸 방지 — 가려진 칸 수가 바뀔 때만 한 줄 찍는다. -1 = 아직 한 번도 안 찍음.
 	int32 LastLoggedOccluderCount = -1;
 
+	// 파라미터 이름 확인 1회 — 이름이 틀리면 엔진이 조용히 무시하므로 직접 알려줘야 한다.
+	bool bCheckedMaskParamNames = false;
+
 	// 룰셋 값 — BeginPlay 에서 1회 조회 (틱마다 GameState 를 타지 않는다).
 	float TraceInterval = 0.1f;
 	float FadeSpeed = 6.f;
 	float FadeAmount = 0.8f;
 	int32 SampleCount = 5;
+	float MaskScale = 1.35f;
+	float MaskSoftness = 0.4f;
+
+	// 화면 마스크를 받을 파라미터 컬렉션 (룰셋에서 지정). 미지정이면 마스크 없이
+	// 블록 단위 페이드로 동작한다 — 에셋 없이도 깨지지 않는다.
+	UPROPERTY()
+	TObjectPtr<UMaterialParameterCollection> MaskCollection;
 
 	friend class FOcclusionFadeTest; // 자동화 테스트가 페이드 진행·해제를 검증하기 위한 접근
 };

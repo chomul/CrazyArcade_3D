@@ -8,6 +8,9 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Materials/MaterialParameterCollection.h"
+#include "Materials/MaterialParameterCollectionInstance.h"
+#include "Engine/World.h"
 #include "EngineUtils.h"
 #include "DrawDebugHelpers.h"
 
@@ -36,6 +39,14 @@ namespace
 	// 실제로는 40 걸음 안쪽에서 끝난다 — 이 값은 폭주 방지용이지 성능 예산이 아니다.
 	constexpr int32 OccMaxMarchSteps = 256;
 
+	// 머티리얼 파라미터 컬렉션의 파라미터 이름 — 에디터에서 만든 이름과 **글자 그대로** 같아야 한다.
+	// 틀리면 엔진이 조용히 무시한다(에러 없음) — 그래서 아래에서 1회 경고를 찍는다.
+	const FName OccMaskParamName(TEXT("OcclusionMask"));             // (중심u, 중심v, 반지름u, 반지름v)
+	const FName OccMaskSoftnessParamName(TEXT("OcclusionMaskSoftness"));
+
+	// 반지름이 0이 되면 머티리얼에서 0으로 나눈다. 화면의 1/1000 이면 사실상 점이지만 안전하다.
+	constexpr float OccMinRadiusUV = 0.001f;
+
 	static TAutoConsoleVariable<int32> CVarCA3DDebugOcclusionFade(
 		TEXT("ca3d.DebugOcclusionFade"),
 		0,
@@ -63,10 +74,13 @@ void UOcclusionFadeComponent::BeginPlay()
 	}
 
 	const UCA3DRuleSet* Rules = OccResolveRules(GetWorld());
-	TraceInterval = Rules->OcclusionTraceInterval;
-	FadeSpeed     = Rules->OcclusionFadeSpeed;
-	FadeAmount    = Rules->OcclusionFadeAmount;
-	SampleCount   = Rules->OcclusionSampleCount;
+	TraceInterval  = Rules->OcclusionTraceInterval;
+	FadeSpeed      = Rules->OcclusionFadeSpeed;
+	FadeAmount     = Rules->OcclusionFadeAmount;
+	SampleCount    = Rules->OcclusionSampleCount;
+	MaskScale      = Rules->OcclusionMaskScale;
+	MaskSoftness   = Rules->OcclusionMaskSoftness;
+	MaskCollection = Rules->OcclusionMaskCollection;
 }
 
 void UOcclusionFadeComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -91,6 +105,7 @@ void UOcclusionFadeComponent::TickComponent(float DeltaTime, ELevelTick TickType
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+	// "어느 블록이 가리는가" 는 0.1초마다 (GDD 7.4) — 지형은 그 사이 거의 안 변한다.
 	TimeSinceTrace += DeltaTime;
 	if (TimeSinceTrace >= TraceInterval)
 	{
@@ -99,6 +114,109 @@ void UOcclusionFadeComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	}
 
 	AdvanceFades(DeltaTime);
+
+	// "그 블록의 어느 픽셀이 캐릭터를 덮는가" 는 **매 프레임** — 구멍이 몸을 늦게 따라가면
+	// 달릴 때마다 몸이 구멍 밖으로 삐져나온다.
+	UpdateMaskParameters();
+}
+
+void UOcclusionFadeComponent::UpdateMaskParameters()
+{
+	if (!MaskCollection)
+	{
+		return; // 룰셋에 컬렉션 미지정 — 화면 마스크 없이 블록 단위 페이드로 동작한다
+	}
+
+	UWorld* World = GetWorld();
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!World || !OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	UMaterialParameterCollectionInstance* Collection = World->GetParameterCollectionInstance(MaskCollection);
+	if (!Collection)
+	{
+		return;
+	}
+
+	int32 ViewX = 0, ViewY = 0;
+	PC->GetViewportSize(ViewX, ViewY);
+	if (ViewX <= 0 || ViewY <= 0)
+	{
+		return; // 아직 뷰포트가 없다 (첫 프레임)
+	}
+
+	float CapsuleRadius = 0.f;
+	float CapsuleHalfHeight = 0.f;
+	OwnerPawn->GetSimpleCollisionCylinder(CapsuleRadius, CapsuleHalfHeight);
+
+	const FVector Center = OwnerPawn->GetActorLocation();
+	const FVector Up     = FVector(0.f, 0.f, CapsuleHalfHeight * MaskScale);
+
+	// 가로 반지름은 **카메라 오른쪽** 방향으로 재야 한다 — 월드 X/Y 로 재면 카메라가
+	// 45도 돌 때마다 구멍 폭이 √2배까지 출렁인다.
+	const FVector CamRight = PC->PlayerCameraManager
+		? PC->PlayerCameraManager->GetCameraRotation().Quaternion().GetRightVector()
+		: FVector::RightVector;
+	const FVector Right = CamRight * (CapsuleRadius * MaskScale);
+
+	// 머리·발·옆구리를 각각 투영해 화면 위 타원을 만든다. 화면 좌표로 재기 때문에
+	// **원근·피치·화면 비율이 전부 자동으로 반영된다** — 머티리얼은 비율을 몰라도 된다.
+	FVector2D ScreenTop, ScreenBottom, ScreenSide;
+	if (!PC->ProjectWorldLocationToScreen(Center + Up, ScreenTop)
+		|| !PC->ProjectWorldLocationToScreen(Center - Up, ScreenBottom)
+		|| !PC->ProjectWorldLocationToScreen(Center + Right, ScreenSide))
+	{
+		return; // 카메라 뒤 등 투영 불가 — 이번 프레임은 값을 갱신하지 않는다
+	}
+
+	// 픽셀 → 0~1 UV. 머티리얼의 ScreenPosition(ViewportUV)과 같은 공간.
+	const FVector2D InvView(1.f / ViewX, 1.f / ViewY);
+	const FVector2D UvTop    = ScreenTop * InvView;
+	const FVector2D UvBottom = ScreenBottom * InvView;
+	const FVector2D UvSide   = ScreenSide * InvView;
+
+	const FVector2D UvCenter = (UvTop + UvBottom) * 0.5f;
+	const float RadiusV = FMath::Max(FMath::Abs(UvTop.Y - UvBottom.Y) * 0.5f, OccMinRadiusUV);
+	const float RadiusU = FMath::Max(FVector2D::Distance(UvSide, UvCenter), OccMinRadiusUV);
+
+	Collection->SetVectorParameterValue(OccMaskParamName,
+		FLinearColor(UvCenter.X, UvCenter.Y, RadiusU, RadiusV));
+	Collection->SetScalarParameterValue(OccMaskSoftnessParamName, MaskSoftness);
+
+	// 파라미터 이름이 틀리면 엔진은 조용히 무시한다 — 그러면 "왜 안 되지"가 된다.
+	// 컬렉션에 이름이 실제로 있는지 1회만 확인해서 알려준다.
+	if (!bCheckedMaskParamNames)
+	{
+		bCheckedMaskParamNames = true;
+
+		const bool bHasVector = MaskCollection->VectorParameters.ContainsByPredicate(
+			[](const FCollectionVectorParameter& P) { return P.ParameterName == OccMaskParamName; });
+		const bool bHasScalar = MaskCollection->ScalarParameters.ContainsByPredicate(
+			[](const FCollectionScalarParameter& P) { return P.ParameterName == OccMaskSoftnessParamName; });
+
+		if (!bHasVector || !bHasScalar)
+		{
+			UE_LOG(LogCA3D, Warning,
+				TEXT("UOcclusionFadeComponent: 컬렉션 %s 에 파라미터가 없다 (벡터 OcclusionMask=%s / 스칼라 OcclusionMaskSoftness=%s) — 이름이 정확히 일치해야 마스크가 동작한다"),
+				*MaskCollection->GetName(),
+				bHasVector ? TEXT("있음") : TEXT("없음"),
+				bHasScalar ? TEXT("있음") : TEXT("없음"));
+		}
+		else
+		{
+			UE_LOG(LogCA3D, Log,
+				TEXT("UOcclusionFadeComponent: 화면 마스크 활성 — 컬렉션 %s (구멍 배수 %.2f, 부드러움 %.2f)"),
+				*MaskCollection->GetName(), MaskScale, MaskSoftness);
+		}
+	}
 }
 
 void UOcclusionFadeComponent::RefreshOccluders()

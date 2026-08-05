@@ -10,6 +10,7 @@ class ADangerDecal;
 class APredictedBombVisual;
 class AItemPickup;
 class ASuddenDeathDropMarker;
+class UMaterialParameterCollection;
 
 // 매치 규칙·튜닝 값의 단일 출처. 로직 없음 — 순수 데이터.
 // 인스턴스를 여러 개 만들어 룰셋 프리셋(기본전/스피드전 등)으로 쓴다.
@@ -170,6 +171,26 @@ public:
 	// 캐릭터가 반쯤 가린 채로 남는다. 5 = 중심 + 머리 + 발 + 좌우(캡슐 반지름만큼).
 	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="1", ClampMax="5"))
 	int32 OcclusionSampleCount = 5;
+
+	// ─── 가림 구멍의 모양 (2026-08-06 사용자 확정: "몸통이 가려진 그 부분만") ───
+	//
+	// 블록을 통째로 지우지 않고, **화면에서 캐릭터를 덮는 픽셀만** 뚫는다.
+	// 머티리얼이 "이 픽셀이 캐릭터 위인가"를 알아야 하므로 C++ 이 캐릭터의 화면 위치를
+	// 매 프레임 여기에 써 넣는다. 동적 머티리얼 인스턴스가 아니므로 GDD 7.4 금지에 걸리지 않는다
+	// (컬렉션 하나를 모든 블록 머티리얼이 공유한다 — 인스턴스가 몇 천 개든 파라미터는 한 벌).
+	//
+	// **미지정이어도 안전하다** — 그 경우 화면 마스크 없이 예전처럼 블록 단위로 페이드된다.
+	// 만들 파라미터: 벡터 `OcclusionMask`(중심u, 중심v, 반지름u, 반지름v) · 스칼라 `OcclusionMaskSoftness`
+	UPROPERTY(EditAnywhere, Category="Camera")
+	TObjectPtr<UMaterialParameterCollection> OcclusionMaskCollection;
+
+	// 구멍 크기 = 캡슐 크기 × 이 배수. 1.0 이면 몸에 딱 붙어 실루엣이 잘려 보인다.
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="1.0", ClampMax="3.0"))
+	float OcclusionMaskScale = 1.35f;
+
+	// 구멍 가장자리가 흐려지는 폭 (반지름 대비 비율). 0 이면 칼로 자른 듯한 원이 된다.
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.0", ClampMax="2.0"))
+	float OcclusionMaskSoftness = 0.4f;
 
 	// ── Map ───────────────────────────────────────────────
 

@@ -67,23 +67,68 @@
       **② 맵에 2~3칸 높이 구조물** (Task 22 절차적 생성에서)
 
 ## 남은 작업 — 에디터 (이거 없이는 화면에 아무 변화가 없다)
-- [ ] 블록 머티리얼이 `PerInstanceCustomData` 0번을 읽어 디더 마스크로 쓰게 수정
-      (아래 "머티리얼 배선" 절). **C++ 는 값만 넣고, 그림은 머티리얼이 그린다**
+- [x] 블록 머티리얼이 `PerInstanceCustomData` 0번을 읽어 디더 마스크로 쓰게 수정 (사용자 완료)
+- [ ] **화면 마스크 추가 (2026-08-06 사용자 요청 "몸통이 가려진 그 부분만")** —
+      `MPC_CA3DOcclusion` 생성 + 룰셋 지정 + 머티리얼에 마스크 곱 추가 (아래 "머티리얼 배선" 절)
+- [ ] 구멍 크기·부드러움 체감 (`OcclusionMaskScale` 1.35 · `OcclusionMaskSoftness` 0.4)
 - [ ] `ca3d.DebugOcclusionFade 1` 로 판정 위치 눈 확인 (머티리얼 전에도 확인 가능)
 - [ ] 페이드 정도·속도 체감 튜닝 (`OcclusionFadeAmount` 0.8 → 1.0 이면 완전히 사라짐)
 - [ ] (Listen+클라) 각자 자기 카메라 기준으로만 페이드되는지 — 남의 캐릭터 앞은 안 뚫려야 정상
 - [ ] 데디 서버 exe 에서 컴포넌트가 아무것도 안 하는지 (PIE 로는 안 잡힌다)
 
 ## 머티리얼 배선 (에디터 작업 절차)
-블록 메시가 쓰는 머티리얼(또는 그 부모)을 열고:
 
-1. **Blend Mode = `Masked`**, `Opacity Mask Clip Value` 는 기본값(0.333) 유지
-2. `PerInstanceCustomData` 노드 추가 → 출력이 우리가 넣는 페이드 값(0~1)
-3. `1 - PerInstanceCustomData` → `Dither Temporal AA` 노드의 `Alpha Threshold` 로
-   (또는 `Alpha` 입력) → 결과를 **Opacity Mask** 에 연결
-4. 저장 후 PIE. 값이 0이면 평소대로, 1에 가까울수록 픽셀이 성기게 지워진다
+**두 값을 곱하는 것이 전부다.**
 
-**왜 Masked + 디더인가**: Translucent 로 하면 정렬(sorting) 문제가 생기고 블록 수천 개가
-반투명이 되면 오버드로가 급증한다. 디더는 불투명 렌더링 그대로에 픽셀만 버리므로 비용이 없다.
+| 값 | 뜻 | 출처 |
+|---|---|---|
+| `PerInstanceCustomData` | **이 블록이** 가리는가 (0~0.8) | 인스턴스 커스텀 데이터 |
+| 화면 마스크 | **이 픽셀이** 캐릭터를 덮는가 (0~1) | 파라미터 컬렉션 |
 
-**머티리얼을 안 고쳐도 안전하다** — 커스텀 데이터가 그냥 놀 뿐 에러도 성능 영향도 없다.
+둘 다 필요하다. 화면 마스크만 쓰면 캐릭터 **뒤쪽** 벽과 발밑 바닥에도 구멍이 뚫리고,
+블록 판정만 쓰면 벽 한 칸이 통째로 사라져 지형이 헷갈린다 (2026-08-06 사용자 지적).
+
+### ① 파라미터 컬렉션 만들기
+`Materials & Textures → Material Parameter Collection`, 이름 예 `MPC_CA3DOcclusion`.
+**이름이 글자 그대로 일치해야 한다** (틀리면 엔진이 조용히 무시 — C++ 이 경고 1회를 찍는다):
+
+| 종류 | 이름 | 내용 |
+|---|---|---|
+| Vector | `OcclusionMask` | R=중심u, G=중심v, B=반지름u, A=반지름v |
+| Scalar | `OcclusionMaskSoftness` | 가장자리 흐림 폭 |
+
+만든 뒤 `DA_Rules_Default` → Camera → `OcclusionMaskCollection` 에 지정.
+
+### ② 블록 머티리얼
+**Blend Mode = `Masked`**, `Opacity Mask Clip Value` 기본값(0.333) 유지.
+
+```
+ScreenPosition (ViewportUV) ─┐
+                             ├─ (P - Center) / Radius  →  Length  →  D
+MPC.OcclusionMask ───────────┘     (RG=Center, BA=Radius)
+
+D ─→ SmoothStep(Min=1, Max=1+Softness) ─→ OneMinus ─→ Mask   (구멍 안=1, 밖=0)
+
+Fade = PerInstanceCustomData × Mask
+OneMinus(Fade) ─→ Dither Temporal AA ─→ Opacity Mask
+```
+
+노드로 풀면:
+1. `ScreenPosition` (ViewportUV 출력) → `P`
+2. `CollectionParameter`(OcclusionMask) → `ComponentMask(R,G)` = 중심, `ComponentMask(B,A)` = 반지름
+3. `Subtract`(P, 중심) → `Divide`(반지름) → `Length` → `D`
+4. `SmoothStep`(Value=D, Min=1, Max=1+Softness) → `OneMinus` → `Mask`
+   · `1+Softness` 는 `CollectionParameter`(OcclusionMaskSoftness) + `Constant 1`
+5. `Multiply`(`PerInstanceCustomData`, `Mask`) → `OneMinus` → `Dither Temporal AA` → **Opacity Mask**
+
+**반지름을 나누는 것이 타원의 정체다** — u/v를 각각의 반지름으로 나누면 화면 비율·원근·카메라
+피치가 전부 흡수된 타원이 나온다. 그래서 머티리얼은 화면 비율을 몰라도 된다 (C++ 이 머리·발·
+옆구리를 각각 투영해 이미 화면 좌표로 재 놓았다).
+
+### 왜 Masked + 디더인가
+Translucent 로 하면 정렬(sorting) 문제가 생기고 블록 수천 개가 반투명이 되면 오버드로가
+급증한다. 디더는 불투명 렌더링 그대로에 픽셀만 버리므로 사실상 비용이 없다.
+
+### 안 해도 안 깨진다
+- 컬렉션 미지정 → 화면 마스크 없이 **블록 단위** 페이드 (이전 동작)
+- 머티리얼 미수정 → 커스텀 데이터가 놀 뿐, 에러도 성능 영향도 없음
