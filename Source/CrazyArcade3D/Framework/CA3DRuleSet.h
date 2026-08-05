@@ -54,6 +54,12 @@ public:
 	UPROPERTY(EditAnywhere, Category="Bomb")
 	int32 InitialBombRange = 1;
 
+	// 폭탄이 플레이어를 막는 박스의 반경(셀 단위). 실제 extent = 이 계수 × AVoxelWorld::CellSize —
+	// 셀 크기를 바꿔도 "폭탄 한 칸이 막힌다" 가 유지된다 (ItemPickupRadiusCells 와 같은 관례).
+	// 0.5 미만이어야 한다: 정확히 0.5 면 박스가 셀을 꽉 채워 옆 칸을 지나갈 때 모서리에 걸린다.
+	UPROPERTY(EditAnywhere, Category="Bomb", meta=(ClampMin="0.05", ClampMax="0.49"))
+	float BombBlockExtentCells = 0.45f;
+
 	// 폭발 FX 클래스 지정 — BP 서브클래스(메시·머티리얼 에셋만 지정, BP 로직 금지)를 연결한다.
 	// 미지정이면 코드가 C++ 기본 클래스로 폴백한다 (에셋 없이도 판정·동작은 정상 — 경고 로그만).
 
@@ -193,6 +199,15 @@ public:
 	// 0.4 = 셀 중심에서 0.4칸. 캐릭터 캡슐 반지름(34)과 합쳐 약 0.74칸 안에 들면 획득.
 	UPROPERTY(EditAnywhere, Category="Item", meta=(ClampMin="0.05", ClampMax="1.0"))
 	float ItemPickupRadiusCells = 0.4f;
+
+	// ── Visual (2026-08-06) ───────────────────────────────
+
+	// 맵에 놓인 물건(폭탄·예측 폭탄·아이템) 메시가 제자리에서 도는 속도(초당 도, yaw).
+	// 0 이면 안 돈다. 카메라 각도가 바뀌어도 눈에 띄게 하려는 값이라 세 종류가 **같은 값**을
+	// 쓴다 — 폭탄과 예측 폭탄의 회전이 갈리면 서버 확정 순간 각도가 튄다 (Gameplay/SpinVisual.h).
+	// 45 = 8초에 한 바퀴 (설치→폭발 3초 동안 약 3/8바퀴 — "천천히 계속").
+	UPROPERTY(EditAnywhere, Category="Visual", meta=(ClampMin="0.0"))
+	float PickupSpinDegreesPerSecond = 45.f;
 
 	// ── Match (Task 18) ───────────────────────────────────
 

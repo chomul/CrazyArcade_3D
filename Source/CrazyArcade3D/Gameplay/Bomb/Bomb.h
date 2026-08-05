@@ -6,6 +6,7 @@
 
 class ACA3DCharacter;
 class AVoxelWorld;
+class UBoxComponent;
 class UStaticMeshComponent;
 
 // 서버 권한 폭탄 (Task 16). bReplicates = true — 클라에는 액터 리플리케이션으로 존재만 복제.
@@ -46,6 +47,7 @@ public:
 protected:
 	virtual void BeginPlay() override;   // 클라(+리슨 호스트): 위험 프리뷰 데칼 표시
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void Tick(float DeltaSeconds) override; // 메시 제자리 회전만 — 데디에서는 틱 자체를 끈다
 
 	// 설치 셀 (그리드 판정용). 클라 프리뷰 계산에 필요해 복제.
 	UPROPERTY(Replicated)
@@ -56,8 +58,19 @@ protected:
 	int32 Range = 1;
 
 	// BP_Bomb 에서 메시 에셋만 지정 — BP 로직 금지. 데디 서버는 BeginPlay 에서 파괴 (불변식 5).
+	// 제자리 회전은 이 컴포넌트에만 건다 (Gameplay/SpinVisual.h) — 아래 BlockingBox 는 안 돈다.
 	UPROPERTY(VisibleAnywhere, Category="Bomb")
 	TObjectPtr<UStaticMeshComponent> MeshComponent;
+
+	// 플레이어를 막는 컬리전 (2026-08-06 사용자 요청).
+	//
+	// ⚠️ **데디 서버에서도 파괴하지 않는다.** 막힘은 시각이 아니라 물리이고 CharacterMovement 는
+	// 서버에서도 돈다 — 여기에 데디 가드를 넣으면 서버만 폭탄을 통과해 클라와 위치가 어긋난다.
+	// AVoxelWorld 의 HISM 을 "시각 전용"으로 보고 데디에서 껐다가 서버에 바닥이 사라진 것과
+	// 같은 함정이다 (CLAUDE.md 알려진 함정, AItemPickup::PickupSphere 주석).
+	// PIE 로는 재현되지 않는다 — 에디터는 IsRunningDedicatedServer() == false.
+	UPROPERTY(VisibleAnywhere, Category="Bomb")
+	TObjectPtr<UBoxComponent> BlockingBox;
 
 private:
 	// 서버 전용 — 폭발 시 ActiveBombCount 반환 대상 (사망/파괴 시 null 가드).
@@ -81,6 +94,37 @@ private:
 	FDelegateHandle GridChangedHandle;
 
 	void OnFuseExpired();        // 서버: ServerForceDetonate → ExplosionSubsystem::RequestDetonate
+
+	// ─── 막힘 승격 (설치자가 자기 폭탄에 갇히지 않게) ───
+	//
+	// 폭탄은 **설치자 발밑에** 생긴다. 처음부터 Block 이면 설치하는 순간 자기 폭탄에 갇힌다.
+	// 그래서 겹쳐 있는 폰이 전부 빠져나간 뒤에야 Block 으로 승격한다 (원작 크아와 같은 규칙).
+	//
+	// 서버·클라 양쪽이 각자 로컬 오버랩으로 판단한다 — 복제하지 않는다. 막힘은 CMC 가 매 틱
+	// 로컬에서 쓰는 물리 상태라 "언제 막히기 시작했나"를 복제해도 어차피 로컬 형상이 결정한다.
+	// 원격 폰은 보간 지연 때문에 승격 시점이 머신마다 몇 프레임 어긋날 수 있으나, **자기 폰**의
+	// 겹침은 로컬에서 정확하므로 "내가 내 폭탄에 갇힌다" 는 사고는 일어나지 않는다.
+	UFUNCTION()
+	void OnBlockingBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	UFUNCTION()
+	void OnBlockingEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+
+	// 겹친 폰이 하나도 없으면 Block 으로 승격 (1회). 이미 승격했으면 no-op.
+	void PromoteToBlockingIfClear();
+
+	// 박스 크기를 "룰셋 계수 × CellSize" 로 맞춘다 (매직 넘버 금지). VoxelWorld 가 없는
+	// 테스트 월드에서는 생성자 임시값을 그대로 쓴다 — AItemPickup::ApplyCellScale 관례.
+	void ApplyBlockingScale();
+
+	// 아직 겹쳐 있는 폰들. 둘이 같은 칸에 겹쳐 설치할 수 있으므로 bool 이 아니라 집합이다 —
+	// 하나가 나갔다고 막아버리면 남은 하나가 폭탄 안에 갇힌다.
+	TSet<TWeakObjectPtr<AActor>> OverlappingPawns;
+
+	bool bBlocking = false;          // Block 승격 1회 보장
+	float SpinDegreesPerSecond = 0.f; // BeginPlay 에서 룰셋 1회 조회 (틱마다 GameState 조회 방지)
 
 	// 클라(+리슨): 위험 프리뷰 데칼 — 실폭발과 **같은** Propagate 를 호출한다 (별도 계산 금지 —
 	// 설계서 5장 9번 "표시와 실제가 구조적으로 일치"). 그리드/룰셋 미도착 시 next-tick 재시도.

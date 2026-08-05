@@ -5,11 +5,14 @@
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
 #include "Gameplay/Character/CA3DCharacter.h"
 #include "Gameplay/Character/StatusComponent.h"
+#include "Gameplay/SpinVisual.h"
 #include "Core/PoolSubsystem.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
+#include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "GameFramework/Pawn.h"             // 막힘 승격 — 겹친 액터가 폰인지 판별
 #include "GameFramework/PlayerController.h" // 예측 비주얼 반납 — 로컬 폰 탐색 (Task 17)
 #include "Net/UnrealNetwork.h"
 #include "EngineUtils.h"
@@ -37,7 +40,9 @@ namespace
 
 ABomb::ABomb()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// 틱은 메시 제자리 회전 **전용** (2026-08-06). 판정·타이머는 전부 이벤트/타이머다 —
+	// 여기에 상태 변경 로직을 얹지 말 것. 데디 서버는 BeginPlay 에서 틱을 끈다.
+	PrimaryActorTick.bCanEverTick = true;
 
 	bReplicates = true;
 	// 맵 전체가 한 화면 규모(21×21) — 컬링으로 폭탄 액터를 놓치면 클라 프리뷰가 어긋난다.
@@ -45,12 +50,27 @@ ABomb::ABomb()
 
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 
-	// 폭탄 통과/막힘 규칙은 미확정(킥은 Task 20) — 컬리전 없음, 순수 표시용.
+	// 표시 전용 — 막힘 판정은 아래 BlockingBox 가 따로 진다. 메시에 컬리전을 얹으면
+	// 회전(SpinVisual)이 판정 형상까지 돌려 막히는 방향이 시간에 따라 달라진다.
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	MeshComponent->SetupAttachment(RootComponent);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	MeshComponent->SetGenerateOverlapEvents(false);
 	MeshComponent->SetReceivesDecals(false); // 위험 데칼이 폭탄 구체에 빨갛게 입혀지는 것 방지
+
+	// ── 막힘 판정 (데디 서버에서도 살아 있어야 한다 — 헤더 주석) ──
+	// QueryOnly 로 충분하다: CharacterMovement 는 스윕(쿼리)으로 이동을 막는다.
+	BlockingBox = CreateDefaultSubobject<UBoxComponent>(TEXT("BlockingBox"));
+	BlockingBox->SetupAttachment(RootComponent);
+	BlockingBox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	BlockingBox->SetCollisionObjectType(ECC_WorldDynamic);
+	BlockingBox->SetCollisionResponseToAllChannels(ECR_Ignore);
+	// 시작은 Overlap — 설치자가 빠져나간 뒤에 Block 으로 승격한다 (PromoteToBlockingIfClear).
+	BlockingBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	BlockingBox->SetGenerateOverlapEvents(true);
+	// ⚠️ 임시값 — BeginPlay 의 ApplyBlockingScale 이 "룰셋 계수 × CellSize" 로 덮어쓴다.
+	// 초기값을 파생 결과(0.45 × 100)와 맞춰두면 룰셋이 늦게 도착해도 크기가 튀지 않는다.
+	BlockingBox->SetBoxExtent(FVector(45.f, 45.f, 45.f));
 }
 
 void ABomb::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -65,6 +85,29 @@ void ABomb::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// ── 막힘 판정: 데디 가드보다 **위**에 있어야 한다 (헤더 주석) ──
+	// 서버·클라 양쪽에서 동일하게 돈다. 여기 아래로 내리면 데디 서버만 폭탄을 통과한다.
+	ApplyBlockingScale();
+
+	if (BlockingBox)
+	{
+		BlockingBox->OnComponentBeginOverlap.AddDynamic(this, &ABomb::OnBlockingBeginOverlap);
+		BlockingBox->OnComponentEndOverlap.AddDynamic(this, &ABomb::OnBlockingEndOverlap);
+
+		// 컴포넌트 등록(BeginPlay 이전)에 이미 계산된 겹침은 위 델리게이트로 오지 않는다 —
+		// 여기서 직접 긁어 초기 집합을 만든다. 안 하면 설치자가 이미 겹쳐 있는데도 집합이 비어
+		// 곧바로 Block 으로 승격돼 설치자가 자기 폭탄에 갇힌다.
+		TArray<AActor*> InitialOverlaps;
+		BlockingBox->GetOverlappingActors(InitialOverlaps, APawn::StaticClass());
+		for (AActor* Pawn : InitialOverlaps)
+		{
+			OverlappingPawns.Add(Pawn);
+		}
+
+		// 아무도 안 겹쳐 있으면(예: 봇이 이동 중 설치해 이미 칸을 벗어난 경우) 즉시 막는다.
+		PromoteToBlockingIfClear();
+	}
+
 	if (IsRunningDedicatedServer())
 	{
 		// 데디 서버는 시각이 필요 없다 (불변식 5) — 메시 파괴 (VoxelWorld 렌더러와 동일 관례).
@@ -73,8 +116,12 @@ void ABomb::BeginPlay()
 			MeshComponent->DestroyComponent();
 			MeshComponent = nullptr;
 		}
+		SetActorTickEnabled(false); // 틱은 회전 전용 — 데디에서는 돌 메시가 없다
 		return;
 	}
+
+	// 회전 속도는 여기서 1회만 조회한다 — 틱마다 GameState→룰셋을 타면 낭비다.
+	SpinDegreesPerSecond = CA3DSpin::ResolveDegreesPerSecond(GetWorld());
 
 	// 서버 확정 도착 — 같은 셀의 예측 비주얼(APredictedBombVisual)을 진짜 폭탄으로 교체하는
 	// 지점 (데이터 흐름 3.1). OwnerChar 는 복제되지 않으므로 로컬 플레이어의 폰 기준이 맞다 —
@@ -116,6 +163,89 @@ void ABomb::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 
 	Super::EndPlay(EndPlayReason);
+}
+
+void ABomb::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// 회전 **말고는 아무것도 하지 않는다.** 판정·타이머·연쇄를 여기에 얹으면 프레임레이트가
+	// 게임 규칙에 새어 들어간다 (서버 틱레이트와 클라 틱레이트가 다르다).
+	CA3DSpin::ApplyYaw(MeshComponent, DeltaSeconds, SpinDegreesPerSecond);
+}
+
+// ─── 막힘 판정 (서버·클라 공통) ───────────────────────────────────────────────
+
+void ABomb::ApplyBlockingScale()
+{
+	if (!BlockingBox)
+	{
+		return;
+	}
+
+	// CellSize 의 유일한 출처는 AVoxelWorld — 셀 크기를 바꿔도 "폭탄 한 칸이 막힌다" 가 유지된다.
+	// 못 찾으면 생성자 임시값을 그대로 쓴다 (VoxelWorld 없는 테스트 월드 — 막힘은 여전히 동작).
+	if (!CachedVoxelWorld)
+	{
+		for (TActorIterator<AVoxelWorld> It(GetWorld()); It; ++It)
+		{
+			CachedVoxelWorld = *It;
+			break; // 레벨에 1개 배치가 계약
+		}
+	}
+	if (!CachedVoxelWorld)
+	{
+		return;
+	}
+
+	const UCA3DRuleSet* Rules = ResolveBombRules(GetWorld());
+	const float Extent = Rules->BombBlockExtentCells * CachedVoxelWorld->CellSize;
+	BlockingBox->SetBoxExtent(FVector(Extent, Extent, Extent));
+}
+
+void ABomb::OnBlockingBeginOverlap(UPrimitiveComponent* /*OverlappedComponent*/, AActor* OtherActor,
+	UPrimitiveComponent* /*OtherComp*/, int32 /*OtherBodyIndex*/, bool /*bFromSweep*/, const FHitResult& /*SweepResult*/)
+{
+	if (Cast<APawn>(OtherActor))
+	{
+		OverlappingPawns.Add(OtherActor);
+	}
+}
+
+void ABomb::OnBlockingEndOverlap(UPrimitiveComponent* /*OverlappedComponent*/, AActor* OtherActor,
+	UPrimitiveComponent* /*OtherComp*/, int32 /*OtherBodyIndex*/)
+{
+	OverlappingPawns.Remove(OtherActor);
+	PromoteToBlockingIfClear();
+}
+
+void ABomb::PromoteToBlockingIfClear()
+{
+	if (bBlocking || !BlockingBox)
+	{
+		return; // 승격은 1회 — 되돌리지 않는다 (막힌 뒤에는 애초에 겹칠 수 없다)
+	}
+
+	// 폰이 파괴되면(폭발 사망) EndOverlap 이 오지만, 월드 정리 중 등 못 받는 경로도 있다 —
+	// 죽은 약참조를 걷어내지 않으면 그 폭탄은 영영 안 막힌다.
+	for (auto It = OverlappingPawns.CreateIterator(); It; ++It)
+	{
+		if (!It->IsValid())
+		{
+			It.RemoveCurrent();
+		}
+	}
+
+	if (OverlappingPawns.Num() > 0)
+	{
+		return; // 아직 누군가 폭탄 안에 서 있다
+	}
+
+	bBlocking = true;
+	BlockingBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+
+	UE_LOG(LogCA3D, Verbose, TEXT("ABomb %s: 막힘 승격 — 셀 (%d, %d, %d) 에서 모두 빠져나감"),
+		*GetName(), Cell.X, Cell.Y, Cell.Z);
 }
 
 // ─── 서버 전용 ────────────────────────────────────────────────────────────────

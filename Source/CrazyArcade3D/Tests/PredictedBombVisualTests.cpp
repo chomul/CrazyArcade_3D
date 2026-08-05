@@ -28,6 +28,7 @@
 #include "Gameplay/Character/StatusComponent.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"
+#include "Components/StaticMeshComponent.h" // 틱이 메시를 실제로 돌리는지 확인 (⑦)
 #include "TimerManager.h"
 
 #if WITH_AUTOMATION_TESTS
@@ -181,8 +182,31 @@ bool FPredictedBombVisualTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("⑥ 개수 초과(예측치): 목록 그대로 1개"), Owner->PredictedBombVisuals.Num(), 1);
 
 	// ─── 3. 타이머 부재 (불변식 3 실증) — 퓨즈 2배 시간이 지나도 혼자 아무 일도 안 한다 ───
-	TestFalse(TEXT("⑦ 타이머 없음: 틱 자체가 꺼진 클래스 (bCanEverTick=false)"),
-		Visual->PrimaryActorTick.bCanEverTick);
+	//
+	// 2026-08-06: 이 클래스에 틱이 생겼다 (메시 제자리 회전). 그래서 예전의
+	// "bCanEverTick == false" 로는 불변식 3을 더 이상 지킬 수 없다 — 대신 **틱을 직접 돌려**
+	// 회전 외에는 아무것도 변하지 않음을 확인한다. 원래 의도("혼자 아무 일도 안 한다")에
+	// 더 가깝고, 틱 본문을 실제로 실행하므로 예전 어서션보다 강하다.
+	// 이 월드는 BeginPlay 가 돌지 않아(파일 상단 주석) 회전 속도가 0이므로 테스트가 직접 넣는다.
+	Visual->SpinDegreesPerSecond = 90.f;
+	const FVector BeforeTickLocation = Visual->GetActorLocation();
+	const double  BeforeTickYaw =
+		Visual->MeshComponent ? Visual->MeshComponent->GetRelativeRotation().Yaw : 0.0;
+
+	for (int32 Step = 0; Step < 100; ++Step)
+	{
+		Visual->Tick(0.1f); // 총 10초 — 퓨즈(3초)의 3배가 넘는다
+	}
+
+	TestTrue(TEXT("⑦ 틱: 메시가 실제로 돈다 (회전 기능 동작)"),
+		Visual->MeshComponent && !FMath::IsNearlyEqual(
+			Visual->MeshComponent->GetRelativeRotation().Yaw, BeforeTickYaw));
+	TestEqual(TEXT("⑦ 틱: 액터 위치 불변 (회전 외 상태 변화 0)"),
+		Visual->GetActorLocation(), BeforeTickLocation);
+	TestTrue(TEXT("⑦ 틱: 100회 틱 후에도 생존 (혼자 안 터짐)"), IsValid(Visual));
+	TestEqual(TEXT("⑦ 틱: 폭탄 액터 0개 (판정 개입 없음)"), PbvCountBombs(World), 0);
+	TestEqual(TEXT("⑦ 틱: 물줄기 0개"), PbvCountWaterSegments(World), 0);
+
 	PbvAdvanceTimers(World, Rules->BombFuseTime * 2.f); // 진짜 폭탄이면 이미 폭발했을 시간
 	TestTrue(TEXT("⑦ 타이머 없음: 시간 경과 후에도 비주얼 생존 (혼자 안 터짐)"), IsValid(Visual));
 	TestFalse(TEXT("⑦ 타이머 없음: 여전히 표시 중"), Visual->IsHidden());

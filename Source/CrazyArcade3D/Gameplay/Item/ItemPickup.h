@@ -51,6 +51,7 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void Tick(float DeltaSeconds) override; // 메시 제자리 회전만 — 데디에서는 틱 자체를 끈다
 
 	UPROPERTY(ReplicatedUsing=OnRep_Type)
 	EItemType Type = EItemType::Balloon;
@@ -73,6 +74,8 @@ protected:
 	TObjectPtr<USphereComponent> PickupSphere;
 
 	// 표시 전용 — 데디 서버는 BeginPlay 에서 파괴 (불변식 5).
+	// 제자리 회전은 이 컴포넌트에만 건다 (Gameplay/SpinVisual.h) — PickupSphere 는 안 돈다
+	// (구체라 돌려봐야 판정은 같고, 판정 컴포넌트를 돌리는 관례를 만들면 폭탄에서 사고가 난다).
 	UPROPERTY(VisibleAnywhere, Category="Item")
 	TObjectPtr<UStaticMeshComponent> MeshComponent;
 
@@ -96,6 +99,9 @@ private:
 
 	// 메시 미지정 경고 1회 — 매 스폰마다 찍히면 로그가 아이템으로 도배된다 (ADangerDecal 관례).
 	static bool bWarnedMissingMesh;
+
+	// BeginPlay 에서 룰셋 1회 조회 (틱마다 GameState 조회 방지). ABomb 과 같은 값을 쓴다.
+	float SpinDegreesPerSecond = 0.f;
 
 	friend class FItemPickupTest; // 자동화 테스트가 오버랩 판정을 직접 호출하기 위한 접근
 };

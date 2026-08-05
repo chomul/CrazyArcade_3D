@@ -4,6 +4,7 @@
 #include "Gameplay/Bomb/ExplosionSubsystem.h" // 셀→아이템 레지스트리 (ActiveBombs 관례와 동일)
 #include "Gameplay/Character/CA3DCharacter.h"
 #include "Gameplay/Character/StatusComponent.h"
+#include "Gameplay/SpinVisual.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
@@ -36,7 +37,9 @@ namespace
 
 AItemPickup::AItemPickup()
 {
-	PrimaryActorTick.bCanEverTick = false; // 상태 변경은 전부 이벤트(오버랩·폭발) — 틱 불필요
+	// 틱은 메시 제자리 회전 **전용** (2026-08-06). 상태 변경은 여전히 전부 이벤트(오버랩·폭발)다 —
+	// 여기에 획득 판정을 얹지 말 것. 데디 서버는 BeginPlay 에서 틱을 끈다.
+	PrimaryActorTick.bCanEverTick = true;
 
 	bReplicates = true;
 	// 맵 전체가 한 화면 규모(21×21) — 거리 컬링으로 아이템이 사라지면 "저기 있던 게 없어졌다"가
@@ -97,11 +100,23 @@ void AItemPickup::BeginPlay()
 			MeshComponent->DestroyComponent();
 			MeshComponent = nullptr;
 		}
+		SetActorTickEnabled(false); // 틱은 회전 전용 — 데디에서는 돌 메시가 없다
 		return;
 	}
 
+	// 회전 속도는 여기서 1회만 조회한다 — 틱마다 GameState→룰셋을 타면 낭비다.
+	SpinDegreesPerSecond = CA3DSpin::ResolveDegreesPerSecond(GetWorld());
+
 	// 클라 스폰 시점에 Type 이 이미 실려 있으면 OnRep 이 불리지 않는다 — 여기서도 한 번 반영한다.
 	RefreshVisual();
+}
+
+void AItemPickup::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// 회전 **말고는 아무것도 하지 않는다.** 획득은 오버랩 이벤트가 진다 (서버 단독, 불변식 5).
+	CA3DSpin::ApplyYaw(MeshComponent, DeltaSeconds, SpinDegreesPerSecond);
 }
 
 void AItemPickup::EndPlay(const EEndPlayReason::Type EndPlayReason)

@@ -32,6 +32,9 @@ public:
 	virtual void OnReleasedToPool() override;    // 메시 숨김 (돌던 것 없음 — 타이머 0개가 이 클래스의 계약)
 
 protected:
+	virtual void BeginPlay() override;              // 회전 속도 1회 조회
+	virtual void Tick(float DeltaSeconds) override; // 메시 제자리 회전만 — 로직 0 은 그대로다
+
 	// BP 서브클래스에서 메시 에셋만 지정 — BP 로직 금지.
 	UPROPERTY(VisibleAnywhere, Category="Bomb")
 	TObjectPtr<UStaticMeshComponent> MeshComponent;
@@ -39,4 +42,15 @@ protected:
 private:
 	// 메시 미지정 경고는 인스턴스당 1회만 — 풀 재사용마다 스팸 방지.
 	bool bWarnedMissingMesh = false;
+
+	// ABomb 과 **같은 값**을 쓴다 (Gameplay/SpinVisual.h) — 갈리면 서버 확정 순간
+	// 예측→진짜 교체가 각도 점프로 눈에 보여 "구분되지 않아야 정상" 이 깨진다.
+	float SpinDegreesPerSecond = 0.f;
+
+	// BP 가 메시에 잡아 둔 원래 상대 회전 — 풀 재사용 시 복원용 (OnAcquiredFromPool 주석).
+	FRotator AuthoredMeshRotation = FRotator::ZeroRotator;
+
+	// 자동화 테스트가 **틱을 직접 돌려** "회전 말고는 아무것도 안 한다"(불변식 3)를
+	// 검증하기 위한 접근 — 회전 속도 주입 + 메시 각도 확인 (ABomb 의 FBombTest 관례).
+	friend class FPredictedBombVisualTest;
 };
