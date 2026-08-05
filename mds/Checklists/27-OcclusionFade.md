@@ -66,11 +66,55 @@
       **① 카메라 피치를 얕게**(`CameraPitchDeg` -55 → -40 근처) 또는
       **② 맵에 2~3칸 높이 구조물** (Task 22 절차적 생성에서)
 
-## 남은 작업 — 에디터 (이거 없이는 화면에 아무 변화가 없다)
-- [x] 블록 머티리얼이 `PerInstanceCustomData` 0번을 읽어 디더 마스크로 쓰게 수정 (사용자 완료)
-- [ ] **화면 마스크 추가 (2026-08-06 사용자 요청 "몸통이 가려진 그 부분만")** —
-      `MPC_CA3DOcclusion` 생성 + 룰셋 지정 + 머티리얼에 마스크 곱 추가 (아래 "머티리얼 배선" 절)
-- [ ] 구멍 크기·부드러움 체감 (`OcclusionMaskScale` 1.35 · `OcclusionMaskSoftness` 0.4)
+## 에디터 작업 (2026-08-06 완료 — 화면에서 동작 확인됨)
+- [x] 블록 머티리얼이 `PerInstanceCustomData` 0번을 읽어 디더 마스크로 쓰게 수정
+- [x] **화면 마스크** — `MPC_CA3DOcclusion` 생성 + 룰셋 지정 + 머티리얼에 마스크 곱
+- [x] **머티리얼 인스턴스 3개의 `Material Property Overrides` 해제** (아래 함정 ③ — 이게 진짜 원인이었다)
+- [ ] 구멍 크기·부드러움 체감 튜닝 (`OcclusionMaskScale` 1.35 · `OcclusionMaskSoftness` 0.4 ·
+      `OcclusionFadeAmount` 0.8). 지금 값으로 "잘 보인다" 확인 — 더 만질지는 플레이하며 결정
+- [ ] `MPC_CA3DOcclusion` 의 `OcclusionMask` **기본값을 `(0.5, 0.5, 0.2, 0.3)`** 으로.
+      지금 (0,0,0,0) 이라 반지름 0 → 0으로 나누기. C++ 이 매 프레임 덮어쓰므로 게임에선 안 드러나지만,
+      머티리얼 프리뷰와 첫 프레임이 깨진다
+
+## 🔥 이번에 실제로 밟은 함정 (같은 길로 다시 들어가지 않기 위해)
+
+에디터 작업 후에도 화면이 그대로여서 6라운드를 썼다. 원인은 **머티리얼 인스턴스 오버라이드**였고,
+C++ 은 처음부터 정상이었다. 다음에 비슷한 증상이 나오면 이 순서로 가른다.
+
+### ① 먼저 C++ 과 머티리얼의 경계를 가른다 — `ca3d.DebugOcclusionFade 2`
+박스 위에 **인스턴스에서 되읽은 실제 페이드 값**이 뜬다 (`IVoxelRenderer::GetCellFade`).
+- `0.80` → C++ 은 할 일을 다 했다. **머티리얼만 남았다**
+- `0.00` → 페이드가 안 올라감 (C++ 문제)
+- `-1.00` → 그 셀에 렌더 인스턴스 없음 (내부에 묻힌 블록)
+
+이 진단이 없었으면 계속 양쪽을 동시에 의심했을 것이다. **경계를 먼저 긋는다.**
+
+### ② "고치고 있는 머티리얼이 정말 그 블록 건가"
+`M_Base_Platform` 이 맞았지만, 확인 없이 두 번 헛짚었다. 디스크에서 계보를 추적할 수 있다:
+```bash
+grep -a -o "/Game/[A-Za-z0-9_/]*" Content/Blueprints/BP_VoxelWorld.uasset | sort -u   # 어떤 메시?
+grep -a -o "Materials/Color_[0-9]*/MI_[A-Za-z0-9_]*" Content/Meshes/SM_....uasset      # 어떤 MI?
+grep -a -o "/Game/PLATFORMER.../[A-Za-z0-9_/]*" .../MI_....uasset                      # 부모는?
+```
+⚠️ **메시 에셋 자체의 머티리얼 할당은 옛 정보일 수 있다** — 실제 배선은 `BP_VoxelWorld` 의
+`BlockMeshes` 다. 나는 옛 `SM_Block_*` 을 읽고 `M_Floor` 라고 잘못 결론지었다.
+
+### ③ 머티리얼 인스턴스가 부모를 이긴다 ← **진짜 원인**
+MI 의 `Material Property Overrides`(`BasePropertyOverrides`)에 `OpacityMaskClipValue` /
+`BlendMode` 오버라이드가 켜져 있으면 **부모를 Masked 로 바꿔도 오파시티 마스크가 통째로 무시된다.**
+계산은 전부 정상이라(베이스 컬러에 꽂으면 값이 잘 나온다) 증상이 "아무 일도 안 일어남"뿐이다.
+```bash
+grep -a -o "BasePropertyOverrides\|OpacityMaskClipValue\|BlendMode" .../MI_....uasset
+```
+그리고 **메시 하나가 슬롯을 여럿 갖고, 메시마다 다른 MI 를 쓴다.** 실제로 A/B/D 세 메시가
+MI 3개(`Grass_Clr_01_A`, `Sand_Clr_01_A`, `Sand_Clr_01_B`)를 썼다 — 하나만 고치면
+"일부 블록만 안 뚫린다"가 되고 그건 원인 찾기가 더 어렵다.
+
+### ④ 노드 이름이 문서 표기와 다르다
+- MPC 를 읽는 노드는 **`Collection Param`** (`MPC`·파라미터 이름으로는 검색해도 안 나옴).
+  Details 에서 **`Collection` 을 먼저** 지정해야 `Parameter Name` 드롭다운이 채워진다
+- 채널 분리는 **`Component Mask`** (그래프 표시는 `Mask (R,G)`)
+- `SmoothStep` 핀은 위에서부터 **Min / Max / Value** — **Value 가 맨 아래**
 - [ ] `ca3d.DebugOcclusionFade 1` 로 판정 위치 눈 확인 (머티리얼 전에도 확인 가능)
 - [ ] 페이드 정도·속도 체감 튜닝 (`OcclusionFadeAmount` 0.8 → 1.0 이면 완전히 사라짐)
 - [ ] (Listen+클라) 각자 자기 카메라 기준으로만 페이드되는지 — 남의 캐릭터 앞은 안 뚫려야 정상
