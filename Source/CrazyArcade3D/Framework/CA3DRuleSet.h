@@ -147,6 +147,30 @@ public:
 	UPROPERTY(EditAnywhere, Category="Camera")
 	float CameraYawInterpSpeed = 8.f;
 
+	// ─── 가림 디더 페이드 (2026-08-06) ───
+	// 카메라와 내 캐릭터 사이를 막는 블록을 옅게 만든다. 카메라 붐을 당겨 해결하지 않는
+	// 이유는 Task 11 에서 정했다 — 벽에 붙을 때마다 화면이 확대돼 칸 감각이 무너진다.
+
+	// 가림 블록을 다시 계산하는 간격(초). 매 프레임 하지 않는다 (GDD 7.4 — "0.1초 간격").
+	// 그 사이 페이드 자체는 매 프레임 부드럽게 이어진다 (아래 속도 값).
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.0"))
+	float OcclusionTraceInterval = 0.1f;
+
+	// 페이드 진행 속도(초당 값). 6 이면 0 → 최대까지 약 0.17초.
+	// 계산 간격(0.1초)보다 느리게 두면 계단이 보이지 않는다.
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.1"))
+	float OcclusionFadeSpeed = 6.f;
+
+	// 최대 페이드 값 — 머티리얼의 PerInstanceCustomData 0번으로 들어간다.
+	// **1.0 = 완전히 사라짐.** 0.8 은 흐릿한 잔상이 남아 "저기 벽이 있다"는 정보를 남긴다.
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float OcclusionFadeAmount = 0.8f;
+
+	// 캐릭터 쪽 샘플 지점 개수(1·3·5). 광선 하나만 쏘면 블록 모서리를 스쳐 지나가
+	// 캐릭터가 반쯤 가린 채로 남는다. 5 = 중심 + 머리 + 발 + 좌우(캡슐 반지름만큼).
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="1", ClampMax="5"))
+	int32 OcclusionSampleCount = 5;
+
 	// ── Map ───────────────────────────────────────────────
 
 	// 바닥 블록 파괴 허용 여부. (미확정)

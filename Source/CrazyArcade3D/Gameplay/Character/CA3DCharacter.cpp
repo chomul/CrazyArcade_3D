@@ -2,6 +2,7 @@
 
 #include "CrazyArcade3D.h"
 #include "Gameplay/Character/StatusComponent.h"
+#include "Gameplay/Character/OcclusionFadeComponent.h"
 #include "Gameplay/Bomb/Bomb.h"
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
 #include "Gameplay/Bomb/PredictedBombVisual.h"
@@ -82,6 +83,10 @@ ACA3DCharacter::ACA3DCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom);
 	FollowCamera->bUsePawnControlRotation = false; // 붐이 회전을 다 처리한다
+
+	// 위 주석이 예고한 디더 페이드의 실행부 (2026-08-06). 순수 시각 — 게임 상태를 안 만진다.
+	// 데디 서버는 BeginPlay 에서 스스로 틱을 끈다 (컴포넌트는 남지만 아무것도 안 한다).
+	OcclusionFade = CreateDefaultSubobject<UOcclusionFadeComponent>(TEXT("OcclusionFade"));
 
 	// 스탯·생존 상태 (Task 12) — 봇과 플레이어가 완전히 같은 코드 경로를 탄다.
 	Status = CreateDefaultSubobject<UStatusComponent>(TEXT("Status"));

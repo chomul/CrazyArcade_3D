@@ -203,6 +203,34 @@ void UHISMVoxelRenderer::AddInstanceForCell(const FVoxelGrid& Grid, const FIntVe
 	InstanceToCell.FindOrAdd(Type).Add(Index, C);
 }
 
+bool UHISMVoxelRenderer::SetCellFade(const FIntVector& Cell, float Value)
+{
+	// 어느 타입의 HISM 에 있는지 모르므로 등록된 타입을 훑는다 (타입 수는 한 자릿수).
+	for (const TPair<EBlockType, TMap<FIntVector, int32>>& TypePair : CellToInstance)
+	{
+		const int32* Index = TypePair.Value.Find(Cell);
+		if (!Index)
+		{
+			continue;
+		}
+
+		const TObjectPtr<UHierarchicalInstancedStaticMeshComponent>* HISM = HISMs.Find(TypePair.Key);
+		if (!HISM || !*HISM)
+		{
+			continue;
+		}
+
+		// bMarkRenderStateDirty = false 가 중요하다: true 면 프리미티브 프록시를 통째로 다시
+		// 만든다. 커스텀 데이터 변경은 엔진이 인스턴스 데이터 델타로 따로 반영하므로
+		// (FPrimitiveInstanceDataManager::CustomDataChanged) 프록시 재생성이 필요 없다.
+		// 페이드는 매 프레임 갱신되므로 여기서 프록시를 재생성하면 그대로 프레임을 먹는다.
+		return (*HISM)->SetCustomDataValue(*Index, /*CustomDataIndex=*/0, Value,
+			/*bMarkRenderStateDirty=*/false);
+	}
+
+	return false; // 그 셀에 인스턴스가 없다 (파괴됐거나 내부에 묻힌 블록) — 호출부가 추적을 끊는다
+}
+
 UHierarchicalInstancedStaticMeshComponent* UHISMVoxelRenderer::GetOrCreateHISM(EBlockType Type)
 {
 	if (const TObjectPtr<UHierarchicalInstancedStaticMeshComponent>* Found = HISMs.Find(Type))
@@ -222,6 +250,12 @@ UHierarchicalInstancedStaticMeshComponent* UHISMVoxelRenderer::GetOrCreateHISM(E
 	{
 		HISM->SetupAttachment(Root);
 	}
+
+	// 가림 페이드용 인스턴스별 float 1개 (SetCellFade). **RegisterComponent 이전에** 정해야
+	// 인스턴스 데이터 버퍼가 처음부터 그 크기로 잡힌다.
+	// 머티리얼이 안 읽으면 값이 놀 뿐 렌더링에 영향이 없다 — 에셋 작업 전에도 안전.
+	HISM->NumCustomDataFloats = 1;
+
 	HISM->RegisterComponent();
 
 	const TObjectPtr<UStaticMesh>* MeshPtr = BlockMeshes.Find(Type);

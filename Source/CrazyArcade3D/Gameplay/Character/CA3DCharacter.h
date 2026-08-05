@@ -7,6 +7,7 @@
 class AVoxelWorld;
 class USpringArmComponent;
 class UCameraComponent;
+class UOcclusionFadeComponent;
 class UStatusComponent;
 class UCA3DRuleSet;
 class ABomb;
@@ -130,6 +131,10 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, Category="Camera")
 	TObjectPtr<UCameraComponent> FollowCamera;
+
+	// 카메라~캐릭터 사이 블록 디더 페이드 (2026-08-06). 클라 시각 전용 — 판정과 무관하다.
+	UPROPERTY(VisibleAnywhere, Category="Camera")
+	TObjectPtr<UOcclusionFadeComponent> OcclusionFade;
 
 private:
 	// CMC 튜닝 값 적용 — 서버·클라가 같은 룰셋 × 같은 CellSize 로 같은 값을 계산해야

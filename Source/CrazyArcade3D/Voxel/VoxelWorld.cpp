@@ -94,6 +94,22 @@ FVector AVoxelWorld::CellToWorld(const FIntVector& C) const
 		(C.Z + 0.5f) * CellSize);
 }
 
+FVector AVoxelWorld::WorldToCellFloat(const FVector& W) const
+{
+	// CellToWorld 의 역변환을 반올림 없이. (CellToWorld(C) 를 넣으면 C + 0.5 가 나온다)
+	return (W - GetActorLocation()) / CellSize;
+}
+
+bool AVoxelWorld::SetCellFade(const FIntVector& Cell, float Value)
+{
+	if (!Renderer)
+	{
+		return false; // 데디 서버 등 렌더러 없음 — 가림 페이드는 클라 시각 전용
+	}
+
+	return Renderer->SetCellFade(Cell, Value);
+}
+
 FVector AVoxelWorld::CellToWorldFloor(const FIntVector& C) const
 {
 	// X/Y는 셀 중심, Z만 셀 바닥면.

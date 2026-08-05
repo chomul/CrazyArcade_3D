@@ -46,6 +46,16 @@ public:
 	FVector    CellToWorld(const FIntVector& C) const;      // 셀 중심
 	FVector    CellToWorldFloor(const FIntVector& C) const; // 셀 바닥면 중심
 
+	// 반올림하지 않은 실수 셀 좌표. 격자 레이 마칭(VoxelRay::GatherSolidCells)이 셀 경계를
+	// 정확히 계산하려면 소수부가 필요하다 — WorldToCell 로 잘라내면 시작점이 셀 중앙으로
+	// 튀어 첫 칸을 건너뛰거나 없는 칸을 넣는다.
+	FVector WorldToCellFloat(const FVector& W) const;
+
+	// 가림 페이드용 — 렌더러에 셀 페이드 값을 전달한다 (0 = 평소, 1 = 최대로 사라짐).
+	// 렌더러가 없으면(데디 서버) false. 반환값의 의미는 IVoxelRenderer::SetCellFade 주석 참조.
+	// 여기서 값을 해석하지 않는다 — 지형은 "왜" 페이드하는지 몰라야 한다.
+	bool SetCellFade(const FIntVector& Cell, float Value);
+
 	// ─── 서버 전용 ───
 	void ServerInitFromSeed(uint32 InSeed);
 	void ServerDestroyBlocks(const TArray<FIntVector>& Cells);

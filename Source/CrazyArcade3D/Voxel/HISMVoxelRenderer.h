@@ -33,6 +33,12 @@ public:
 	virtual void RemoveBlock(const FIntVector& Cell, const FVoxelGrid& Grid) override;
 	virtual void Clear() override;
 
+	// 인스턴스 커스텀 데이터 0번에 페이드 값을 쓴다 — 머티리얼의 `PerInstanceCustomData` 가 읽는다.
+	// **동적 머티리얼 인스턴스를 만들지 않는다** (GDD 7.4 금지 항목). 블록 수천 개가 하나의
+	// 공유 머티리얼을 그대로 쓰고, 인스턴스별로 다른 것은 이 float 하나뿐이다.
+	// 머티리얼이 이 값을 안 읽으면 아무 일도 안 일어난다 — 에셋 작업 전에도 안전하다.
+	virtual bool SetCellFade(const FIntVector& Cell, float Value) override;
+
 protected:
 	// 블록 타입별 메시 — BP 서브클래스에서 에셋만 지정 (BP에 로직 금지).
 	// 머티리얼은 메시/BP가 가진 그대로 사용 — 동적 머티리얼 생성 금지 (GDD 7.4).

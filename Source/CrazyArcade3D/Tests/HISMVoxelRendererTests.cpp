@@ -11,6 +11,7 @@
 #include "Voxel/VoxelWorld.h"
 #include "Voxel/VoxelGrid.h"
 #include "Voxel/HISMVoxelRenderer.h"
+#include "Voxel/VoxelRayCast.h" // 가림 페이드 배선 검증 (2026-08-06)
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 
 #if WITH_AUTOMATION_TESTS
@@ -317,6 +318,109 @@ bool FHISMVoxelRendererTest::RunTest(const FString& Parameters)
 
 		CheckIntegrity(TEXT("연속 파괴 후"));
 		CheckMatchesExpected(TEXT("연속 파괴 후")); // 렌더·그리드 불일치 없음 증명
+	}
+
+	// ─── 가림 디더 페이드 배선 (2026-08-06) ───
+	//
+	// UOcclusionFadeComponent 가 의존하는 통로 전부를 여기서 한 번에 확인한다:
+	//   WorldToCellFloat → VoxelRay::GatherSolidCells → SetCellFade → 인스턴스 커스텀 데이터.
+	// 카메라(PlayerCameraManager)만 빠지는데, 그건 위치 하나를 읽어 오는 것뿐이다.
+	{
+		// 파괴 테스트로 지형이 뚫렸으므로 원본 지형으로 되돌린 뒤 검사한다.
+		VoxelWorld->ServerInitFromSeed(1234u);
+		const FVoxelGrid& FadeGrid = VoxelWorld->GetGrid();
+
+		// ⓐ 실수 셀 좌표 왕복 — CellToWorld(C) 를 넣으면 셀 중심 C + 0.5 가 나와야 한다.
+		{
+			const FIntVector Probe(3, 4, 1);
+			const FVector Back = VoxelWorld->WorldToCellFloat(VoxelWorld->CellToWorld(Probe));
+			TestTrue(TEXT("ⓐ WorldToCellFloat: 셀 중심 왕복 (소수부 0.5 보존)"),
+				Back.Equals(FVector(Probe.X + 0.5, Probe.Y + 0.5, Probe.Z + 0.5), 1e-4));
+		}
+
+		// ⓑ 인스턴스별 커스텀 데이터 슬롯이 실제로 잡혀 있는가 (머티리얼이 읽을 자리).
+		for (const auto& Pair : Renderer->HISMs)
+		{
+			if (Pair.Value)
+			{
+				TestEqual(TEXT("ⓑ HISM NumCustomDataFloats == 1"), Pair.Value->NumCustomDataFloats, 1);
+			}
+		}
+
+		// ⓒ 살아 있는 셀에 페이드를 쓰면 그 인스턴스의 커스텀 데이터에 그대로 들어간다.
+		FIntVector LiveCell = FIntVector::ZeroValue;
+		EBlockType LiveType = EBlockType::Empty;
+		int32 LiveIndex = INDEX_NONE;
+		for (const auto& TypePair : Renderer->CellToInstance)
+		{
+			for (const TPair<FIntVector, int32>& C2I : TypePair.Value)
+			{
+				LiveCell = C2I.Key; LiveType = TypePair.Key; LiveIndex = C2I.Value;
+				break;
+			}
+			if (LiveIndex != INDEX_NONE) break;
+		}
+
+		if (TestTrue(TEXT("ⓒ 페이드 대상 인스턴스 확보"), LiveIndex != INDEX_NONE))
+		{
+			TestTrue(TEXT("ⓒ 살아 있는 셀: SetCellFade 성공"), VoxelWorld->SetCellFade(LiveCell, 0.75f));
+
+			UHierarchicalInstancedStaticMeshComponent* HISM = Renderer->HISMs.FindRef(LiveType);
+			if (TestNotNull(TEXT("ⓒ HISM 존재"), HISM))
+			{
+				const int32 DataIndex = LiveIndex * HISM->NumCustomDataFloats;
+				if (TestTrue(TEXT("ⓒ 커스텀 데이터 인덱스 유효"),
+					HISM->PerInstanceSMCustomData.IsValidIndex(DataIndex)))
+				{
+					TestEqual(TEXT("ⓒ 쓴 값이 인스턴스 커스텀 데이터 0번에 들어갔다"),
+						HISM->PerInstanceSMCustomData[DataIndex], 0.75f);
+				}
+			}
+
+			// ⓓ 그 블록이 파괴되면 false — 컴포넌트가 추적을 끊는 신호다.
+			//    (없으면 사라진 블록을 영원히 갱신하려 든다)
+			if (FadeGrid.Get(LiveCell) == EBlockType::Destructible)
+			{
+				VoxelWorld->ServerDestroyBlocks({ LiveCell });
+				TestFalse(TEXT("ⓓ 파괴된 셀: SetCellFade 가 false (추적 해제 신호)"),
+					VoxelWorld->SetCellFade(LiveCell, 0.75f));
+			}
+		}
+
+		// ⓔ 애초에 인스턴스가 없는 셀(빈 공중)도 false.
+		TestFalse(TEXT("ⓔ 빈 셀: SetCellFade 가 false"),
+			VoxelWorld->SetCellFade(FIntVector(1, 1, 3), 1.f));
+
+		// ⓕ 전체 사슬 — 맵 밖 상공의 "카메라"에서 바닥 위 캐릭터로 훑으면 외곽 벽이 잡힌다.
+		//    폴백 맵의 외곽 링은 z=1~2 Immortal 이므로 낮은 각도로 들어오면 반드시 걸린다.
+		{
+			const FVector CameraWorld = VoxelWorld->CellToWorld(FIntVector(-4, 10, 3));
+			const FVector PawnWorld   = VoxelWorld->CellToWorld(FIntVector(5, 10, 1));
+
+			TArray<FIntVector> Occluders;
+			VoxelRay::GatherSolidCells(FadeGrid,
+				VoxelWorld->WorldToCellFloat(CameraWorld),
+				VoxelWorld->WorldToCellFloat(PawnWorld), 256, Occluders);
+
+			TestTrue(TEXT("ⓕ 전체 사슬: 맵 밖 카메라 → 캐릭터 사이에 가림 블록이 잡힌다"),
+				Occluders.Num() > 0);
+
+			bool bAllSolid = true;
+			for (const FIntVector& Cell : Occluders)
+			{
+				if (!FadeGrid.IsSolid(Cell)) { bAllSolid = false; break; }
+			}
+			TestTrue(TEXT("ⓕ 전체 사슬: 잡힌 칸이 전부 실제 solid"), bAllSolid);
+
+			// 잡힌 칸 전부에 페이드를 걸어 본다 — 표면 블록이면 성공해야 한다
+			// (내부에 묻힌 블록은 인스턴스가 없어 false 가 정상이므로 개수만 세지 않는다).
+			int32 Applied = 0;
+			for (const FIntVector& Cell : Occluders)
+			{
+				if (VoxelWorld->SetCellFade(Cell, 1.f)) { ++Applied; }
+			}
+			TestTrue(TEXT("ⓕ 전체 사슬: 잡힌 칸 중 최소 하나에 페이드가 실제로 적용됐다"), Applied > 0);
+		}
 	}
 
 	// ─── Clear: 인스턴스 0 + 맵 비움 (HISM 컴포넌트는 유지) ───
