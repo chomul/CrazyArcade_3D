@@ -188,5 +188,15 @@ private:
 	int32 LastElapsedWholeSeconds = MIN_int32;
 	bool bResultShown = false;
 
+	// 마지막으로 그린 결과 본문 — 결과 화면은 종료 후에도 **매 틱 다시 만든다** (아래 이유).
+	// 같으면 SetText 를 건너뛰고, 달라졌을 때만 로그를 찍는다 (전이 감지).
+	//
+	// 굳히지 않는 이유 (2026-08-06 실측 버그): bMatchEnded 는 GameState, FinalRank 는
+	// PlayerState — **서로 다른 액터라 복제 도착 순서 보장이 없다.** 클라에서 bMatchEnded 가
+	// 먼저 오면 우승자 랭크가 아직 0이라, 첫 프레임에 굳히는 방식은 우승 매치를 "무승부"로
+	// 그리고 영영 안 고친다 (서버 로그 "우승자 확정" vs 위젯 "무승부"가 실제로 어긋났다).
+	// 매 틱 다시 만들면 늦게 온 랭크가 다음 틱에 표시를 스스로 고친다.
+	FString LastResultBody;
+
 	friend class FMatchWidgetTest; // 자동화 테스트가 갱신 캐시 상태를 확인하기 위한 접근
 };

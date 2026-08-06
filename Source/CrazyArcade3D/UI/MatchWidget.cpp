@@ -343,8 +343,12 @@ void UMatchWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		}
 	}
 
-	// ④ 결과 화면 — bMatchEnded 는 복제되므로 전이만 감지하면 된다 (한 번만).
-	if (GameState->bMatchEnded && !bResultShown)
+	// ④ 결과 화면 — 종료 후에도 **매 틱** 부른다 (한 번만 그리면 안 된다).
+	//    bMatchEnded(GameState)와 FinalRank(PlayerState)는 다른 액터라 복제 순서 보장이
+	//    없다 — 첫 프레임에 굳히면 우승자 랭크가 늦게 도착한 클라가 우승 매치를 무승부로
+	//    그린 채 멈춘다 (LastResultBody 헤더 주석, 2026-08-06 실측). ShowResult 내부가
+	//    본문 비교로 재작업을 걸러 비용은 전이 프레임에만 든다.
+	if (GameState->bMatchEnded)
 	{
 		ShowResult();
 	}
@@ -383,9 +387,18 @@ void UMatchWidget::ShowResult()
 		Lines.Add(FormatResultRow(Row).ToString());
 	}
 
+	// 매 틱 불리므로 본문이 같으면 여기서 끝 — SetText·로그는 실제로 달라진 프레임에만.
+	// (우승자 랭크가 늦게 도착하면 본문이 "무승부 → N등 우승"으로 바뀌며 이 게이트를 통과한다.)
+	const FString Body = FString::Join(Lines, TEXT("\n"));
+	if (Body == LastResultBody)
+	{
+		return;
+	}
+	LastResultBody = Body;
+
 	if (ResultText)
 	{
-		ResultText->SetText(FText::FromString(FString::Join(Lines, TEXT("\n"))));
+		ResultText->SetText(FText::FromString(Body));
 	}
 	if (ResultPanel)
 	{
