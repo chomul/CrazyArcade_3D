@@ -10,6 +10,7 @@
 #include "Voxel/VoxelWorld.h"
 #include "Voxel/VoxelGrid.h"
 #include "MapGen/FallbackMapGenerator.h"
+#include "MapGen/ProcMapGenerator.h"
 #include "Framework/CA3DRuleSet.h"
 
 #if WITH_AUTOMATION_TESTS
@@ -64,21 +65,29 @@ bool FVoxelWorldTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// ─── 1. ServerInitFromSeed = FallbackMapGenerator 직접 실행과 비트 단위 동일 ───
+	// ─── 1. ServerInitFromSeed = 생성기 직접 실행과 비트 단위 동일 ───
 	AVoxelWorld* VoxelWorld = World->SpawnActor<AVoxelWorld>();
 	TestNotNull(TEXT("AVoxelWorld 스폰"), VoxelWorld);
 	TestTrue(TEXT("넷드라이버 없음 → HasAuthority"), VoxelWorld->HasAuthority());
 
 	VoxelWorld->ServerInitFromSeed(1234u);
 
-	// 기준 그리드: Task 04 생성기를 기본 룰셋으로 직접 실행.
+	// 기준 그리드: AVoxelWorld 와 **같은 생성기 선택 규칙**(절차 우선, 실패 시 폴백 — Task 22)을
+	// 기본 룰셋·기본 MapSize 로 직접 실행. 생성기 실패도 결정론적이라(같은 입력 ⇒ 같은 실패)
+	// 어느 경로를 타든 이 기준과 ServerInitFromSeed 결과는 같아야 한다.
 	FVoxelGrid RefGrid;
 	{
 		UCA3DRuleSet* Rules = NewObject<UCA3DRuleSet>();
-		UFallbackMapGenerator* Generator = NewObject<UFallbackMapGenerator>();
 		TArray<FIntVector> RefSpawns;
 		TArray<FItemPlacement> RefItems;
-		TestTrue(TEXT("기준 Generate 성공"), Generator->Generate(1234u, Rules, RefGrid, RefSpawns, RefItems));
+		bool bRefGenerated = NewObject<UProcMapGenerator>()->Generate(
+			1234u, Rules->MapSize, Rules, RefGrid, RefSpawns, RefItems);
+		if (!bRefGenerated)
+		{
+			bRefGenerated = NewObject<UFallbackMapGenerator>()->Generate(
+				1234u, Rules->MapSize, Rules, RefGrid, RefSpawns, RefItems);
+		}
+		TestTrue(TEXT("기준 Generate 성공"), bRefGenerated);
 	}
 
 	const FVoxelGrid& Grid = VoxelWorld->GetGrid();

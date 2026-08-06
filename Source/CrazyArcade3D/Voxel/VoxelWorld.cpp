@@ -2,6 +2,7 @@
 
 #include "CrazyArcade3D.h"
 #include "MapGen/FallbackMapGenerator.h"   // Voxel→MapGen 참조는 설계서 2.2가 확정 — .cpp 에서만 include
+#include "MapGen/ProcMapGenerator.h"       // 절차 생성기 (Task 22) — 실패 시 위 폴백으로 전환
 #include "Framework/CA3DRuleSet.h"         // Voxel→Framework 참조도 동일 — .cpp 에서만 include
 #include "Framework/CA3DGameState.h"       // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만 include
 #include "Voxel/HISMVoxelRenderer.h"
@@ -69,6 +70,7 @@ void AVoxelWorld::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifet
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AVoxelWorld, Seed);
+	DOREPLIFETIME(AVoxelWorld, GridSize);
 	DOREPLIFETIME(AVoxelWorld, DestroyedCells);
 }
 
@@ -130,7 +132,21 @@ void AVoxelWorld::ServerInitFromSeed(uint32 InSeed)
 {
 	if (!HasAuthority()) return; // 불변식 5 — 상태를 바꾸는 함수는 서버 전용
 
-	Seed = InSeed; // 복제 프로퍼티 기록 — 클라는 OnRep_Seed로 동일 맵을 재생성한다
+	// 레거시 단일 인자 경로 — 크기는 룰셋 MapSize (기존 테스트·GameMode 미경유 실행의 기준).
+	// 룰셋 출처는 InitGridFromSeed 와 동일하게 GameState 를 먼저 본다 (없으면 기본 룰셋).
+	const ACA3DGameState* CA3DGameState =
+		GetWorld() ? Cast<ACA3DGameState>(GetWorld()->GetGameState()) : nullptr;
+	const UCA3DRuleSet* SizeRules =
+		(CA3DGameState && CA3DGameState->Rules) ? CA3DGameState->Rules.Get() : GetDefault<UCA3DRuleSet>();
+	ServerInitFromSeed(InSeed, SizeRules->MapSize);
+}
+
+void AVoxelWorld::ServerInitFromSeed(uint32 InSeed, const FIntVector& InSize)
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	Seed = InSeed;     // 복제 프로퍼티 기록 — 클라는 OnRep_Seed로 동일 맵을 재생성한다
+	GridSize = InSize; // 크기도 복제 — 클라는 서버가 정한 이 값만 믿는다 (헤더 주석, Task 22)
 	InitGridFromSeed();
 }
 
@@ -171,6 +187,13 @@ void AVoxelWorld::OnRep_Seed()
 	// 클라: 서버와 동일한 결정론 생성 경로로 맵 구성.
 	// InitGridFromSeed 내부에서 렌더 빌드 + PendingDestroyQueue flush까지 수행한다
 	// (알려진 함정: 파괴 Multicast가 이 OnRep보다 먼저 도착할 수 있다).
+	InitGridFromSeed();
+}
+
+void AVoxelWorld::OnRep_GridSize()
+{
+	// 보통 Seed 와 같은 초기 번들로 도착하지만 순서 계약은 없다 — 어느 쪽이 늦어도
+	// InitGridFromSeed 의 재진입 가드·미도착 지연 재시도가 한 번만 생성되게 맞춘다 (Task 22).
 	InitGridFromSeed();
 }
 
@@ -287,12 +310,43 @@ void AVoxelWorld::InitGridFromSeed()
 		}
 	}
 
-	// Task 22에서 이 한 줄만 절차 생성기(UProceduralMapGenerator)로 바꾼다.
-	UFallbackMapGenerator* Generator = NewObject<UFallbackMapGenerator>();
+	// 크기 확인 (Task 22): 정식 경로에서는 ServerInitFromSeed 가 이미 GridSize 를 채웠다.
+	if (GridSize == FIntVector::ZeroValue)
+	{
+		if (HasAuthority())
+		{
+			// 서버 권한인데 미설정 — 테스트가 OnRep_Seed 를 직접 부르는 경로 등.
+			// 레거시와 같은 기준(룰셋 MapSize)으로 즉시 채운다 (서버는 기다릴 대상이 없다).
+			GridSize = Rules->MapSize;
+		}
+		else
+		{
+			// 클라: 크기 미도착 — 위 룰셋 미도착과 같은 next-tick 재시도 패턴.
+			// 여기서 클라가 로컬 인원수로 크기를 유추하면 **중간 접속자가 다른 맵을 만든다**
+			// (접속 시점 인원 ≠ 매치 시작 시점 인원) — 크기는 서버 결정·복제만 믿는다 (헤더 주석).
+			UE_LOG(LogCA3D, Verbose, TEXT("AVoxelWorld: 클라 GridSize 미도착 — 그리드 생성을 다음 틱으로 지연"));
+			GetWorldTimerManager().SetTimerForNextTick(
+				FTimerDelegate::CreateUObject(this, &AVoxelWorld::InitGridFromSeed));
+			return;
+		}
+	}
 
+	// 생성기 선택 (Task 22): 절차 생성기 우선, 실패 시 폴백 (GDD 4.2 안전장치 3).
+	// **생성기 실패도 결정론적이다** — 같은 Seed·Size·Rules 면 어느 머신에서든 똑같이
+	// 실패하므로 서버와 클라가 같은 폴백 경로를 탄다 (한쪽만 폴백을 타는 상황이 없다).
+	//
 	// 스폰 셀은 서버 GameMode 가 GetSpawnCells 로(Task 09), 아이템 배치는 폭발 처리가
 	// ConsumeItemPlacement 로(Task 23) 소비한다 — 둘 다 여기서 보관만 한다.
-	if (!Generator->Generate(Seed, Rules, Grid, SpawnCells, ItemPlacements))
+	UProcMapGenerator* ProcGenerator = NewObject<UProcMapGenerator>();
+	bool bGenerated = ProcGenerator->Generate(Seed, GridSize, Rules, Grid, SpawnCells, ItemPlacements);
+	if (!bGenerated)
+	{
+		UE_LOG(LogCA3D, Warning,
+			TEXT("AVoxelWorld: Seed %u 절차 생성 실패 — 폴백 생성기로 전환 (GDD 4.2 안전장치 3)"), Seed);
+		UFallbackMapGenerator* FallbackGenerator = NewObject<UFallbackMapGenerator>();
+		bGenerated = FallbackGenerator->Generate(Seed, GridSize, Rules, Grid, SpawnCells, ItemPlacements);
+	}
+	if (!bGenerated)
 	{
 		UE_LOG(LogCA3D, Error, TEXT("AVoxelWorld: Seed %u 맵 생성 실패"), Seed);
 		return;

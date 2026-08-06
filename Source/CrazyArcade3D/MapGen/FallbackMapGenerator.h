@@ -8,7 +8,7 @@
 // Seed를 무시하고 항상 같은 하드코딩 맵을 반환하는 폴백 맵 생성기 (Task 04).
 // 1주차 코어 검증용 안전장치 — 절차 생성기(Task 22)가 미완이어도 게임이 돌게 한다.
 //
-// 레이아웃 (GDD 2.1 / 4.1, Rules->MapSize 기본 21×21×4 기준):
+// 레이아웃 (GDD 2.1 / 4.1, 호출부가 넘긴 Size 기본 21×21×4 기준):
 //  - z=0 전체 Floor.
 //  - 외곽 1칸 둘레는 Immortal 벽, z=1~2 두 층.
 //  - 내부 [2, Size-3] 영역: x,y 둘 다 짝수인 칸에 Immortal 기둥(원작 크아식 격자),
@@ -21,16 +21,16 @@
 //  - 스폰 8개: 코너 4 + 변 중앙 4, 전부 스폰 링 위 (z=1 Empty, 아래 z=0 Floor).
 //
 // 결정론: 랜덤·float를 일절 쓰지 않는다 — 전부 정수 좌표 루프/하드코딩 (불변식 4).
-// MapSize가 최소 요건(9×9×3) 미만이거나 Rules가 nullptr이면 false 반환.
+// Size가 최소 요건(9×9×3) 미만이거나 Rules가 nullptr이면 false 반환.
 UCLASS()
 class CRAZYARCADE3D_API UFallbackMapGenerator : public UObject, public IMapGenerator
 {
 	GENERATED_BODY()
 
 public:
-	virtual bool Generate(uint32 Seed, const UCA3DRuleSet* Rules,
+	virtual bool Generate(uint32 Seed, const FIntVector& Size, const UCA3DRuleSet* Rules,
 	                      FVoxelGrid& OutGrid,
 	                      TArray<FIntVector>& OutSpawns,
 	                      TArray<FItemPlacement>& OutItems) override;
-	// OutItems는 1주차에는 비워 반환한다 (아이템 배치는 Task 23).
+	// OutItems 는 FMapGenUtil 공용 본체로 채운다 (Task 23 규칙 — 절차 생성기와 동일).
 };

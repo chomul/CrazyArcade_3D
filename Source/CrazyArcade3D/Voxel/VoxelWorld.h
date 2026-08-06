@@ -60,7 +60,10 @@ public:
 	float GetCellFade(const FIntVector& Cell) const;
 
 	// ─── 서버 전용 ───
+	// 레거시 단일 인자 경로 — 크기는 룰셋 MapSize (기존 테스트·단독 실행의 기준 경로, Task 22).
 	void ServerInitFromSeed(uint32 InSeed);
+	// 정식 경로 (Task 22) — GameMode 가 인원별 티어로 고른 크기를 명시해 호출한다.
+	void ServerInitFromSeed(uint32 InSeed, const FIntVector& InSize);
 	void ServerDestroyBlocks(const TArray<FIntVector>& Cells);
 
 	// 생성기가 반환한 스폰 셀 — 서버 GameMode(ChoosePlayerStart)가 소비한다 (Task 09).
@@ -91,6 +94,15 @@ protected:
 	uint32 Seed = 0;
 
 	UFUNCTION() void OnRep_Seed();
+
+	// 맵 크기 — 서버가 결정해 복제한다 (Task 22 인원별 티어). ZeroValue = 아직 미결정.
+	// 클라가 로컬 인원수로 크기를 유추하면 **중간 접속자가 다른 맵을 만든다** (접속 시점
+	// 인원 ≠ 매치 시작 시점 인원 — Multicast 함정과 같은 계열). 크기는 Seed 와 마찬가지로
+	// 서버 결정·복제 값 하나만 믿는다.
+	UPROPERTY(ReplicatedUsing=OnRep_GridSize)
+	FIntVector GridSize = FIntVector::ZeroValue;
+
+	UFUNCTION() void OnRep_GridSize();
 
 	// 파괴 이력 — **중간 접속자를 위한 것**이다.
 	// Multicast RPC 는 "그 순간 접속해 있는" 클라에게만 간다. 그래서 이력이 없으면 늦게 들어온

@@ -113,9 +113,9 @@ bool FItemPickupTest::RunTest(const FString& Parameters)
 	TArray<FIntVector> SpawnsA, SpawnsB, SpawnsC;
 	TArray<FItemPlacement> ItemsA, ItemsB, ItemsC;
 
-	const bool bGenA = Generator->Generate(12345u, GenRules, GridA, SpawnsA, ItemsA);
-	const bool bGenB = Generator->Generate(12345u, GenRules, GridB, SpawnsB, ItemsB); // 같은 Seed
-	const bool bGenC = Generator->Generate(99999u, GenRules, GridC, SpawnsC, ItemsC); // 다른 Seed
+	const bool bGenA = Generator->Generate(12345u, GenRules->MapSize, GenRules, GridA, SpawnsA, ItemsA);
+	const bool bGenB = Generator->Generate(12345u, GenRules->MapSize, GenRules, GridB, SpawnsB, ItemsB); // 같은 Seed
+	const bool bGenC = Generator->Generate(99999u, GenRules->MapSize, GenRules, GridC, SpawnsC, ItemsC); // 다른 Seed
 	if (!TestTrue(TEXT("① 생성 3회 전부 성공"), bGenA && bGenB && bGenC))
 	{
 		return false;
@@ -161,7 +161,7 @@ bool FItemPickupTest::RunTest(const FString& Parameters)
 		FVoxelGrid Grid;
 		TArray<FIntVector> Spawns;
 		TArray<FItemPlacement> Items;
-		Generator->Generate(Seed, GenRules, Grid, Spawns, Items);
+		Generator->Generate(Seed, GenRules->MapSize, GenRules, Grid, Spawns, Items);
 		for (const FItemPlacement& Placement : Items)
 		{
 			++TypeCounts[static_cast<int32>(Placement.Type)];
@@ -179,7 +179,7 @@ bool FItemPickupTest::RunTest(const FString& Parameters)
 	FVoxelGrid ZeroGrid;
 	TArray<FIntVector> ZeroSpawns;
 	TArray<FItemPlacement> ZeroItems;
-	Generator->Generate(12345u, ZeroRules, ZeroGrid, ZeroSpawns, ZeroItems);
+	Generator->Generate(12345u, ZeroRules->MapSize, ZeroRules, ZeroGrid, ZeroSpawns, ZeroItems);
 	TestEqual(TEXT("⑥ ItemDropPercent 0 → 배치 없음 (확률이 룰셋 소관)"), ZeroItems.Num(), 0);
 
 	// ══════════════════════════════════════════════════════════════════════════

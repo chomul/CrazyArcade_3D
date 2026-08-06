@@ -67,7 +67,7 @@ bool FFallbackMapGeneratorTest::RunTest(const FString& Parameters)
 	TArray<FItemPlacement> Items;
 
 	// --- 1. Generate 성공 ---
-	const bool bGenerated = Generator->Generate(12345u, Rules, Grid, Spawns, Items);
+	const bool bGenerated = Generator->Generate(12345u, Rules->MapSize, Rules, Grid, Spawns, Items);
 	TestTrue(TEXT("Generate: true 반환"), bGenerated);
 
 	// --- 8. 그리드 로그 덤프 (성패와 무관하게 항상) ---
@@ -163,7 +163,7 @@ bool FFallbackMapGeneratorTest::RunTest(const FString& Parameters)
 	FVoxelGrid Grid2;
 	TArray<FIntVector> Spawns2;
 	TArray<FItemPlacement> Items2;
-	const bool bGenerated2 = Generator->Generate(99999u, Rules, Grid2, Spawns2, Items2);
+	const bool bGenerated2 = Generator->Generate(99999u, Rules->MapSize, Rules, Grid2, Spawns2, Items2);
 	TestTrue(TEXT("결정론: 2회차 Generate도 true"), bGenerated2);
 	TestEqual(TEXT("결정론: Blocks 크기 동일"), Grid.Blocks.Num(), Grid2.Blocks.Num());
 	TestTrue(TEXT("결정론: Blocks 비트 단위 동일"),
@@ -231,7 +231,7 @@ bool FFallbackMapGeneratorTest::RunTest(const FString& Parameters)
 	TArray<FIntVector> NullSpawns;
 	TArray<FItemPlacement> NullItems;
 	TestFalse(TEXT("Rules == nullptr → false"),
-		Generator->Generate(0u, nullptr, NullGrid, NullSpawns, NullItems));
+		Generator->Generate(0u, Rules->MapSize, nullptr, NullGrid, NullSpawns, NullItems));
 
 	return true;
 }

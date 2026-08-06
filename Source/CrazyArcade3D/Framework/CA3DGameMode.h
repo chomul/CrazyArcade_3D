@@ -57,6 +57,13 @@ private:
 	// 인원까지 ABotController 를 스폰해 채운다. BeginPlay 가 BotFillDelaySeconds 후로 예약.
 	void SpawnFillBots();
 
+	// 봇 충원 목표 인원의 **단일 공식** (Task 22) — 콘솔 변수 `ca3d.BotFill`(≥0)이 룰셋
+	// (bFillWithBots·BotFillTargetPlayers)을 덮어쓴다. SpawnFillBots(실제 충원)와
+	// BeginPlay(맵 크기 티어 판정)가 둘 다 여기를 통과한다 — 공식이 두 벌로 갈라지면
+	// "봇까지 8명인데 소형 맵" 같은 티어·인원 어긋남이 생긴다.
+	// bOutFromCVar: 콘솔 변수가 덮어썼는지 (로그 표기용).
+	int32 GetBotFillTargetPlayers(bool& bOutFromCVar) const;
+
 	// 쌓인 사망 통지를 한 번에 해소한다 — 공동 등수 부여 → AliveCount 갱신 → 종료 판정.
 	// NotifyPlayerDeath 가 예약한 다음 틱 타이머에서만 불린다.
 	void ResolvePendingDeaths();

@@ -14,6 +14,8 @@
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
+#include "Misc/CommandLine.h" // 티어 판정의 -ExecCmds 타이밍 폴백 (GetBotFillTargetPlayers 주석)
+#include "Misc/Parse.h"
 #include "TimerManager.h"
 
 // 봇 채우기 스위치 (Task 20). -1 = 룰셋(bFillWithBots·BotFillTargetPlayers)을 따른다.
@@ -86,7 +88,25 @@ void ACA3DGameMode::BeginPlay()
 		return;
 	}
 
-	VoxelWorld->ServerInitFromSeed(Seed);
+	// 맵 크기 티어 (Task 22): 예상 총 인원 = max(현재 접속 인원, 봇 충원 목표).
+	// 봇 목표는 SpawnFillBots 와 같은 헬퍼(GetBotFillTargetPlayers)를 공유한다 — 복붙하면
+	// 티어 판정과 실제 충원 인원이 조용히 갈라진다. 접속 인원은 BeginPlay 시점 값이다:
+	// 크기는 매치 시작에 한 번만 정한다 (이후 접속자는 정해진 맵에 들어온다 — 중간에 크기를
+	// 바꾸면 이미 만든 지형·복제 값과 어긋난다).
+	bool bTargetFromCVar = false;
+	const int32 BotTargetPlayers = GetBotFillTargetPlayers(bTargetFromCVar);
+	const int32 ExpectedPlayers = FMath::Max(GetNumPlayers(), BotTargetPlayers);
+	const FIntVector TierSize = (ExpectedPlayers <= Rules->SmallMatchMaxPlayers)
+		? Rules->MapSizeSmall
+		: Rules->MapSizeLarge;
+	UE_LOG(LogCA3D, Log,
+		TEXT("ACA3DGameMode: 맵 크기 티어 — 예상 %d명(접속 %d, 봇 목표 %d%s) → %s (%d,%d,%d), 소형 기준 %d명 이하"),
+		ExpectedPlayers, GetNumPlayers(), BotTargetPlayers,
+		bTargetFromCVar ? TEXT(" (ca3d.BotFill)") : TEXT(""),
+		(ExpectedPlayers <= Rules->SmallMatchMaxPlayers) ? TEXT("소형") : TEXT("대형"),
+		TierSize.X, TierSize.Y, TierSize.Z, Rules->SmallMatchMaxPlayers);
+
+	VoxelWorld->ServerInitFromSeed(Seed, TierSize);
 	SpawnCells = VoxelWorld->GetSpawnCells();
 	if (SpawnCells.Num() == 0)
 	{
@@ -198,6 +218,48 @@ void ACA3DGameMode::RegisterParticipant(AController* NewController)
 		MatchParticipantCount, NewState->ColorIndex, NewState->IsABot() ? TEXT(" (봇)") : TEXT(""));
 }
 
+int32 ACA3DGameMode::GetBotFillTargetPlayers(bool& bOutFromCVar) const
+{
+	const UCA3DRuleSet* EffectiveRules = Rules ? Rules : GetDefault<UCA3DRuleSet>();
+
+	// 콘솔 변수가 룰셋을 덮어쓴다 (-1 = 룰셋 따름). 룰셋 기본이 false 인 이유는 룰셋 주석 참조 —
+	// 봇이 조용히 켜져 있으면 기존 PIE·자동화 테스트의 인원수가 바뀐다.
+	int32 Override = CVarCA3DBotFill.GetValueOnGameThread();
+
+	// ⚠️ -ExecCmds 는 GameMode BeginPlay **이후에** 실행된다 — 봇 채우기를 타이머로 미룬
+	// 이유 (b)가 바로 이것이다. 그런데 맵 크기 티어는 BeginPlay 에서 정해야 하므로(지형이
+	// 스폰보다 먼저 필요) cvar 만 보면 티어 판정이 항상 봇 목표 0 으로 나온다
+	// (2026-08-06 실측: `-ExecCmds="ca3d.BotFill 5"` 인데 티어는 "봇 목표 0 → 소형").
+	// 그래서 cvar 가 아직 기본값이면 커맨드라인에서 같은 지시를 직접 읽는다.
+	// SpawnFillBots(타이머 이후)는 cvar 가 이미 적용돼 있어 이 폴백을 타지 않는다 —
+	// 어느 쪽이 읽혀도 같은 값이므로 티어와 실제 충원 인원이 갈라지지 않는다.
+	// ⚠️ FParse::Value 를 커맨드라인에 직접 쓰면 안 된다 — 내부 Strifind 가
+	// bSkipQuotedChars=true 라 **따옴표 안을 건너뛴다.** `ca3d.BotFill 5` 는
+	// `-ExecCmds="..."` 따옴표 안에 있으므로 영영 못 찾는다 (2026-08-06 실측).
+	// 그래서 -ExecCmds= 의 값(따옴표 해제는 FParse 가 해 준다)을 먼저 꺼낸 뒤 그 안에서 찾는다.
+	if (Override < 0)
+	{
+		FString ExecCmds;
+		if (FParse::Value(FCommandLine::Get(), TEXT("-ExecCmds="), ExecCmds))
+		{
+			const int32 KeyPos = ExecCmds.Find(TEXT("ca3d.BotFill"), ESearchCase::IgnoreCase);
+			if (KeyPos != INDEX_NONE)
+			{
+				const int32 Parsed = FCString::Atoi(*ExecCmds + KeyPos + FCString::Strlen(TEXT("ca3d.BotFill")));
+				if (Parsed >= 0)
+				{
+					Override = Parsed;
+				}
+			}
+		}
+	}
+
+	bOutFromCVar = (Override >= 0);
+	return bOutFromCVar
+		? Override
+		: (EffectiveRules->bFillWithBots ? EffectiveRules->BotFillTargetPlayers : 0);
+}
+
 void ACA3DGameMode::SpawnFillBots()
 {
 	if (!HasAuthority()) return; // 불변식 5
@@ -208,20 +270,15 @@ void ACA3DGameMode::SpawnFillBots()
 		return;
 	}
 
-	const UCA3DRuleSet* EffectiveRules = Rules ? Rules : GetDefault<UCA3DRuleSet>();
-
-	// 콘솔 변수가 룰셋을 덮어쓴다 (-1 = 룰셋 따름). 룰셋 기본이 false 인 이유는 룰셋 주석 참조 —
-	// 봇이 조용히 켜져 있으면 기존 PIE·자동화 테스트의 인원수가 바뀐다.
-	const int32 Override = CVarCA3DBotFill.GetValueOnGameThread();
-	const int32 TargetPlayers = (Override >= 0)
-		? Override
-		: (EffectiveRules->bFillWithBots ? EffectiveRules->BotFillTargetPlayers : 0);
+	// 목표 인원 공식은 BeginPlay(맵 크기 티어)와 공유하는 헬퍼 하나뿐이다 (Task 22 — 헤더 주석).
+	bool bFromCVar = false;
+	const int32 TargetPlayers = GetBotFillTargetPlayers(bFromCVar);
 
 	const int32 Needed = TargetPlayers - MatchParticipantCount;
 	if (Needed <= 0)
 	{
 		UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 봇 채우기 없음 — 목표 %d명 / 현재 참가 %d명%s"),
-			TargetPlayers, MatchParticipantCount, (Override >= 0) ? TEXT(" (ca3d.BotFill)") : TEXT(""));
+			TargetPlayers, MatchParticipantCount, bFromCVar ? TEXT(" (ca3d.BotFill)") : TEXT(""));
 		return;
 	}
 
@@ -257,7 +314,7 @@ void ACA3DGameMode::SpawnFillBots()
 
 	UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 봇 %d대 투입 — 목표 %d명 / 총 참가 %d명%s"),
 		SpawnedCount, TargetPlayers, MatchParticipantCount,
-		(Override >= 0) ? TEXT(" (ca3d.BotFill)") : TEXT(""));
+		bFromCVar ? TEXT(" (ca3d.BotFill)") : TEXT(""));
 }
 
 // ─── 서든데스 (Task 24, 서버 전용) ───────────────────────────────────────────

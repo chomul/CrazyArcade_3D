@@ -203,7 +203,7 @@ bool FMapValidatorTest::RunTest(const FString& Parameters)
 		TArray<FIntVector> Spawns;
 		TArray<FItemPlacement> Items;
 
-		if (TestTrue(TEXT("⑦ 폴백 생성 성공"), Generator->Generate(1234u, Rules, Grid, Spawns, Items)))
+		if (TestTrue(TEXT("⑦ 폴백 생성 성공"), Generator->Generate(1234u, Rules->MapSize, Rules, Grid, Spawns, Items)))
 		{
 			// 실측값을 로그로 남긴다 — 임계값을 추측이 아니라 데이터로 정하기 위해.
 			int32 MinDist = MAX_int32;

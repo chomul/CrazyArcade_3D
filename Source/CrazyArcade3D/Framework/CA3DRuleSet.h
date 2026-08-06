@@ -203,8 +203,57 @@ public:
 	bool bFloorDestructible = false;
 
 	// 그리드 크기 (X, Y, 층).
+	// ⚠️ **레거시 기본 경로 전용** (Task 22 이후) — 크기를 명시하지 않는 호출
+	// (기존 테스트·AVoxelWorld::ServerInitFromSeed 단일 인자)이 계속 이 값을 쓴다.
+	// 정식 매치는 GameMode 가 아래 인원별 티어(MapSizeSmall/Large)에서 골라 넘긴다.
 	UPROPERTY(EditAnywhere, Category="Map")
 	FIntVector MapSize = FIntVector(21, 21, 4);
+
+	// ─── Map — 절차 생성 (Task 22, 2026-08-06 사용자 확정: 산·협곡 Z 6층 + 인원별 티어) ───
+	// 아래 수치 전부 정수 — **맵 생성기가 소비**하므로 float 금지 (불변식 4, ItemDropPercent 주석과 같은 근거).
+
+	// 이 인원 이하면 소형 맵. 예상 인원 = max(접속 인원, 봇 충원 목표) — GameMode 가 판정.
+	UPROPERTY(EditAnywhere, Category="Map", meta=(ClampMin="1", ClampMax="8"))
+	int32 SmallMatchMaxPlayers = 4;
+
+	// 인원별 티어 크기 (X, Y, 층). Z 6층 — 계단식 고원(산)과 그 사이 틈(협곡)이 들어갈 높이.
+	UPROPERTY(EditAnywhere, Category="Map")
+	FIntVector MapSizeSmall = FIntVector(17, 17, 6);
+
+	UPROPERTY(EditAnywhere, Category="Map")
+	FIntVector MapSizeLarge = FIntVector(21, 21, 6);
+
+	// 구조물(계단식 고원) 최대 높이(블록 수). 생성기가 층수에 맞게 Size.Z-2 로 클램프한다.
+	UPROPERTY(EditAnywhere, Category="Map", meta=(ClampMin="1"))
+	int32 ProcStructureMaxHeight = 3;
+
+	// 맵 100칸당 구조물 개수 — 면적 비례 정수 스케일 (21×21=441칸 → 8개, 17×17=289칸 → 5개).
+	UPROPERTY(EditAnywhere, Category="Map", meta=(ClampMin="0"))
+	int32 ProcStructureCountPer100Cells = 2;
+
+	// 복도 칸에 파괴 블록이 놓일 확률(정수 %). 구조물 꼭대기 스캐터도 같은 값을 쓴다.
+	UPROPERTY(EditAnywhere, Category="Map", meta=(ClampMin="0", ClampMax="100"))
+	int32 ProcDestructiblePercent = 35;
+
+	// 생성→검증(Task 21) 불통과 시 파생 시드 리롤 상한. 초과하면 Generate 가 false 를 반환하고
+	// 호출부(AVoxelWorld)가 폴백 생성기로 전환한다 (GDD 4.2 안전장치 3).
+	UPROPERTY(EditAnywhere, Category="Map", meta=(ClampMin="1"))
+	int32 ProcRerollMaxAttempts = 16;
+
+	// ─── Map — 검증 임계값 (Task 21 FMapValidator 에 넘기는 값 — 하드코딩 금지) ───
+
+	// 스폰 간 최소 맨해튼 거리. **21×21 기준값** — 생성기가 (Size.X+Size.Y)/42 정수 비례로
+	// 스케일해 적용한다 (17×17 이면 6). 그대로 쓰면 소형 맵이 전부 리롤된다 (ProcMapGenerator 주석).
+	UPROPERTY(EditAnywhere, Category="Map", meta=(ClampMin="0"))
+	int32 ValidatorSpawnMinManhattan = 8;
+
+	// 스폰 주변 탈출로 최소 방향 수 (수평 4방향 중).
+	UPROPERTY(EditAnywhere, Category="Map", meta=(ClampMin="0", ClampMax="4"))
+	int32 ValidatorSpawnMinEscapeDirs = 2;
+
+	// 사분면 간 아이템 개수 최대 편차 — 한쪽 쏠림 방지.
+	UPROPERTY(EditAnywhere, Category="Map", meta=(ClampMin="0"))
+	int32 ValidatorItemQuadrantMaxDiff = 4;
 
 	// ── Item (Task 23) ─────────────────────────────────────
 	// ⚠️ 아래 수치 전부 잠정 — 아이템 스택 상한과 함께 밸런스 패스에서 확정 (CLAUDE.md "아직 안 정한 값").
