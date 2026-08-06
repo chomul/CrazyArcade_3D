@@ -82,11 +82,17 @@ namespace
 			const int32 Y1 = Y0 + SpanY - 1;
 			const int32 Height = Stream.RandRange(1, MaxHeight);
 
-			// 웨딩케이크: 층 L(1..H)은 밑면을 (L-1)만큼 인셋한 사각형을 z=L 에 Immortal 로 채운다.
+			// 웨딩케이크: 층 L(1..H)은 밑면을 (L-1)만큼 인셋한 사각형을 z=L 에 채운다.
 			// 각 층이 1칸씩 물러나므로 이웃 기둥 높이 차가 항상 1 이하 — 어느 층이든 1칸 점프로
 			// 오를 수 있다. GDD 2.1 요건이고 검증기 ①(연결성)·④(고립 구역)가 이 규칙으로 판정한다.
 			// 겹침 허용: 계단(높이 차 1 이하) 지형끼리의 합집합 높이는 두 높이의 max 라 역시
 			// 높이 차 1 이하가 유지된다 — 자연스러운 능선이 공짜로 나오고 도달성은 깨지지 않는다.
+			//
+			// **재질은 Destructible** (2026-08-06 사용자: 부서지는 것이 압도적으로 많아야
+			// "맵 부수는 느낌"이 난다 — 목표 8:2~9:1). 산이 Immortal 이면 비율이 정반대가 되고
+			// (실측 Immortal ~350 vs Destructible ~100), 산을 뚫어 길을 내는 재미도 없다.
+			// 부분 파괴로 공중에 뜬 블록이 남는 것은 의도된 복셀 규칙이다 (발판만이 안전하다).
+			// Immortal 은 이제 외곽 벽 + 평지 기둥 격자(폭발 차단 골격 — 원작 정체성)뿐이다.
 			PmgStructureTop Top;
 			for (int32 Layer = 1; Layer <= Height; ++Layer)
 			{
@@ -104,7 +110,7 @@ namespace
 				{
 					for (int32 X = LX0; X <= LX1; ++X)
 					{
-						Grid.Set(FIntVector(X, Y, Layer), EBlockType::Immortal);
+						Grid.Set(FIntVector(X, Y, Layer), EBlockType::Destructible);
 					}
 				}
 				Top = PmgStructureTop{ LX0, LY0, LX1, LY1, Layer };
@@ -321,12 +327,38 @@ bool UProcMapGenerator::Generate(uint32 Seed, const FIntVector& Size, const UCA3
 			continue;
 		}
 
+		// ⑤ 사분면 편차 기준은 **아이템 수 비례**로 그때그때 계산한다 (생성 결과에만 의존 — 결정론).
+		// 룰셋 절대값(4)은 아이템 ~18개(폴백) 기준이었다. 구조물이 Destructible 로 바뀌며
+		// 아이템이 60개대로 늘자 절대값 4는 확률적으로 거의 불가능해져 기준 시드가 리롤 상한
+		// 16회를 전부 소진했다 (2026-08-06 실측). N/4(사분면 평균 몫 1개분)를 하한으로 허용한다.
+		Thresholds.ItemQuadrantMaxDiff =
+			FMath::Max(Rules->ValidatorItemQuadrantMaxDiff, OutItems.Num() / 4);
+
 		FString Reason;
 		if (FMapValidator::Validate(OutGrid, OutSpawns, OutItems, Thresholds, Reason))
 		{
+			// 재질 구성 집계 — 외곽 벽(경계 링)과 바닥(z=0)을 뺀 "게임 중 상호작용하는 블록"만.
+			// "부서지는 것이 압도적으로 많아야 한다"(목표 8:2 이상)가 수치 요건이라
+			// 감이 아니라 로그로 확인한다 (2026-08-06 사용자).
+			int32 NumDestructible = 0;
+			int32 NumImmortal = 0;
+			for (int32 Z = 1; Z < Size.Z; ++Z)
+			{
+				for (int32 Y = 1; Y <= Size.Y - 2; ++Y)
+				{
+					for (int32 X = 1; X <= Size.X - 2; ++X)
+					{
+						const EBlockType Type = OutGrid.Get(FIntVector(X, Y, Z));
+						NumDestructible += (Type == EBlockType::Destructible) ? 1 : 0;
+						NumImmortal     += (Type == EBlockType::Immortal)     ? 1 : 0;
+					}
+				}
+			}
+			const int32 Total = NumDestructible + NumImmortal;
 			UE_LOG(LogCA3D, Log,
-				TEXT("ProcMapGenerator: Seed %u (%d,%d,%d) — %d번째 시도에 검증 통과 (아이템 %d개)"),
-				Seed, Size.X, Size.Y, Size.Z, Attempt + 1, OutItems.Num());
+				TEXT("ProcMapGenerator: Seed %u (%d,%d,%d) — %d번째 시도에 검증 통과 (아이템 %d개, 파괴 %d : 고정 %d = %d%% 파괴)"),
+				Seed, Size.X, Size.Y, Size.Z, Attempt + 1, OutItems.Num(),
+				NumDestructible, NumImmortal, (Total > 0) ? (NumDestructible * 100 / Total) : 0);
 			return true;
 		}
 

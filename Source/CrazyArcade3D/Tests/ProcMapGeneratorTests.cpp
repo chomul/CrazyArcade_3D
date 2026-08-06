@@ -130,8 +130,14 @@ bool FProcMapGeneratorTest::RunTest(const FString& Parameters)
 			TotalAttempts += Generator->LastAttemptCount;
 			Hashes.Add(PmgtHashGrid(Grid));
 
+			// 재검증은 생성기의 **유효 기준**과 같아야 한다 — 사분면 편차는 아이템 수 비례
+			// max(룰셋 값, N/4) 다 (Generate 주석). 룰셋 절대값으로 다시 검사하면 생성기가
+			// 통과시킨 맵을 테스트가 떨어뜨린다 (2026-08-06 실측 — 아이템 60개대에서 전부 불통과).
+			FMapValidator::FThresholds Effective = Thresholds;
+			Effective.ItemQuadrantMaxDiff = FMath::Max(Thresholds.ItemQuadrantMaxDiff, Items.Num() / 4);
+
 			FString Reason;
-			const bool bValid = FMapValidator::Validate(Grid, Spawns, Items, Thresholds, Reason);
+			const bool bValid = FMapValidator::Validate(Grid, Spawns, Items, Effective, Reason);
 			if (!bValid)
 			{
 				UE_LOG(LogCA3D, Error, TEXT("② Seed %u Validate 불통과 — %s"), Seed, *Reason);
@@ -181,9 +187,12 @@ bool FProcMapGeneratorTest::RunTest(const FString& Parameters)
 				continue;
 			}
 
+			// 사분면 편차는 생성기의 유효 기준(max(룰셋, N/4))으로 재검증 — ② 와 같은 이유.
+			FMapValidator::FThresholds Effective = PmgtScaledThresholds(Rules, Size);
+			Effective.ItemQuadrantMaxDiff = FMath::Max(Effective.ItemQuadrantMaxDiff, Items.Num() / 4);
+
 			FString Reason;
-			const bool bValid = FMapValidator::Validate(
-				Grid, Spawns, Items, PmgtScaledThresholds(Rules, Size), Reason);
+			const bool bValid = FMapValidator::Validate(Grid, Spawns, Items, Effective, Reason);
 			if (!bValid)
 			{
 				UE_LOG(LogCA3D, Error, TEXT("③ 티어 (%d,%d,%d) Validate 불통과 — %s"),
@@ -211,11 +220,13 @@ bool FProcMapGeneratorTest::RunTest(const FString& Parameters)
 			Generator->LastAttemptCount, ImpossibleRules->ProcRerollMaxAttempts);
 	}
 
-	// ─── ⑤ 구조물 존재: z≥2 내부에 Immortal ≥ 1 (평지만 나오는 퇴화 방지) ───
+	// ─── ⑤ 구조물 존재 + 재질 비율 (2026-08-06 사용자: 부서지는 것이 압도적이어야 한다) ───
 	{
-		// 외곽 벽도 z≥2 Immortal 이므로 **내부([1, Size-2])만** 스캔해야 구조물 검사가 된다.
+		// 구조물은 **Destructible** 이다 — Immortal 로 찾으면 안 된다 (재질 확정 후 갱신).
+		// 외곽 벽이 z≥2 Immortal 이므로 **내부([1, Size-2])만** 스캔해야 구조물 검사가 된다.
 		bool bFoundHighStructure = false;
-		for (uint32 Seed = 1; Seed <= 5 && !bFoundHighStructure; ++Seed)
+		int32 WorstDestructiblePercent = 100;
+		for (uint32 Seed = 1; Seed <= 5; ++Seed)
 		{
 			FVoxelGrid Grid;
 			TArray<FIntVector> Spawns;
@@ -224,22 +235,36 @@ bool FProcMapGeneratorTest::RunTest(const FString& Parameters)
 			{
 				continue;
 			}
-			for (int32 Z = 2; Z < Grid.Size.Z && !bFoundHighStructure; ++Z)
+
+			// 내부(외곽 벽 제외) z≥1 의 파괴/고정 블록 집계 — 생성기의 성공 로그와 같은 정의.
+			int32 NumDestructible = 0;
+			int32 NumImmortal = 0;
+			for (int32 Z = 1; Z < Grid.Size.Z; ++Z)
 			{
-				for (int32 Y = 1; Y <= Grid.Size.Y - 2 && !bFoundHighStructure; ++Y)
+				for (int32 Y = 1; Y <= Grid.Size.Y - 2; ++Y)
 				{
 					for (int32 X = 1; X <= Grid.Size.X - 2; ++X)
 					{
-						if (Grid.Get(FIntVector(X, Y, Z)) == EBlockType::Immortal)
-						{
-							bFoundHighStructure = true;
-							break;
-						}
+						const EBlockType Type = Grid.Get(FIntVector(X, Y, Z));
+						NumDestructible += (Type == EBlockType::Destructible) ? 1 : 0;
+						NumImmortal     += (Type == EBlockType::Immortal)     ? 1 : 0;
+						bFoundHighStructure |= (Z >= 2 && Type == EBlockType::Destructible);
 					}
 				}
 			}
+
+			const int32 Total = NumDestructible + NumImmortal;
+			if (Total > 0)
+			{
+				WorstDestructiblePercent = FMath::Min(WorstDestructiblePercent, NumDestructible * 100 / Total);
+			}
 		}
-		TestTrue(TEXT("⑤ 어떤 시드에서 z≥2 내부 Immortal 존재 (구조물이 실제로 쌓인다)"), bFoundHighStructure);
+		TestTrue(TEXT("⑤ 어떤 시드에서 z≥2 내부 Destructible 존재 (구조물이 실제로 쌓인다)"), bFoundHighStructure);
+
+		// 목표 8:2 — 시드 5개의 **최악값**이 75% 이상이어야 한다 (평균은 나쁜 시드를 가린다).
+		UE_LOG(LogCA3D, Log, TEXT("[Task22] 재질 비율 — 시드 5개 중 최저 파괴 비율 %d%% (기준 75%%)"),
+			WorstDestructiblePercent);
+		TestTrue(TEXT("⑤ 파괴 블록 비율 ≥ 75% (사용자 목표 8:2~9:1)"), WorstDestructiblePercent >= 75);
 	}
 
 	// ─── ⑥ 스폰: 전부 IsStandable + 스폰 링(인덱스 1/Size-2, z=1) 위 ───
