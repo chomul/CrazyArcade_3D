@@ -122,8 +122,12 @@ public:
 	// Rank <= 0(미확정)은 뒤로 보낸다. 값 전달 후 정렬해 반환하므로 입력을 건드리지 않는다.
 	static TArray<FMatchResultRow> BuildResultRows(TArray<FMatchResultRow> RawRows, bool bMatchEnded);
 
-	// 무승부 규약 (ACA3DGameState 주석): 종료됐는데 Rank == 1 이 하나도 없으면 무승부.
-	// 별도 플래그를 두지 않는다 — 우승자 유무가 유일한 사실이다.
+	// 무승부 규약의 **행 데이터 판**: 종료됐는데 Rank == 1 이 하나도 없으면 무승부.
+	//
+	// ⚠️ 화면 표시(ShowResult)는 이 함수를 쓰지 않는다 — 랭크는 PlayerState(다른 액터)라
+	// bMatchEnded 와 도착 순서 보장이 없어, 행 스캔으로 판정하면 랭크가 한 프레임 늦은 클라가
+	// 우승 매치를 무승부로 그린다 (2026-08-06 실측). 표시는 GameState->MatchWinner(원자 복제)를
+	// 읽는다. 이 함수는 "랭크가 다 도착한 데이터라면 규약이 성립하는가"의 검증용으로 남긴다.
 	static bool IsDrawResult(const TArray<FMatchResultRow>& Rows, bool bMatchEnded);
 
 	// "1등  Player 1" / 공동이면 "공동 3등  Bot 2".

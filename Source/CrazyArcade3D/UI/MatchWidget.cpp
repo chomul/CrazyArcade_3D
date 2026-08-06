@@ -379,16 +379,23 @@ void UMatchWidget::ShowResult()
 
 	const TArray<FMatchResultRow> Rows = CollectResultRows(GameState);
 
+	// 승패 판정은 **행 스캔이 아니라 GameState 의 복제된 우승자**에서 읽는다.
+	// MatchWinner 는 bMatchEnded 와 같은 액터라 같은 번들로 원자 도착한다 — 종료를 아는
+	// 프레임에 승패도 반드시 함께 안다 (2026-08-06 무승부 오표시 수정, GameState 헤더 주석).
+	// 행(FinalRank)은 다른 액터라 한 프레임 늦을 수 있지만, 그건 "-등" 표시가 다음 틱에
+	// 채워지는 것뿐이고 승패 문구가 틀리는 일은 없다.
+	const bool bDraw = (GameState->MatchWinner == nullptr);
+
 	TArray<FString> Lines;
 	Lines.Reserve(Rows.Num() + 1);
-	Lines.Add(IsDrawResult(Rows, true) ? TEXT("무승부") : TEXT("매치 종료"));
+	Lines.Add(bDraw ? TEXT("무승부") : TEXT("매치 종료"));
 	for (const FMatchResultRow& Row : Rows)
 	{
 		Lines.Add(FormatResultRow(Row).ToString());
 	}
 
 	// 매 틱 불리므로 본문이 같으면 여기서 끝 — SetText·로그는 실제로 달라진 프레임에만.
-	// (우승자 랭크가 늦게 도착하면 본문이 "무승부 → N등 우승"으로 바뀌며 이 게이트를 통과한다.)
+	// (늦게 도착한 랭크가 행을 채우면 본문이 바뀌며 이 게이트를 통과한다.)
 	const FString Body = FString::Join(Lines, TEXT("\n"));
 	if (Body == LastResultBody)
 	{
@@ -406,7 +413,7 @@ void UMatchWidget::ShowResult()
 	}
 
 	UE_LOG(LogCA3D, Log, TEXT("UMatchWidget: 결과 화면 표시 — %d명, %s"),
-		Rows.Num(), IsDrawResult(Rows, true) ? TEXT("무승부") : TEXT("우승자 있음"));
+		Rows.Num(), bDraw ? TEXT("무승부") : TEXT("우승자 있음"));
 }
 
 void UMatchWidget::UpdateSuddenDeathWarning(bool bActive)

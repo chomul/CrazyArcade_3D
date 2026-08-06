@@ -187,6 +187,8 @@ bool FCA3DPlayerStateTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("① 최후 1인: 매치 종료"), GameState->bMatchEnded);
 	TestEqual(TEXT("① 최후 1인: 우승 FinalRank 1"), Players[3]->FinalRank, 1);
 	TestTrue(TEXT("① 우승자: bAlive 유지"), Players[3]->bAlive);
+	// 우승자는 GameState 에도 실린다 — bMatchEnded 와 같은 액터라 클라에 원자 도착 (무승부 오표시 수정).
+	TestTrue(TEXT("① 우승자: GameState->MatchWinner 일치"), GameState->MatchWinner == Players[3]);
 
 	// ─── 2. 동시 사망 — 3명 생존 중 2명이 같은 프레임에 죽으면 둘 다 공동 2등 ───
 	ResetMatch(4);
@@ -208,6 +210,7 @@ bool FCA3DPlayerStateTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("② 동시 사망: AliveCount 3 → 1 (2명분 감소)"), GameState->AliveCount, 1);
 	TestEqual(TEXT("② 생존자: FinalRank 1"), Players[3]->FinalRank, 1);
 	TestTrue(TEXT("② 매치 종료"), GameState->bMatchEnded);
+	TestTrue(TEXT("② 우승자: GameState->MatchWinner 일치"), GameState->MatchWinner == Players[3]);
 	// 3등은 아무도 갖지 않는다 — 공동 2등이 2·3 자리를 함께 차지했기 때문 (경기 순위 관례).
 	for (const ACA3DPlayerState* Each : Players)
 	{
@@ -231,6 +234,7 @@ bool FCA3DPlayerStateTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("③ 무승부: AliveCount 0"), GameState->AliveCount, 0);
 	TestTrue(TEXT("③ 무승부: 매치 종료"), GameState->bMatchEnded);
 	TestFalse(TEXT("③ 무승부 규약: FinalRank == 1 인 PlayerState 없음"), PsHasWinner(GameState));
+	TestTrue(TEXT("③ 무승부: GameState->MatchWinner == nullptr"), GameState->MatchWinner == nullptr);
 
 	// ─── 4. AliveCount 는 사망 수만큼 정확히 감소 (3명 동시 사망) ───
 	ResetMatch(4);

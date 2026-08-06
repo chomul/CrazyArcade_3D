@@ -490,11 +490,15 @@ void ACA3DGameMode::ResolvePendingDeaths()
 			UE_LOG(LogCA3D, Warning,
 				TEXT("ACA3DGameMode: 생존 1명인데 해당 PlayerState 를 못 찾음 — AliveCount 와 PlayerArray 가 어긋났다"));
 		}
+		// 우승자를 bMatchEnded 와 **같은 액터**에 기록한다 — 같은 번들로 원자 복제되어
+		// 클라가 종료를 아는 순간 승패도 반드시 함께 안다 (GameState 헤더 주석, 무승부 오표시 수정).
+		CA3DGameState->MatchWinner = Winner;
 		CA3DGameState->bMatchEnded = true;
 	}
 	else if (bJudge && AliveAfter <= 0)
 	{
-		// 무승부 — 우승 자리를 비워 둔 채 종료한다 (FinalRank == 1 부재가 곧 무승부).
+		// 무승부 — 우승 자리를 비워 둔 채 종료한다 (MatchWinner == nullptr 가 곧 무승부).
+		CA3DGameState->MatchWinner = nullptr;
 		CA3DGameState->bMatchEnded = true;
 	}
 
