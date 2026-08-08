@@ -375,6 +375,18 @@ void ABotController::Tick(float DeltaSeconds)
 		return;
 	}
 
+	// ── 관전 카메라 각도 (사망 후 관전 — 봇 판단과 무관한 시각 값) ──
+	// 봇의 ControlRotation 은 봇 자신에게는 아무 의미가 없다(캐릭터가 bUseControllerRotationYaw
+	// = false 라 폰이 따라 돌지 않는다). 그런데 **관전자가 이 봇을 볼 때의 카메라 각**이 바로
+	// 이 값이다: 캐릭터의 CameraBoom 이 bUsePawnControlRotation 이고, APawn::GetViewRotation 이
+	// 컨트롤러의 ControlRotation 을(원격 클라에서는 서버가 복제해 준 그 값을) 그대로 돌려준다.
+	// AAIController 기본 구현은 "상대 폰을 보고 있지 않으면 pitch = 0" 이라 그대로 두면
+	// 관전 카메라가 지면에 눕는다 — 게임의 고정 내려보기 각(CameraPitchDeg)으로 덮어쓴다.
+	// Super::Tick(= AAIController::Tick) 이후에 쓰는 이유는 기본 구현이 방금 계산한 yaw
+	// (봇이 향한 방향)는 살리고 pitch 만 바꾸기 위해서다. 데디 가드를 걸지 않는다:
+	// 데디 서버에서는 이 값이 복제되어 **클라의** 관전 카메라 각이 된다.
+	SetControlRotation(FRotator(ResolveRules()->CameraPitchDeg, GetControlRotation().Yaw, 0.f));
+
 	// 사망 — 아무 입력도 만들지 않는다. 캐릭터(Move/DoJump)에도 생존 가드가 있지만
 	// 여기서 끊어야 시체가 매 틱 BFS 를 돌리는 낭비가 없다 (관전 중 8명분이면 무시 못 한다).
 	if (Status->LifeState == ELifeState::Dead)

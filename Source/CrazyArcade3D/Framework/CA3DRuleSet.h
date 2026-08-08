@@ -222,6 +222,21 @@ public:
 	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.0", ClampMax="2.0"))
 	float OcclusionMaskSoftness = 0.4f;
 
+	// ─── 관전 (사망 후 생존자 추적 — 2026-08-06 사용자 확정: 자유 비행 없음, 좌/우로 순환) ───
+	// 카메라 값이라 Camera 카테고리에 둔다. 관전은 **로컬 시점**일 뿐이라 서버가 읽지 않는다.
+
+	// 관전 대상을 바꿀 때의 카메라 블렌드 시간(초). 0 이면 즉시 튄다.
+	// 짧게 잡는 이유: 관전은 "다음 사람을 본다" 는 행동이라 이동 연출이 길면 정작 보려던
+	// 장면을 놓친다. 반대로 0 이면 8명을 넘길 때 화면이 순간이동해 어디를 보는지 잃는다.
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.0"))
+	float SpectateBlendTime = 0.4f;
+
+	// 좌/우 이동 축이 "한 번 눌렀다" 로 인정되는 크기(0~1). 사망 중에는 기존 이동 축을
+	// 관전 전환으로 재해석하므로(새 IA 를 만들지 않는다) 눌림/뗌 판정이 필요하다.
+	// 절반보다 크게 잡아 대각 입력의 약한 축이 한 칸을 더 넘기지 않게 한다.
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.05", ClampMax="1.0"))
+	float SpectateCycleAxisThreshold = 0.5f;
+
 	// ── Map ───────────────────────────────────────────────
 
 	// 바닥 블록 파괴 허용 여부. (미확정)

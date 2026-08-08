@@ -6,6 +6,7 @@
 
 class UInputMappingContext;
 class UInputAction;
+class ACA3DPlayerState;
 struct FInputActionValue;
 
 // 입력(Enhanced Input)과 45도 스냅 회전 고정 각도 카메라만 담당 (Task 11, GDD 5장).
@@ -50,6 +51,7 @@ protected:
 	TObjectPtr<UInputAction> IA_UseNeedle;
 
 	void OnMove(const FInputActionValue& V);
+	void OnMoveCompleted();                       // 관전 전환 래치 해제 (살아 있을 땐 하는 일 없음)
 	void OnJumpStarted();
 	void OnJumpCompleted();
 	void OnPlaceBomb();                           // 셀 계산·검증은 캐릭터/서버 소관 — 여기선 전달만
@@ -68,4 +70,42 @@ private:
 	// 카메라 기준 입력 모드가 쓰는 스냅 목표각(도). 보간 중에도 이동 기준이 흔들리지
 	// 않도록 보간각(SmoothCamYaw)이 아니라 스냅각을 쓴다 — 회전 중 이동이 끊기지 않는다.
 	float GetSnappedCamYaw() const { return CamYawSteps * CamYawStepDeg; }
+
+	// ─── 관전 (사망 후 생존자 추적 — 2026-08-06 사용자 확정) ────────────────────
+	//
+	// **전부 로컬 표시다.** "지금 누구를 보고 있는가" 는 복제하지 않는다 — 시점은 각 클라의
+	// 화면 사정이고, 복제하면 남의 관전 대상까지 동기화하는 순수한 낭비가 된다.
+	// 반면 "누가 살아 있는가" 는 새로 만들지 않고 이미 복제되는 ACA3DPlayerState::bAlive 를 읽는다.
+	//
+	// 폰은 건드리지 않는다 (UnPossess·관전 폰 스폰 없음) — Task 27 의 "폰 유지" 결정 그대로다.
+	// 관전은 **보는 대상을 바꾸는 것**이지 폰을 없애는 것이 아니라서, 부활 여지·입력 바인딩·
+	// HUD 폰 캐시가 전부 그대로 살아 있다.
+
+	// 매 프레임(PlayerTick): 대상이 없거나 죽었으면 다음 생존자로 넘긴다.
+	void UpdateSpectateView();
+
+	// 다음(+1)/이전(-1) 생존자로. 생존자가 하나도 없으면 마지막 대상을 그대로 둔다.
+	void CycleSpectateTarget(int32 Step);
+
+	// 관전 대상 후보 — GameState->PlayerArray 를 **고정 순서로** 훑어 bAlive 만 모은다.
+	// 순서가 결정론적이어야 "다음/이전" 이 매번 같은 순환을 돈다.
+	void CollectSpectateCandidates(TArray<ACA3DPlayerState*>& OutCandidates) const;
+
+	void SetSpectateTarget(ACA3DPlayerState* NewTarget);
+	void HandleSpectateAxis(float AxisX); // 사망 중 좌/우 축 → 대상 전환 (눌림 판정 포함)
+
+	bool IsLocalPawnDead() const; // 관전 여부의 유일한 조건 — 별도 상태를 만들지 않았다 (Task 문서)
+	bool IsMatchEnded() const;    // 종료 후에는 시점을 고정한다 (결과 화면 중 카메라 이동 금지)
+
+	// 관전 대상 — 폰이 아니라 PlayerState 를 들고 있는다. 폰은 사망·재스폰으로 바뀔 수 있지만
+	// PlayerState 는 매치 내내 같은 객체이고, 생존 여부(bAlive)의 출처이기도 하다.
+	UPROPERTY()
+	TObjectPtr<ACA3DPlayerState> SpectateTarget;
+
+	// 좌/우 축 래치. Enhanced Input 의 Triggered 는 **누르고 있는 동안 매 프레임** 오므로
+	// 래치가 없으면 한 번 눌러 생존자 전원을 지나쳐 버린다. 축이 임계값 아래로 돌아오거나
+	// 입력이 끝나야(OnMoveCompleted) 다음 전환을 받는다.
+	bool bSpectateAxisLatched = false;
+
+	friend class FSpectateTest; // 자동화 테스트가 대상 선정·순환·자동 전환 검증을 위한 접근
 };

@@ -209,8 +209,11 @@ void UStatusComponent::OnRep_Life()
 
 	if (IsRunningDedicatedServer()) return; // 불변식 5 — 이하 시각 전용
 
-	// TODO(후속 Task): 갇힘 물방울 비주얼·사망 연출. 관전은 폰을 그대로 두는 방식이라
-	// 별도 전환이 없다 (Task 27 — ELifeState::Spectating 은 아직 쓰지 않는다).
+	// TODO(후속 Task): 갇힘 물방울 비주얼·사망 연출.
+	// 관전 전환은 여기서 하지 않는다 — 폰은 그대로 두고 **보는 대상만** 바꾸는 방식이라
+	// 시점 전환은 로컬 컨트롤러(ACA3DPlayerController::UpdateSpectateView)가 매 프레임
+	// 스스로 판단한다. 상태 컴포넌트는 "죽었다" 는 사실만 복제하면 된다
+	// (그래서 ELifeState::Spectating 은 지금도 쓰지 않는다 — 관전은 복제 상태가 아니다).
 	UE_LOG(LogCA3D, Verbose, TEXT("UStatusComponent %s: LifeState 복제 도착 — %s"),
 		*GetOwner()->GetName(), *UEnum::GetValueAsString(LifeState));
 }
