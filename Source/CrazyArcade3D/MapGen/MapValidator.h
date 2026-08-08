@@ -44,6 +44,10 @@ struct CRAZYARCADE3D_API FMapValidator
 	//   · **1칸 오르기** — 2칸은 못 오른다 (CLAUDE.md 확정값). 이걸 2로 두면
 	//     검증은 통과하는데 실제로는 못 올라가는 맵이 나온다
 	//   · 낙하는 높이 제한 없음 (아래로는 얼마든지 떨어진다)
+	//
+	// ⚠️ 이 규칙의 구현은 여기가 아니라 **`Voxel/VoxelMovement.h`(VoxelMove)** 에 있다.
+	// ABotController 가 같은 함수를 호출하기 때문이다 — 규칙이 두 벌이면 갈라지고,
+	// 그러면 "검증은 통과인데 봇은 못 감" 이 조용히 재발한다.
 	static bool AreAllSpawnsConnected(const FVoxelGrid& Grid, const TArray<FIntVector>& Spawns);
 
 	// ② 스폰 상호 최소 거리 (맨해튼 — 정수 연산 유지).

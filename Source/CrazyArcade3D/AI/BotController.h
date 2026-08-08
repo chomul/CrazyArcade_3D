@@ -32,6 +32,11 @@ enum class EBotState : uint8
 // 위험 판정·설치 판단은 전부 UExplosionSubsystem::Propagate(static 순수 함수 — 불변식 2)를
 // 호출한다. 봇이 자기만의 전파 계산을 가지면 "표시·실폭발·봇 판단" 셋이 갈라진다.
 //
+// **이동 판정도 같은 원칙이다**: 인접 규칙은 `VoxelMove`(Voxel/VoxelMovement.h) 하나를 쓰고,
+// 맵 검증기(FMapValidator)도 같은 함수를 쓴다. 예전에는 봇이 자기만의 dz ∈ {0,±1} 배열을
+// 갖고 있어서 **검증기가 통과시킨 지형을 봇만 못 갔다** — 특히 2칸 이상 낙하(산 위 → 협곡)를
+// 계획하지 못해 고지대에 갇히거나 빙 돌아갔다. 규칙이 한 벌이면 그 종류의 버그가 사라진다.
+//
 // 난이도·성격 튜닝은 이 Task 범위가 아니다 (GDD 8장 "더미 봇") — 돌아다니고, 위험을 피하고,
 // 가끔 폭탄을 놓는 것까지가 목표다.
 UCLASS()
@@ -80,9 +85,11 @@ private:
 	// ② **자기 탈출로가 남는가**. ②를 빠뜨리면 봇이 자폭만 반복한다 (놓을 이유는 늘 있으므로).
 	bool ShouldPlaceBombAt(const FIntVector& Cell) const;
 
-	// 그리드 BFS. 인접은 ±X,±Y 이고 **높이 차 1칸까지만** 이동 가능 (점프 높이 1칸 확정 —
-	// 2칸 차이는 못 오른다). NavMesh 미사용 — 지형이 실시간으로 무너지는 게임이라
-	// 런타임 재생성 비용이 그리드 BFS 보다 크다.
+	// 그리드 BFS. 인접 규칙은 **`VoxelMove::GatherReachableNeighbors` 하나**를 쓴다 —
+	// ±X,±Y 4방향, **1칸 오르기**(2칸은 못 오른다), **낙하는 높이 제한 없음**(내려오다 처음
+	// 만난 발판에서 멈춘다). 맵 검증기(FMapValidator)가 "이 맵은 다 돌 수 있다"고 판정할 때
+	// 쓰는 바로 그 함수다 — 두 벌이면 갈라져서 "검증은 통과인데 봇은 못 감"이 된다.
+	// NavMesh 미사용 — 지형이 실시간으로 무너지는 게임이라 런타임 재생성 비용이 BFS 보다 크다.
 	// 반환 배열은 From 을 포함하고 To 로 끝난다. 도달 불가면 빈 배열.
 	TArray<FIntVector> FindPath(const FIntVector& From, const FIntVector& To) const;
 
@@ -96,13 +103,14 @@ private:
 	// 액터 이터레이션 순서는 실행마다 다를 수 있어 정렬로 고정한다 (불변식 4 준용).
 	void GatherEnemyFootCells(TArray<FIntVector>& OutCells) const;
 
-	// 그 칸에 서 있을 수 있는가: 몸이 들어갈 빈 칸 + 머리 공간 + 발판.
+	// 그 칸에 서 있을 수 있는가 — `VoxelMove::IsStandable` + 머리 공간.
 	// 머리 공간을 보는 이유는 캡슐 높이(176)가 셀(100)보다 커서 1칸 높이 틈에는 못 들어가기 때문 —
 	// 안 보면 봇이 영원히 못 들어가는 칸을 목적지로 잡고 벽에 붙어 비빈다.
+	// 그 한 조건만 빼면 검증기의 판정과 완전히 같다 (BotMoveCaps 주석).
 	bool IsStandable(const FVoxelGrid& Grid, const FIntVector& Cell) const;
 
 	// BFS 본체 (경로 탐색·탈출로 확인·배회 후보 수집이 전부 이 하나를 쓴다).
-	// 방문 집합은 조회 전용 TMap 이고 **확장 순서는 고정 방향 배열**이라 결정론적이다.
+	// 방문 집합은 조회 전용 TMap 이고 **확장 순서는 VoxelMove::PlanarDirs 고정 순서**라 결정론적이다.
 	// OutVisited 를 주면 방문한 셀을 BFS 순서 그대로 채운다 (배회 목적지 후보).
 	bool RunBFS(
 		const FIntVector& Start,

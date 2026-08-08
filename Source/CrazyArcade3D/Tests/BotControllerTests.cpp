@@ -462,6 +462,39 @@ bool FBotControllerTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("⑦ ColorIndex 가 참가 순서대로 겹치지 않게 배정"), ColorIndices.Num(), 5);
 	}
 
+	// ─── 8. 층간 이동 — **2칸 이상 낙하는 지름길, 2칸 오르기는 여전히 불가** ───
+	//
+	// 봇 층간 이동 개선의 본론이다. 예전 BFS 는 dz ∈ {0,±1} 고정이라 오르기 제약(1칸)이
+	// 내려가기에도 걸려 있었다 — 절차 맵(Task 22)의 산 위에서 못 내려오거나 빙 돌아갔다.
+	// 이제 인접 규칙은 FMapValidator 와 **같은 함수**(VoxelMove)를 쓴다.
+	//
+	// 지형을 여기서 고치는 이유는 앞 절들의 판정을 건드리지 않기 위해서다 (맨 뒤에 둔다).
+	// x=8 을 2칸 기둥으로 세워 (8,1,3) 발판을 만든다 — 그 옆 (9,1,1) 은 **2칸 아래**다.
+	{
+		VoxelWorld->Grid.Set(FIntVector(8, 1, 1), EBlockType::Immortal); // friend
+		VoxelWorld->Grid.Set(FIntVector(8, 1, 2), EBlockType::Immortal);
+
+		const FIntVector Ledge(8, 1, 3);
+		const FIntVector Ground(9, 1, 1);
+
+		const FVoxelGrid& Grid = VoxelWorld->GetGrid();
+		TestTrue(TEXT("⑧ 기둥 위가 설 수 있는 칸"),  Bot->IsStandable(Grid, Ledge));
+		TestTrue(TEXT("⑧ 그 옆 바닥도 설 수 있는 칸"), Bot->IsStandable(Grid, Ground));
+
+		// 내려가기: 한 걸음에 2칸 떨어진다 (낙하는 높이 제한이 없다).
+		const TArray<FIntVector> DownPath = Bot->FindPath(Ledge, Ground);
+		TestEqual(TEXT("⑧ **2칸 낙하는 한 걸음** — 경로 = [기둥 위, 바닥]"), DownPath.Num(), 2);
+		if (DownPath.Num() == 2)
+		{
+			TestEqual(TEXT("⑧ 낙하 폭이 정확히 2칸"), DownPath[0].Z - DownPath[1].Z, 2);
+		}
+
+		// 올라가기: 여전히 못 한다 (점프 높이 1칸). 이걸 허용하면 봇이 오를 수 없는 벽에
+		// 붙어 계속 점프한다 — 낙하 완화가 오르기 완화로 새지 않았음을 못 박는다.
+		TestEqual(TEXT("⑧ 2칸 오르기는 여전히 불가 — 반대 방향 경로 없음"),
+			Bot->FindPath(Ground, Ledge).Num(), 0);
+	}
+
 	// ─── 정리 ───
 	GEngine->DestroyWorldContext(World);
 	World->DestroyWorld(false);
