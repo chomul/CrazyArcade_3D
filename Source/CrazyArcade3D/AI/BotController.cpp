@@ -7,6 +7,7 @@
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
 #include "Gameplay/Bomb/ExplosionTypes.h"
 #include "Voxel/VoxelGrid.h"
+#include "Voxel/VoxelMovement.h" // 이동 규칙(설 수 있는 칸·한 걸음)의 단일 출처 — 검증기와 공유한다
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"    // AI→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h"  // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
@@ -17,19 +18,22 @@
 
 namespace
 {
-	// 평면 인접 방향 — 순서 고정. BFS 확장 순서가 곧 경로 선택이므로, 이 배열을 바꾸면
-	// 같은 지형에서 봇이 다른 길을 고른다 (재현 불가한 버그의 씨앗 — 불변식 4 준용).
-	const FIntVector BotPlanarDirs[4] =
+	// 봇의 물리 제약 — 격자 기하(VoxelMove 기본값)에 **머리 공간 하나만** 더 얹는다.
+	//
+	// 캡슐 높이(176)가 셀(100)보다 커서 1칸 높이 틈에는 몸이 안 들어간다. 검증기는 이걸
+	// 요구하지 않는데, 맵 생성 시점에는 오버행이 없어 차이가 나지 않기 때문이다
+	// (VoxelMovement.h FMoveCaps 주석). 1칸 틈은 폭발이 기둥 중간을 뚫은 런타임에만 생긴다.
+	//
+	// **이 함수 밖에서 이동 규칙을 다시 쓰지 말 것.** 평면 방향 배열·오르기 높이·낙하 규칙은
+	// 전부 VoxelMove 에 있고, 봇은 그것을 호출만 한다. 예전에는 여기에 dz ∈ {0,+1,-1} 배열이
+	// 따로 있었고, 그래서 검증기가 허용하는 **2칸 이상 낙하를 봇만 계획하지 못했다** —
+	// 산 위에서 못 내려오거나 빙 돌아가는 증상의 원인이 그것이었다.
+	VoxelMove::FMoveCaps BotMoveCaps()
 	{
-		FIntVector( 1,  0,  0),
-		FIntVector(-1,  0,  0),
-		FIntVector( 0,  1,  0),
-		FIntVector( 0, -1,  0),
-	};
-
-	// 높이 차 후보 — 0(평지) → +1(한 칸 오르기) → -1(한 칸 내려서기) 순서 고정.
-	// **2칸은 없다**: 점프 정점이 1칸이라 못 오른다 (룰셋 JumpApexCellFactor 주석).
-	const int32 BotZSteps[3] = { 0, 1, -1 };
+		VoxelMove::FMoveCaps Caps;
+		Caps.bRequireHeadroom = true;
+		return Caps;
+	}
 
 	// 좌표 사전순 — 액터 이터레이션 순서를 지우는 용도 (GetActiveBombCellsSorted 와 같은 규칙).
 	bool BotCellLess(const FIntVector& A, const FIntVector& B)
@@ -171,19 +175,8 @@ void ABotController::GatherEnemyFootCells(TArray<FIntVector>& OutCells) const
 
 bool ABotController::IsStandable(const FVoxelGrid& Grid, const FIntVector& Cell) const
 {
-	if (!Grid.IsValid(Cell))
-	{
-		return false;
-	}
-	if (Grid.IsSolid(Cell))
-	{
-		return false; // 몸이 들어갈 칸이 막혀 있다
-	}
-	if (Grid.IsSolid(Cell + FIntVector(0, 0, 1)))
-	{
-		return false; // 머리 공간 없음 (캡슐 높이 176 > 셀 100 — 1칸 틈에는 못 들어간다)
-	}
-	return Grid.IsSolid(Cell - FIntVector(0, 0, 1)); // 발판 (GDD 2.3 "발판만이 안전하다")
+	// 판정 본체는 VoxelMove — FMapValidator::IsStandable 과 **같은 함수**다 (머리 공간만 추가).
+	return VoxelMove::IsStandable(Grid, Cell, BotMoveCaps());
 }
 
 bool ABotController::ShouldPlaceBombAt(const FIntVector& Cell) const
@@ -267,6 +260,14 @@ bool ABotController::RunBFS(
 		OutVisited->Reset();
 	}
 
+	// 이웃 확장을 VoxelMove 에 맡기므로 여기서도 그리드가 필요하다 (캐시 조회라 사실상 공짜).
+	const AVoxelWorld* VoxelWorld = ResolveVoxelWorld();
+	if (!VoxelWorld)
+	{
+		return false;
+	}
+	const FVoxelGrid& Grid = VoxelWorld->GetGrid();
+
 	const int32 MaxNodes = FMath::Max(ResolveRules()->BotMaxPathNodes, 1);
 
 	// 방문 순서를 그대로 담는 배열 + 부모 인덱스. TMap 은 **조회 전용**이다 —
@@ -284,37 +285,36 @@ bool ABotController::RunBFS(
 
 	int32 GoalIndex = IsGoal(Start) ? 0 : INDEX_NONE;
 
+	// 이웃 확장은 **검증기와 같은 함수**로 한다 (VoxelMove). 방향당 착지 칸 하나씩 최대 4개이고,
+	// 그 착지 칸은 "1칸 오르기 또는 **높이 제한 없는 낙하** 후 처음 만난 발판"이다 —
+	// 여기서 봇이 산 위에서 협곡 바닥으로 한 걸음에 뛰어내리는 지름길이 나온다.
+	TArray<FIntVector> Neighbors;
 	for (int32 Head = 0; Head < Nodes.Num() && GoalIndex == INDEX_NONE; ++Head)
 	{
 		const FIntVector Current = Nodes[Head];
+		VoxelMove::GatherReachableNeighbors(Grid, Current, Neighbors, BotMoveCaps());
 
-		for (const FIntVector& Dir : BotPlanarDirs)
+		for (const FIntVector& Next : Neighbors)
 		{
-			for (const int32 ZStep : BotZSteps)
+			// VoxelMove 가 이미 "설 수 있는가"를 봤으므로 IsPassable 은 그 위의 조건
+			// (위험 구역 회피 등)만 얹는다 — 판정이 두 번 도는 것은 캐시된 그리드 조회라 싸다.
+			if (NodeIndex.Contains(Next) || !IsPassable(Next))
 			{
-				const FIntVector Next = Current + Dir + FIntVector(0, 0, ZStep);
-				if (NodeIndex.Contains(Next) || !IsPassable(Next))
-				{
-					continue;
-				}
-
-				Nodes.Add(Next);
-				Parents.Add(Head);
-				NodeIndex.Add(Next, Nodes.Num() - 1);
-
-				if (IsGoal(Next))
-				{
-					GoalIndex = Nodes.Num() - 1;
-					break;
-				}
-				if (Nodes.Num() >= MaxNodes)
-				{
-					break; // 탐색 상한 — 서버 스파이크 방지 (룰셋 BotMaxPathNodes)
-				}
+				continue;
 			}
-			if (GoalIndex != INDEX_NONE || Nodes.Num() >= MaxNodes)
+
+			Nodes.Add(Next);
+			Parents.Add(Head);
+			NodeIndex.Add(Next, Nodes.Num() - 1);
+
+			if (IsGoal(Next))
 			{
+				GoalIndex = Nodes.Num() - 1;
 				break;
+			}
+			if (Nodes.Num() >= MaxNodes)
+			{
+				break; // 탐색 상한 — 서버 스파이크 방지 (룰셋 BotMaxPathNodes)
 			}
 		}
 		if (Nodes.Num() >= MaxNodes)
@@ -605,16 +605,51 @@ void ABotController::FollowPath(const FIntVector& FootCell)
 
 	// 도착한 웨이포인트는 소비한다. while 인 이유: 한 틱에 두 칸을 지나칠 수 있고(속도 4칸/초 ×
 	// 프레임 드랍), 그때 소비를 하나만 하면 봇이 뒤로 되돌아간다.
+	const int32 ConsumeFrom = PathIndex;
 	while (PathCells.IsValidIndex(PathIndex) && PathCells[PathIndex] == FootCell)
 	{
 		++PathIndex;
 	}
+
+#if !UE_BUILD_SHIPPING
+	// 2칸 이상 낙하를 **실제로 완료했을 때** 남긴다 (계획만 하고 안 뛰는 경우와 구분하려고
+	// 착지 시점에 찍는다). 이 Task 의 목적이 층간 이동이므로 -game 세션에서 이 줄의 유무가
+	// 곧 검증이다 — `-LogCmds="LogCA3D Verbose"` 로 켠다.
+	for (int32 Index = FMath::Max(ConsumeFrom, 1); Index < PathIndex; ++Index)
+	{
+		const int32 Drop = PathCells[Index - 1].Z - PathCells[Index].Z;
+		if (Drop >= 2)
+		{
+			UE_LOG(LogCA3D, Verbose, TEXT("ABotController %s: %d칸 낙하 착지 — (%d,%d,%d) → (%d,%d,%d)"),
+				*GetName(), Drop,
+				PathCells[Index - 1].X, PathCells[Index - 1].Y, PathCells[Index - 1].Z,
+				PathCells[Index].X, PathCells[Index].Y, PathCells[Index].Z);
+		}
+	}
+#endif
+
 	if (!PathCells.IsValidIndex(PathIndex))
 	{
 		return; // 경로 소진 — 다음 재계획이 새 목적지를 잡는다
 	}
 
 	const FIntVector Next = PathCells[PathIndex];
+
+	// **오를 수 없는 높이가 눈앞에 있으면 그 경로는 이미 낡았다.** 계획할 때 서 있던 높이가
+	// 아니라는 뜻이다 (떨어졌거나, 밟고 있던 발판이 폭발로 사라졌거나). 여기서 그냥 진행하면
+	// 아래의 점프 조건이 매 틱 참이 되어 **오를 수 없는 벽에 붙어 계속 튄다** — 가장 흔한
+	// "봇이 벽에 끼었다" 증상이 이것이다. 경로를 버리면 다음 틱의 재계획이 지금 높이에서
+	// 다시 길을 잡는다 (낙하는 제한이 없으므로 내려가는 길은 대개 남아 있다).
+	if (Next.Z - FootCell.Z > VoxelMove::MaxClimbCells)
+	{
+		UE_LOG(LogCA3D, Verbose,
+			TEXT("ABotController %s: 경로 폐기 — 발밑 (%d,%d,%d) 에서 다음 칸 (%d,%d,%d) 은 %d칸 위 (오르기 상한 %d)"),
+			*GetName(), FootCell.X, FootCell.Y, FootCell.Z, Next.X, Next.Y, Next.Z,
+			Next.Z - FootCell.Z, VoxelMove::MaxClimbCells);
+		PathCells.Reset();
+		PathIndex = 0;
+		return;
+	}
 
 	// 이동은 캐릭터의 공용 진입점으로. 월드 평면 방향만 넘긴다 (Move 의 계약 — 캐릭터는 카메라를 모른다).
 	FVector Delta = VoxelWorld->CellToWorld(Next) - BotChar->GetActorLocation();
@@ -625,8 +660,11 @@ void ABotController::FollowPath(const FIntVector& FootCell)
 		BotChar->Move(FVector2D(Dir.X, Dir.Y));
 	}
 
-	// 한 칸 위로 올라가야 하면 점프. 지상에 있을 때만 — 공중에서 매 틱 부르면 CMC 의
-	// 점프 입력이 계속 눌린 상태가 되어 체공·이동 거리가 튜닝값과 달라진다.
+	// 한 칸 위로 올라가야 하면 점프. 위 가드 덕분에 여기 오는 높이 차는 정확히 MaxClimbCells(1)
+	// 이하다 — **2칸 이상은 시도조차 하지 않는다.** 지상에 있을 때만 부르는 이유는 공중에서 매 틱
+	// 부르면 CMC 의 점프 입력이 계속 눌린 상태가 되어 체공·이동 거리가 튜닝값과 달라지기 때문이다.
+	// 내려가는 방향(Next.Z < FootCell.Z)에는 아무것도 하지 않는다 — 수평 입력만으로 턱에서
+	// 걸어 나가면 중력이 알아서 데려간다. 낙하 높이에 제한이 없는 것이 그래서 공짜로 성립한다.
 	// (갇힘 중에는 ACA3DCharacter::DoJump 가 스스로 막는다 — 봇도 예외 없다.)
 	if (Next.Z > FootCell.Z)
 	{

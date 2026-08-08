@@ -2,68 +2,17 @@
 
 #include "CrazyArcade3D.h"
 #include "Voxel/VoxelGrid.h"
+#include "Voxel/VoxelMovement.h" // 이동 규칙(설 수 있는 칸·한 걸음)의 단일 출처 — 봇과 공유한다
 
-namespace
-{
-	// ⚠️ 헬퍼 이름에 Mv 접두사 — 번역 단위 병합(unity build) 시 다른 .cpp 의 익명 네임스페이스
-	// 헬퍼와 이름이 겹치면 C2084 가 난다.
-
-	// **고정 순서**가 중요하다 — 이 순서가 BFS 방문 순서를 결정하고, 방문 순서가 흔들리면
-	// 같은 시드가 실행마다 다른 판정을 받는다 (불변식 4).
-	const FIntVector MvHorizontal[4] = {
-		FIntVector( 1,  0, 0),
-		FIntVector(-1,  0, 0),
-		FIntVector( 0,  1, 0),
-		FIntVector( 0, -1, 0),
-	};
-
-	// 캐릭터가 서 있는 칸에서 이웃 기둥으로 옮겨갈 때 도달 가능한 칸을 모은다.
-	//
-	// 점프 규칙(CLAUDE.md 확정): **1칸은 오르고 2칸은 못 오른다.** 아래로는 제한 없음.
-	// 그래서 이웃 기둥에서 [Z+1 .. 바닥] 범위의 설 수 있는 칸을 전부 후보로 넣는다.
-	void MvGatherNeighbors(const FVoxelGrid& Grid, const FIntVector& From, TArray<FIntVector>& Out)
-	{
-		Out.Reset();
-
-		for (const FIntVector& Dir : MvHorizontal)
-		{
-			const FIntVector Column = From + Dir;
-			if (Column.X < 0 || Column.X >= Grid.Size.X || Column.Y < 0 || Column.Y >= Grid.Size.Y)
-			{
-				continue;
-			}
-
-			// 위에서부터 훑는다: From.Z + 1 이 "1칸 오르기" 상한, 0 이 바닥.
-			// 낙하는 제한이 없으므로 그 기둥의 설 수 있는 칸을 전부 받는다.
-			for (int32 Z = FMath::Min(From.Z + 1, Grid.Size.Z - 1); Z >= 0; --Z)
-			{
-				const FIntVector Candidate(Column.X, Column.Y, Z);
-				if (FMapValidator::IsStandable(Grid, Candidate))
-				{
-					Out.Add(Candidate);
-
-					// **여기서 멈춘다.** 위에서 내려오다 처음 만난 발판이 실제로 착지하는 칸이고,
-					// 그 아래는 이 발판에 막혀 갈 수 없다. 계속 훑으면 벽 안쪽 공간까지
-					// 도달 가능으로 세어 ④(고립 구역) 검사가 무력해진다.
-					break;
-				}
-			}
-		}
-	}
-}
+// ⚠️ 이동 규칙은 **여기 있지 않다.** IsStandable·인접 판정·"1칸 오르기 / 낙하 무제한"은
+// 전부 VoxelMove(Voxel/VoxelMovement.h)로 옮겼고 이 파일은 그것을 호출만 한다.
+// ABotController 가 같은 함수를 쓰기 때문이다 — 규칙이 두 벌이면 "검증은 통과했는데
+// 봇은 못 가는 지형"이 조용히 생산된다 (실제로 그랬다: 봇의 BFS 는 2칸 낙하를 몰랐다).
+// 검증기는 순수 격자 기하(FMoveCaps 기본값)를 쓴다 — 봇의 머리 공간 제약은 얹지 않는다.
 
 bool FMapValidator::IsStandable(const FVoxelGrid& Grid, const FIntVector& Cell)
 {
-	if (!Grid.IsValid(Cell))
-	{
-		return false;
-	}
-
-	// 그 칸이 비어 있고, 바로 아래가 solid — "발판 위 공중 칸"이 플레이 공간이다.
-	// z=0 은 발판이 없으므로(그 아래가 없음) 설 수 없다.
-	return Grid.Get(Cell) == EBlockType::Empty
-		&& Cell.Z > 0
-		&& Grid.IsSolid(FIntVector(Cell.X, Cell.Y, Cell.Z - 1));
+	return VoxelMove::IsStandable(Grid, Cell);
 }
 
 void FMapValidator::FloodFillStandable(const FVoxelGrid& Grid, const TArray<FIntVector>& Spawns,
@@ -99,7 +48,7 @@ void FMapValidator::FloodFillStandable(const FVoxelGrid& Grid, const TArray<FInt
 	TArray<FIntVector> Neighbors;
 	for (int32 Head = 0; Head < Queue.Num(); ++Head)
 	{
-		MvGatherNeighbors(Grid, Queue[Head], Neighbors);
+		VoxelMove::GatherReachableNeighbors(Grid, Queue[Head], Neighbors);
 		for (const FIntVector& Next : Neighbors)
 		{
 			const int32 Index = Grid.Index(Next);
@@ -160,8 +109,6 @@ bool FMapValidator::HaveSpawnsMinDistance(const TArray<FIntVector>& Spawns, int3
 bool FMapValidator::HaveSpawnsEscapeRoutes(const FVoxelGrid& Grid, const TArray<FIntVector>& Spawns,
                                            int32 MinDirs)
 {
-	TArray<FIntVector> Neighbors;
-
 	for (const FIntVector& Spawn : Spawns)
 	{
 		if (!IsStandable(Grid, Spawn))
@@ -169,28 +116,10 @@ bool FMapValidator::HaveSpawnsEscapeRoutes(const FVoxelGrid& Grid, const TArray<
 			return false; // 설 수도 없는 자리에 스폰
 		}
 
-		// 탈출로 = **서로 다른 방향**의 수. 한 방향에서 여러 높이가 나와도 1로 센다 —
-		// 폭발은 방향으로 퍼지므로 "몇 방향으로 도망칠 수 있나"가 실제 생존 조건이다.
-		int32 Dirs = 0;
-		for (const FIntVector& Dir : MvHorizontal)
-		{
-			const FIntVector Column = Spawn + Dir;
-			if (Column.X < 0 || Column.X >= Grid.Size.X || Column.Y < 0 || Column.Y >= Grid.Size.Y)
-			{
-				continue;
-			}
-
-			for (int32 Z = FMath::Min(Spawn.Z + 1, Grid.Size.Z - 1); Z >= 0; --Z)
-			{
-				if (IsStandable(Grid, FIntVector(Column.X, Column.Y, Z)))
-				{
-					++Dirs;
-					break;
-				}
-			}
-		}
-
-		if (Dirs < MinDirs)
+		// 탈출로 = **서로 다른 방향**의 수 (VoxelMove 가 방향당 착지 칸 하나만 돌려주므로
+		// 그 개수가 곧 방향 수다). 폭발은 방향으로 퍼지므로 "몇 방향으로 도망칠 수 있나"가
+		// 실제 생존 조건이다 — 한 방향에서 여러 높이가 나와도 1로 세는 이유.
+		if (VoxelMove::CountEscapeDirections(Grid, Spawn) < MinDirs)
 		{
 			return false;
 		}
