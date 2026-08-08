@@ -29,6 +29,12 @@ struct FMatchResultRow
 	// 같은 Rank 를 가진 행이 둘 이상인가 — "공동 3등" 표기용. BuildResultRows 가 채운다.
 	UPROPERTY()
 	bool bTied = false;
+
+	// 이 행이 **화면을 보고 있는 본인**인가 (2026-08-06 사용자 요청).
+	// 목록만으로는 "내가 몇 등인지" 를 이름으로 찾아야 해서 한눈에 안 들어온다.
+	// CollectResultRows 가 로컬 PlayerState 와 대조해 채운다.
+	UPROPERTY()
+	bool bIsLocal = false;
 };
 
 // 내 아이템 상태 스냅샷 (GDD 5장 HUD ①). 매 틱 문자열을 다시 만들지 않기 위해
@@ -130,8 +136,16 @@ public:
 	// 읽는다. 이 함수는 "랭크가 다 도착한 데이터라면 규약이 성립하는가"의 검증용으로 남긴다.
 	static bool IsDrawResult(const TArray<FMatchResultRow>& Rows, bool bMatchEnded);
 
-	// "1등  Player 1" / 공동이면 "공동 3등  Bot 2".
+	// "1등  Player 1" / 공동이면 "공동 3등  Bot 2". 본인 행에는 앞에 표식을 붙인다.
 	static FText FormatResultRow(const FMatchResultRow& Row);
+
+	// 결과 화면 **첫 줄** — 보고 있는 본인의 성적 (2026-08-06 사용자 요청).
+	// 목록에서 자기 이름을 찾아야 등수를 아는 것이 불편하다는 지적에서 나왔다.
+	//
+	// bDraw 는 GameState->MatchWinner 로 판정한 값을 그대로 받는다 (행 스캔 금지 —
+	// 랭크는 다른 액터라 늦게 올 수 있다, IsDrawResult 주석). 그래서 랭크가 아직 없어도
+	// 이 줄의 승패 문구는 처음부터 맞다.
+	static FText FormatLocalHeadline(const TArray<FMatchResultRow>& Rows, bool bDraw);
 
 	// ─── 읽기 헬퍼 (출처 해석) — 캔버스 폴백과 공유한다 ───
 
@@ -143,7 +157,10 @@ public:
 	static FMatchStatSnapshot CaptureStats(const UStatusComponent* Status, const UCA3DRuleSet* Rules);
 
 	// GameState->PlayerArray → 정렬된 결과 행. 종료 전이면 빈 배열.
-	static TArray<FMatchResultRow> CollectResultRows(const ACA3DGameState* GameState);
+	// LocalPlayerState 와 같은 항목에 bIsLocal 을 세운다 (nullptr 이면 아무 행도 표시 안 됨 —
+	// 관전자·PlayerState 미도착 상황에서도 목록 자체는 정상이어야 한다).
+	static TArray<FMatchResultRow> CollectResultRows(const ACA3DGameState* GameState,
+	                                                 const APlayerState* LocalPlayerState = nullptr);
 
 	// GameState 의 복제 룰셋 포인터, 없으면 CDO (StatusComponent::ResolveRules 와 같은 관례).
 	static const UCA3DRuleSet* ResolveRules(const UWorld* World);

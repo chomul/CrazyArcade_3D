@@ -158,12 +158,42 @@ bool UMatchWidget::IsDrawResult(const TArray<FMatchResultRow>& Rows, bool bMatch
 
 FText UMatchWidget::FormatResultRow(const FMatchResultRow& Row)
 {
+	// 본인 행 표식 — 첫 줄(FormatLocalHeadline)이 등수를 알려주고, 이 표식이 목록에서
+	// 그 자리를 짚어 준다. 두 정보가 같은 화면에 있어야 "몇 등이고 누구 뒤인지"가 한눈에 보인다.
+	const TCHAR* Marker = Row.bIsLocal ? TEXT("▶ ") : TEXT("   ");
+
 	if (Row.Rank <= 0)
 	{
-		return FText::FromString(FString::Printf(TEXT("-등   %s"), *Row.PlayerName));
+		return FText::FromString(FString::Printf(TEXT("%s-등   %s"), Marker, *Row.PlayerName));
 	}
-	return FText::FromString(FString::Printf(TEXT("%s%d등   %s"),
-		Row.bTied ? TEXT("공동 ") : TEXT(""), Row.Rank, *Row.PlayerName));
+	return FText::FromString(FString::Printf(TEXT("%s%s%d등   %s"),
+		Marker, Row.bTied ? TEXT("공동 ") : TEXT(""), Row.Rank, *Row.PlayerName));
+}
+
+FText UMatchWidget::FormatLocalHeadline(const TArray<FMatchResultRow>& Rows, bool bDraw)
+{
+	const FMatchResultRow* Local = Rows.FindByPredicate(
+		[](const FMatchResultRow& Row) { return Row.bIsLocal; });
+
+	// 무승부는 등수보다 먼저다 — 전원 공동 2등이라 "공동 2등"만 보여주면 이긴 줄 안다.
+	if (bDraw)
+	{
+		return FText::FromString(TEXT("무승부"));
+	}
+
+	// 관전자·PlayerState 미도착 등 본인 행이 없을 때. 목록은 그대로 보여준다.
+	if (!Local || Local->Rank <= 0)
+	{
+		return FText::FromString(TEXT("매치 종료"));
+	}
+
+	if (Local->Rank == 1)
+	{
+		return FText::FromString(TEXT("우승!"));
+	}
+
+	return FText::FromString(FString::Printf(TEXT("내 순위  %s%d등"),
+		Local->bTied ? TEXT("공동 ") : TEXT(""), Local->Rank));
 }
 
 // ─── 읽기 헬퍼 (출처 해석) ───────────────────────────────────────────────────
@@ -215,7 +245,8 @@ FMatchStatSnapshot UMatchWidget::CaptureStats(const UStatusComponent* Status, co
 	return Snapshot;
 }
 
-TArray<FMatchResultRow> UMatchWidget::CollectResultRows(const ACA3DGameState* GameState)
+TArray<FMatchResultRow> UMatchWidget::CollectResultRows(const ACA3DGameState* GameState,
+                                                        const APlayerState* LocalPlayerState)
 {
 	if (!GameState)
 	{
@@ -234,6 +265,9 @@ TArray<FMatchResultRow> UMatchWidget::CollectResultRows(const ACA3DGameState* Ga
 		FMatchResultRow Row;
 		Row.Rank = Player->FinalRank;
 		Row.PlayerName = Player->GetPlayerName();
+		// 이름이 아니라 **포인터**로 대조한다 — 같은 이름이 둘일 수 있고(봇 기본 이름),
+		// 그러면 엉뚱한 행에 "나" 표식이 붙는다.
+		Row.bIsLocal = (LocalPlayerState != nullptr && Each == LocalPlayerState);
 		RawRows.Add(MoveTemp(Row));
 	}
 
@@ -377,7 +411,8 @@ void UMatchWidget::ShowResult()
 
 	bResultShown = true;
 
-	const TArray<FMatchResultRow> Rows = CollectResultRows(GameState);
+	// 본인 PlayerState — 결과 목록에서 "내 행"을 짚기 위한 기준.
+	const TArray<FMatchResultRow> Rows = CollectResultRows(GameState, GetOwningPlayerState());
 
 	// 승패 판정은 **행 스캔이 아니라 GameState 의 복제된 우승자**에서 읽는다.
 	// MatchWinner 는 bMatchEnded 와 같은 액터라 같은 번들로 원자 도착한다 — 종료를 아는
@@ -386,9 +421,11 @@ void UMatchWidget::ShowResult()
 	// 채워지는 것뿐이고 승패 문구가 틀리는 일은 없다.
 	const bool bDraw = (GameState->MatchWinner == nullptr);
 
+	// 첫 줄은 **내 성적**, 그 아래가 전체 순위 (2026-08-06 사용자 요청 — 목록에서 자기
+	// 이름을 찾아야 등수를 아는 것이 불편하다).
 	TArray<FString> Lines;
 	Lines.Reserve(Rows.Num() + 1);
-	Lines.Add(bDraw ? TEXT("무승부") : TEXT("매치 종료"));
+	Lines.Add(FormatLocalHeadline(Rows, bDraw).ToString());
 	for (const FMatchResultRow& Row : Rows)
 	{
 		Lines.Add(FormatResultRow(Row).ToString());

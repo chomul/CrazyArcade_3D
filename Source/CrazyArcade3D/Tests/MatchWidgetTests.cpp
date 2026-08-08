@@ -133,11 +133,58 @@ bool FMatchWidgetTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("③ 공동 3등 표시 (앞)"), Rows[2].bTied);
 			TestTrue(TEXT("③ 공동 3등 표시 (뒤)"), Rows[3].bTied);
 
+			// 앞 3칸은 본인 표식(▶) 자리 — 남의 행은 공백으로 들여쓴다 (열 정렬 유지).
 			TestEqual(TEXT("③ 표시 문자열 — 단독"), UMatchWidget::FormatResultRow(Rows[0]).ToString(),
-				FString(TEXT("1등   Player")));
+				FString(TEXT("   1등   Player")));
 			TestEqual(TEXT("③ 표시 문자열 — 공동"), UMatchWidget::FormatResultRow(Rows[2]).ToString(),
-				FString(TEXT("공동 3등   Bot 1")));
+				FString(TEXT("   공동 3등   Bot 1")));
 		}
+	}
+
+	// ─── ③b 본인 표식·내 순위 헤드라인 (2026-08-06 사용자 요청) ──────────────
+	{
+		TArray<FMatchResultRow> Raw;
+		Raw.Add(HudMakeRow(1, TEXT("Winner")));
+		Raw.Add(HudMakeRow(2, TEXT("Me")));
+		Raw.Add(HudMakeRow(3, TEXT("Loser")));
+		Raw[1].bIsLocal = true;
+
+		const TArray<FMatchResultRow> Rows = UMatchWidget::BuildResultRows(Raw, true);
+		if (TestEqual(TEXT("③b 행 수 보존"), Rows.Num(), 3))
+		{
+			TestEqual(TEXT("③b 본인 행에 표식"), UMatchWidget::FormatResultRow(Rows[1]).ToString(),
+				FString(TEXT("▶ 2등   Me")));
+			TestEqual(TEXT("③b 헤드라인 = 내 순위"),
+				UMatchWidget::FormatLocalHeadline(Rows, /*bDraw*/false).ToString(),
+				FString(TEXT("내 순위  2등")));
+		}
+
+		// 내가 1등이면 등수 대신 우승 문구.
+		TArray<FMatchResultRow> WinRaw;
+		WinRaw.Add(HudMakeRow(1, TEXT("Me")));
+		WinRaw.Add(HudMakeRow(2, TEXT("Other")));
+		WinRaw[0].bIsLocal = true;
+		const TArray<FMatchResultRow> WinRows = UMatchWidget::BuildResultRows(WinRaw, true);
+		TestEqual(TEXT("③b 내가 1등 → 우승 문구"),
+			UMatchWidget::FormatLocalHeadline(WinRows, false).ToString(), FString(TEXT("우승!")));
+
+		// 무승부는 등수보다 우선 — 전원 공동 2등이라 "공동 2등"만 보이면 이긴 줄 안다.
+		TArray<FMatchResultRow> DrawRaw;
+		DrawRaw.Add(HudMakeRow(2, TEXT("Me")));
+		DrawRaw.Add(HudMakeRow(2, TEXT("Other")));
+		DrawRaw[0].bIsLocal = true;
+		const TArray<FMatchResultRow> DrawRows = UMatchWidget::BuildResultRows(DrawRaw, true);
+		TestEqual(TEXT("③b 무승부가 등수보다 우선"),
+			UMatchWidget::FormatLocalHeadline(DrawRows, /*bDraw*/true).ToString(), FString(TEXT("무승부")));
+
+		// 관전자·PlayerState 미도착 — 본인 행이 없어도 목록은 정상, 헤드라인만 중립 문구.
+		TestEqual(TEXT("③b 본인 행 없음 → 중립 문구"),
+			UMatchWidget::FormatLocalHeadline(Rows, false).ToString(), FString(TEXT("내 순위  2등")));
+		TArray<FMatchResultRow> NoLocal;
+		NoLocal.Add(HudMakeRow(1, TEXT("Someone")));
+		TestEqual(TEXT("③b 본인 행이 아예 없으면 매치 종료"),
+			UMatchWidget::FormatLocalHeadline(UMatchWidget::BuildResultRows(NoLocal, true), false).ToString(),
+			FString(TEXT("매치 종료")));
 	}
 	{
 		// 아직 순위가 없는(생존 중) 행은 뒤로. 결과 화면 상단이 "0등"으로 시작하면 안 된다.
