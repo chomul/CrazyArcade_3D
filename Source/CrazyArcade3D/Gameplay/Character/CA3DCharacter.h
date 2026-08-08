@@ -159,6 +159,16 @@ private:
 	// false 반환 = 검증 실패 — 호출자(TryPlaceBombPredicted)가 RPC 를 보내지 않는다.
 	bool TryAcquirePredictedVisual(const FIntVector& Cell);
 
+	// ─── 폭탄 킥 (2026-08-06 사용자 확정: 방향키로 밀기 — 별도 키 없음) ───
+	//
+	// 서버: 지금 밀고 있는 방향 앞 칸에 폭탄이 있으면 차 보낸다. Tick 이 매 틱 부른다 —
+	// 발동에 전용 입력이 없으므로 "걸어 들어가는 것" 자체를 매 틱 관찰하는 수밖에 없다.
+	// WorldInputDirection 은 월드 평면 이동 의도(크기는 무시, 방향만 본다).
+	//
+	// 인자로 받는 이유: 입력의 출처(CMC 가속도)를 호출부에 두면 봇·자동화 테스트가
+	// CMC 를 돌리지 않고도 같은 규칙을 검증할 수 있다.
+	void ServerTryKickBomb(const FVector& WorldInputDirection);
+
 	friend class FCA3DCharacterTest;    // 자동화 테스트가 튜닝 재적용·발밑 셀 검증을 위한 접근
 	friend class FStatusComponentTest;  // 상태 전이·속도 재계산 검증을 위한 접근 (Task 12)
 	friend class FBombTest;             // 설치 검증·공중 스캔·연쇄 검증을 위한 접근 (Task 16)
@@ -166,4 +176,5 @@ private:
 	friend class FDeathHandlingTest;    // 사망 상태 적용·입력 차단 검증을 위한 접근 (Task 27)
 	friend class FBotControllerTest;    // 봇이 조종하는 캐릭터의 튜닝 수동 적용을 위한 접근 (Task 20)
 	friend class FItemPickupTest;       // 아이템 획득·니들 사용 검증의 튜닝 수동 적용을 위한 접근 (Task 23)
+	friend class FBombKickTest;         // 킥 발동 조건 검증을 위한 접근 (방향키 밀기)
 };

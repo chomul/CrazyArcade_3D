@@ -42,16 +42,42 @@ public:
 	// EndPlay 가 안전망으로 한 번 더 부른다 — bSlotReturned 로 정확히 1회 보장.
 	void ServerReleaseSlot();
 
+	// ─── 킥 (2026-08-06 사용자 확정: 방향키로 밀기 — 별도 키 없음) ───
+	//
+	// 서버: 이 폭탄을 Direction(±X 또는 ±Y 의 단위 정수 벡터)으로 미끄러뜨린다.
+	// 시작 조건이 안 맞으면(이미 미끄러지는 중·폭발 예약됨·바로 앞이 막힘) 조용히 무시한다 —
+	// 호출자(ACA3DCharacter::ServerTryKickBomb)가 폰이 밀고 있는 동안 **매 틱** 부르기 때문에
+	// 여기서 실패를 로그로 떠들면 프레임마다 스팸이 된다.
+	//
+	// **이동은 100% 서버 권한이다** (불변식 3 의 정신) — 클라 예측 없이 액터 복제로 따라간다.
+	// 예측을 넣으면 "내 화면에서만 다른 칸까지 굴러간 폭탄" 이 생기고, 그 어긋남은 폭발 원점이
+	// 달라지는 것으로 이어져 위험 프리뷰(5장 9번)까지 함께 무너진다.
+	void ServerStartKick(const FIntVector& Direction);
+
+	bool IsKicking() const { return bKicking; }
+
+	// 막힘 박스의 실제 반경(cm, 스케일 반영). 킥 접촉 판정이 "캡슐 반지름 + 이 값" 으로
+	// 사거리를 만든다 — 호출부가 룰셋 계수 × CellSize 를 다시 곱하지 않게 한다 (공식 중복 금지).
+	float GetBlockingExtent() const;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
 	virtual void BeginPlay() override;   // 클라(+리슨 호스트): 위험 프리뷰 데칼 표시
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-	virtual void Tick(float DeltaSeconds) override; // 메시 제자리 회전만 — 데디에서는 틱 자체를 끈다
+	// 메시 제자리 회전(시각) + 킥 미끄러짐(서버 권한 이동). 데디에서는 평소 틱을 끄지만
+	// 킥이 시작되면 ServerStartKick 이 다시 켠다 — 이동은 시각이 아니라 물리·판정이다.
+	virtual void Tick(float DeltaSeconds) override;
 
 	// 설치 셀 (그리드 판정용). 클라 프리뷰 계산에 필요해 복제.
-	UPROPERTY(Replicated)
+	// **킥으로 바뀐다** — 폭발 전파의 원점이자 ExplosionSubsystem 레지스트리 조회 키이므로
+	// 설치(ServerArm) 이후의 갱신은 ServerSetCell 단일 경로로만 한다 (직접 대입 금지).
+	UPROPERTY(ReplicatedUsing=OnRep_Cell)
 	FIntVector Cell = FIntVector::ZeroValue;
+
+	// 클라: 킥으로 셀이 바뀌면 위험 데칼도 따라와야 표시와 실제가 일치한다 (설계서 5장 9번).
+	UFUNCTION()
+	void OnRep_Cell();
 
 	// 폭발 전파 범위(칸). 클라 프리뷰 계산에 필요해 복제.
 	UPROPERTY(Replicated)
@@ -132,5 +158,31 @@ private:
 	void RefreshDangerPreview(); // 그리드 변경 알림 수신 — 기존 데칼 반납 후 재계산
 	void ReleasePreviewDecals();
 
+	// ─── 킥 미끄러짐 (서버 전용) ────────────────────────────────────────────
+	//
+	// 정지 판정을 **그리드로** 한다 (물리 스윕이 아니라). 폭발 전파(Propagate)와 같은 데이터를
+	// 봐야 "여기서 멈춘다" 와 "여기까지 터진다" 가 어긋나지 않는다 — 스윕으로 판정하면
+	// HISM 인스턴스 형상·컬리전 채널 같은 렌더링 쪽 사정이 게임 규칙에 새어 들어온다.
+	// 단 **플레이어는 그리드에 없다** — 폰 위치를 셀로 바꿔(GetFootCell) 비교한다.
+
+	// 서버: Cell 갱신의 단일 경로. 레지스트리·위험 데칼이 새 셀을 따라가게 만든다.
+	void ServerSetCell(const FIntVector& NewCell);
+
+	// 서버: 다음 칸(NextCell)에 들어갈 수 있는가 — 맵 밖·솔리드·다른 폭탄·산 플레이어면 false.
+	bool CanKickInto(const FIntVector& NextCell) const;
+
+	// 서버: 미끄러짐 진행 (Tick 에서만 호출). 셀 중심에 도달할 때마다 칸 단위 판정을 한다.
+	void ServerUpdateKick(float DeltaSeconds);
+
+	// 서버: 미끄러짐 종료 — 셀 중심으로 스냅하고 데디에서는 틱을 다시 끈다.
+	void ServerStopKick();
+
+	bool bKicking = false;                            // 미끄러지는 중
+	FIntVector KickDirection = FIntVector::ZeroValue; // ±X 또는 ±Y 단위 정수 벡터
+	int32 KickCellsRemaining = 0;                     // 남은 이동 칸 수 (룰셋 BombKickMaxCells 에서 시작)
+	FVector KickTargetLocation = FVector::ZeroVector; // 다음 셀 중심의 월드 좌표
+	float KickSpeed = 0.f;                            // cm/s — 시작 시 룰셋 × CellSize 로 1회 계산
+
 	friend class FBombTest; // 자동화 테스트가 퓨즈 타이머·플래그 검증을 위한 접근
+	friend class FBombKickTest; // 자동화 테스트가 킥 상태·수동 틱 검증을 위한 접근
 };

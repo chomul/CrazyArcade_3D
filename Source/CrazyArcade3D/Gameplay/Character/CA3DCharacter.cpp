@@ -253,6 +253,82 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 			*GetName(), KillZ, bSuddenDeath ? TEXT("서든데스") : TEXT("추락"));
 		Status->ServerKill(bSuddenDeath ? EDeathCause::SuddenDeath : EDeathCause::Fall);
 	}
+
+	// 폭탄 킥 (2026-08-06 확정) — 방향키로 민다. 전용 키가 없으므로 "지금 어느 쪽으로 밀고
+	// 있는가" 를 매 틱 본다.
+	//
+	// 입력의 출처가 CMC 의 **현재 가속도**인 이유: 원격 클라의 AddMovementInput 은 서버에서
+	// 불리지 않지만(GetLastMovementInputVector 는 서버에서 항상 0), ServerMove 가 실어 보낸
+	// 가속도를 CMC 가 서버에서 그대로 적용하므로 서버에도 같은 값이 있다. 봇(AIController)은
+	// 서버에서 직접 Move 를 부르므로 같은 값이 자연스럽게 채워진다 — 사람과 봇이 한 경로.
+	if (const UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		ServerTryKickBomb(Movement->GetCurrentAcceleration());
+	}
+}
+
+void ACA3DCharacter::ServerTryKickBomb(const FVector& WorldInputDirection)
+{
+	if (!HasAuthority()) return; // 불변식 5 — 폭탄을 움직이는 것은 상태 변경이다
+
+	// 킥 아이템이 없으면 지금까지처럼 그냥 벽이다 (ABomb::BlockingBox 가 막는다) —
+	// 승격 로직은 건드리지 않고 킥 경로만 따로 낸 것이 이 설계의 요점이다.
+	// 갇힘(Trapped)·사망 중에는 못 찬다: 갇힌 채로 폭탄을 밀 수 있으면 물방울의 의미가 없다
+	// (DoJump 가 Trapped 를 막는 것과 같은 근거 — 미세 이동은 허용, 판을 바꾸는 행동은 금지).
+	if (!Status || !Status->bHasKick || Status->LifeState != ELifeState::Alive)
+	{
+		return;
+	}
+	if (!VoxelWorld)
+	{
+		return; // 좌표 변환(GetFootCell) 불가 — BeginPlay 이전이거나 VoxelWorld 없는 맵
+	}
+
+	// 방향을 **한 축으로 접는다.** 미끄러짐은 그리드 4방향 규칙(폭발 전파와 같은 축)이라
+	// 대각 입력으로 두 폭탄을 동시에 밀거나 대각선으로 굴러가는 일이 있으면 안 된다.
+	const FVector2D Flat(WorldInputDirection.X, WorldInputDirection.Y);
+	if (Flat.IsNearlyZero())
+	{
+		return; // 서 있는 중 — 밀고 있지 않다
+	}
+
+	const FIntVector Direction = FMath::Abs(Flat.X) >= FMath::Abs(Flat.Y)
+		? FIntVector(Flat.X > 0.f ? 1 : -1, 0, 0)
+		: FIntVector(0, Flat.Y > 0.f ? 1 : -1, 0);
+
+	UExplosionSubsystem* Explosion = GetWorld() ? GetWorld()->GetSubsystem<UExplosionSubsystem>() : nullptr;
+	if (!Explosion)
+	{
+		return;
+	}
+
+	// 레지스트리 조회 — 폭탄의 실제 위치가 아니라 **셀**로 찾는다. 폭발 판정과 같은 키를 써야
+	// "차진 칸" 과 "터지는 칸" 이 갈리지 않는다.
+	ABomb* Bomb = Explosion->FindBombAt(GetFootCell() + Direction);
+	if (!Bomb)
+	{
+		return;
+	}
+
+	// 접촉 판정 — "걸어 들어가면" 이므로 실제로 닿아야 한다. 옆 칸에 들어서자마자 차이면
+	// 폭탄이 손도 대기 전에 한 칸(CellSize) 앞서 도망가는 것처럼 보인다.
+	// 사거리는 실제 형상에서 파생한다: 캡슐 반지름 + 폭탄 막힘 박스 반경 + 룰셋 여유.
+	const UCA3DRuleSet* Rules = CachedRules ? CachedRules.Get() : GetDefault<UCA3DRuleSet>();
+	const float Reach = GetCapsuleComponent()->GetScaledCapsuleRadius()
+		+ Bomb->GetBlockingExtent()
+		+ Rules->BombKickReachToleranceCells * VoxelWorld->CellSize;
+
+	// 미는 축의 거리만 본다 — 수직 정렬은 위의 "발밑 셀 + 방향 == 폭탄 셀" 이 이미 보장한다.
+	const FVector Delta = Bomb->GetActorLocation() - GetActorLocation();
+	const float AxisDistance = FMath::Abs(Direction.X != 0 ? Delta.X : Delta.Y);
+	if (AxisDistance > Reach)
+	{
+		return;
+	}
+
+	// 시작 조건(이미 미끄러지는 중·폭발 예약·앞이 막힘)은 폭탄이 단독으로 판단한다 —
+	// 규칙을 두 곳에 적으면 언젠가 한쪽만 바뀐다 (ServerUseNeedle → ServerEscape 와 같은 관례).
+	Bomb->ServerStartKick(Direction);
 }
 
 void ACA3DCharacter::RefreshMoveSpeed()

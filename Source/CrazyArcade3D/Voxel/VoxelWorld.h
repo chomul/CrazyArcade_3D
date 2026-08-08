@@ -165,4 +165,5 @@ private:
 	friend class FBotControllerTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 20)
 	friend class FItemPickupTest; // 자동화 테스트가 손그리드·아이템 배치 주입을 위한 접근 (Task 23)
 	friend class FSuddenDeathTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 24)
+	friend class FBombKickTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (폭탄 킥)
 };

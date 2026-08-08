@@ -77,6 +77,32 @@ public:
 	UPROPERTY(EditAnywhere, Category="Bomb")
 	TSubclassOf<APredictedBombVisual> PredictedBombVisualClass;
 
+	// ─── Bomb — 킥 (2026-08-06 사용자 확정: 방향키로 밀기, 별도 키 없음) ───
+	// 킥 아이템을 든 채로 폭탄에 걸어 들어가면 자동으로 밀린다. 킥이 없으면 지금처럼 벽이다.
+
+	// 한 번 차면 최대 몇 칸을 미끄러지는가. 막는 것이 없으면 정확히 이만큼 가고 멈춘다.
+	// 10칸 = 21×21 맵의 절반 — "판 반대편까지 보내지는 못한다" 가 상한의 의미다.
+	UPROPERTY(EditAnywhere, Category="Bomb", meta=(ClampMin="1"))
+	int32 BombKickMaxCells = 10;
+
+	// 미끄러지는 속도(칸/초).
+	//
+	// **차는 사람보다 빨라야 한다** — 이게 기본값의 근거다. 느리면 찬 사람이 그대로 따라붙어
+	// 매 프레임 다시 접촉하고, 폭탄은 사실상 발에 붙어 끌려다니는 물건이 된다 (차서 멀리
+	// 보낸다는 규칙 자체가 사라진다). 사람의 최대 속도는 MoveSpeedCellsPerSec 4 ×
+	// MoveSpeedMulCap 1.6 = 6.4칸/초이므로 8 이면 롤러를 최대로 먹어도 따라잡히지 않는다.
+	// 8칸/초면 최대 거리 10칸에 1.25초 — 퓨즈(BombFuseTime 3초)의 절반이 안 되어
+	// 차고 나서 피할 시간이 남는다.
+	UPROPERTY(EditAnywhere, Category="Bomb", meta=(ClampMin="0.1"))
+	float BombKickSpeedCellsPerSec = 8.f;
+
+	// 킥 접촉 판정의 여유 거리(셀 단위). 사거리 = 캡슐 반지름 + BombBlockExtentCells×CellSize + 이 값.
+	// "걸어 들어가면" 이므로 실제로 닿아야 차진다 — 여유가 0 이면 CMC 가 남기는 미세한 접촉 간격
+	// 때문에 정면으로 밀고 있어도 안 차지는 프레임이 생기고, 반대로 크면 한 칸 앞에서 폭탄이
+	// 먼저 도망가 손도 안 댄 것처럼 보인다. 0.1칸 = 10cm.
+	UPROPERTY(EditAnywhere, Category="Bomb", meta=(ClampMin="0.0", ClampMax="0.5"))
+	float BombKickReachToleranceCells = 0.1f;
+
 	// ── Life ──────────────────────────────────────────────
 
 	// 물방울에 갇힌 상태 지속 시간(초). 3~5초 권장.
