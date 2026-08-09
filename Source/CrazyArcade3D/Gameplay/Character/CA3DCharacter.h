@@ -35,13 +35,17 @@ public:
 	// CameraBoom 이 bUsePawnControlRotation 이라 엔진(USpringArmComponent::UpdateDesiredArmLocation)
 	// 이 매 프레임 이 함수를 읽어 카메라 회전을 정한다. 기본 구현(APawn::GetViewRotation)은
 	// 컨트롤러의 ControlRotation 을 돌려주는데, 그 값이 옳은 것은 **내 폰**뿐이다:
-	//   · 봇      → AAIController 가 계산한 "봇이 향한 방향". 45도 배수가 아니고 매 프레임 변한다
+	//   · 봇      → AAIController 가 계산한 "봇이 향한 방향". 스냅 배수가 아니고 매 프레임 변한다
 	//   · 원격 폰 → 클라에서는 Controller 가 null 이라 폴백 각으로 떨어진다 (카메라 yaw 는
 	//               컨트롤러 로컬 값이라 애초에 복제되지 않는다)
 	// 그래서 남을 관전하면 격자가 비스듬히 눕고 카메라가 계속 미끄러진다.
 	//
-	// 이 오버라이드는 그 둘을 **복제된 스냅 인덱스**(ACA3DPlayerState::CamYawIndex)로 대체한다.
-	// 로컬 플레이어가 조종 중인 폰은 손대지 않는다 — 진짜 카메라의 출처는 그 컨트롤러다.
+	// 규칙은 두 갈래다:
+	//   ① **이 폰을 보고 있는 로컬 컨트롤러가 있으면 그 컨트롤러의 각.** 조종 중인 내 폰과
+	//      관전 중인 남의 폰이 같은 가지다 — 그래야 관전 중에도 Q/E 회전이 먹는다
+	//      (2026-08-09 사용자 요청)
+	//   ② 아무도 안 보고 있으면 **복제된 스냅 인덱스**(ACA3DPlayerState::CamYawIndex).
+	//      관전을 시작하는 순간 관전자가 이 값을 **시작각으로 받아 간다**
 	virtual FRotator GetViewRotation() const override;
 
 	// 스탯·생존 상태의 단일 출처 (Task 12) — 봇·플레이어 공용.
@@ -138,7 +142,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Bomb")
 	TSubclassOf<ABomb> BombClass;
 
-	// 카메라 붐 — 45도 스냅 카메라(Task 11)가 컨트롤러 ControlRotation 으로 회전시킨다
+	// 카메라 붐 — 90도 스냅 카메라(Task 11)가 컨트롤러 ControlRotation 으로 회전시킨다
 	// (bUsePawnControlRotation). 데디 서버는 BeginPlay 에서 파괴 (불변식 5 — 시각 전용).
 	UPROPERTY(VisibleAnywhere, Category="Camera")
 	TObjectPtr<USpringArmComponent> CameraBoom;
@@ -183,27 +187,20 @@ private:
 	// CMC 를 돌리지 않고도 같은 규칙을 검증할 수 있다.
 	void ServerTryKickBomb(const FVector& WorldInputDirection);
 
-	// ─── 관전 카메라 yaw (2026-08-09) ───
-	//
-	// 복제되는 것은 45도 스냅 **인덱스**뿐이라 목표각이 계단처럼 45도씩 뛴다. 그대로 쓰면
-	// 관전 중 카메라가 순간이동하므로 여기서 로컬 카메라와 **같은 룰셋 값**
-	// (CameraYawInterpSpeed)으로 따라가게 한다 — 손맛이 내 카메라와 같아진다.
-	//
-	// 보간을 관전자(컨트롤러)가 아니라 **폰**에 둔 이유:
-	//   ① GetViewRotation() 은 const 이고 한 프레임에 여러 번 불릴 수 있어 그 안에서 상태를
-	//      굴릴 수 없다 (DeltaTime 도 없다).
-	//   ② 이 각은 "누가 보고 있는가"와 무관한 **폰의 표현**이다. 관전자 쪽에 두면 관전자가
-	//      여럿일 때 사람마다 다른 각을 보고, 대상을 바꿀 때마다 보간이 처음부터 다시 돈다.
-	//   ③ 관전 대상이 아닌 폰도 미리 따라가고 있어야 시점을 붙이는 순간이 자연스럽다.
-	void UpdateSpectateCamYaw(float DeltaSeconds);
+	// ─── 관전 카메라 각 (2026-08-09) ───
 
-	// 보간된 현재 각(도). **복제하지 않는다** — 목표(인덱스)만 복제되고 보간은 각 머신이
-	// 같은 규칙으로 재현한다 (한 바이트를 위해 float 을 흘려보낼 이유가 없다).
-	float SpectateCamYaw = 0.f;
+	// 지금 이 폰을 보고 있는 **로컬** 플레이어 컨트롤러 (없으면 nullptr).
+	// 블렌드 중에는 이전 대상과 새 대상이 둘 다 카메라 계산을 타므로 `PendingViewTarget` 도 본다 —
+	// 한쪽만 인정하면 전환 0.4초 동안 한 화면에 각이 두 개가 되어 카메라가 휘청인다.
+	//
+	// **보간 상태를 폰이 들고 있지 않는다.** 각의 주인이 "보는 사람" 으로 정리되면서
+	// (관전자가 Q/E 로 직접 돌린다) 폰이 따로 보간할 이유가 없어졌다 — 관전자의 컨트롤러가
+	// 이미 자기 SmoothCamYaw 를 굴리고 있고, 그것 하나만 남는 편이 각의 출처가 명확하다.
+	const APlayerController* GetLocalViewingController() const;
 
-	// 첫 프레임은 보간하지 않고 스냅한다 — 0도에서 목표각까지 훑고 지나가면 스폰 직후
-	// 관전 화면이 한 바퀴 도는 것처럼 보인다.
-	bool bSpectateCamYawInitialized = false;
+	// 복제된 스냅 인덱스를 각도로. 아무도 로컬에서 보고 있지 않은 폰의 "표현" 이자,
+	// 관전을 시작할 때 관전자가 받아 가는 **시작각**이다.
+	float GetReplicatedCamYawDeg() const;
 
 	friend class FCA3DCharacterTest;    // 자동화 테스트가 튜닝 재적용·발밑 셀 검증을 위한 접근
 	friend class FStatusComponentTest;  // 상태 전이·속도 재계산 검증을 위한 접근 (Task 12)

@@ -12,7 +12,7 @@
 #include "Framework/CA3DRuleSet.h"    // AI→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h"  // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
 #include "Framework/CA3DPlayerState.h"
-#include "Core/CameraYawSnap.h" // 45도 스냅 공식의 단일 출처 — 봇도 같은 변환을 쓴다
+#include "Core/CameraYawSnap.h" // 90도 스냅 공식의 단일 출처 — 봇도 같은 변환을 쓴다
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Algo/Reverse.h"
 #include "EngineUtils.h"
@@ -378,14 +378,14 @@ void ABotController::Tick(float DeltaSeconds)
 
 	// ── 관전 카메라 yaw (봇 판단과 무관한 **표현** 값) ──
 	//
-	// 봇에게는 "보고 있는 시점"이 없다 — 사람은 Q/E 로 8방향 중 하나를 고르지만 봇은 카메라를
+	// 봇에게는 "보고 있는 시점"이 없다 — 사람은 Q/E 로 4방향 중 하나를 고르지만 봇은 카메라를
 	// 갖지 않는다. 그래서 **이동 방향**을 대신 쓴다: 캐릭터가 bOrientRotationToMovement 라
 	// 액터 회전이 곧 봇이 가고 있는 쪽이고, 관전자 입장에서 "가는 쪽이 화면 위"가 가장 덜
 	// 어색하다. 멈춰 있을 때도 마지막 방향이 남아 있어(속도와 달리) 각이 떨리지 않는다.
 	//
-	// 45도로 스냅하는 이유는 이 게임 카메라가 8방향 고정이기 때문이다 — 스냅하지 않으면
+	// 90도로 스냅하는 이유는 이 게임 카메라가 4방향 고정이기 때문이다 — 스냅하지 않으면
 	// 봇을 관전할 때만 격자가 비스듬히 기울어 칸 세기가 무너진다. 히스테리시스(룰셋)는
-	// 경계에 걸친 방향이 미세하게 흔들릴 때 카메라가 45도씩 왕복하는 것을 막는다.
+	// 경계에 걸친 방향이 미세하게 흔들릴 때 카메라가 한 칸씩 왕복하는 것을 막는다.
 	//
 	// 데디 가드를 걸지 **않는다** — 이 값은 복제되어 **클라의** 관전 카메라 각이 된다
 	// (복제되는 값을 서버가 쓰는 것은 "시각"이 아니다).

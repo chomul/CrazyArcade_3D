@@ -175,11 +175,11 @@ public:
 	UPROPERTY(EditAnywhere, Category="Camera")
 	float CameraDistanceCells = 12.f;
 
-	// 고정 내려보기 각도(도). 45도 스냅 회전은 yaw 만 돈다 (GDD 5장).
+	// 고정 내려보기 각도(도). 90도 스냅 회전은 yaw 만 돈다 (GDD 5장).
 	UPROPERTY(EditAnywhere, Category="Camera")
 	float CameraPitchDeg = -55.f;
 
-	// 45도 스냅 보간 속도 (RInterpTo 지수 계수).
+	// 90도 스냅 보간 속도 (RInterpTo 지수 계수).
 	UPROPERTY(EditAnywhere, Category="Camera")
 	float CameraYawInterpSpeed = 8.f;
 
@@ -246,9 +246,9 @@ public:
 	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.05", ClampMax="1.0"))
 	float SpectateCycleAxisThreshold = 0.5f;
 
-	// 봇의 관전 카메라 yaw 가 다음 45도 칸으로 넘어가기까지 필요한 초과 각도(도).
-	// 2026-08-09: 봇에게는 "보고 있는 시점" 이 없어 이동 방향을 45도로 스냅해 대신 쓴다.
-	// 히스테리시스가 0 이면 경계(22.5도)에서 방향이 미세하게 흔들릴 때마다 카메라가 45도씩
+	// 봇의 관전 카메라 yaw 가 다음 90도 칸으로 넘어가기까지 필요한 초과 각도(도).
+	// 2026-08-09: 봇에게는 "보고 있는 시점" 이 없어 이동 방향을 90도로 스냅해 대신 쓴다.
+	// 히스테리시스가 0 이면 경계(45도)에서 방향이 미세하게 흔들릴 때마다 카메라가 45도씩
 	// 튄다 — 관전 중 가장 눈에 띄는 멀미 요인이다. 크게 잡으면 봇이 확실히 방향을 튼 뒤에도
 	// 카메라가 한참 안 돈다.
 	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.0", ClampMax="22.0"))

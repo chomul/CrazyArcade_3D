@@ -11,8 +11,9 @@
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
 #include "Framework/CA3DPlayerState.h" // 복제되는 관전 카메라 각의 출처 — .cpp 에서만
-#include "Core/CameraYawSnap.h"        // 45도 스냅 공식의 단일 출처 (Gameplay→Core 는 허용)
-#include "GameFramework/PlayerController.h" // 로컬 플레이어 판정 (GetViewRotation 분기)
+#include "Core/CameraYawSnap.h"        // 90도 스냅 공식의 단일 출처 (Gameplay→Core 는 허용)
+#include "GameFramework/PlayerController.h"  // 로컬 플레이어 판정 (GetViewRotation 분기)
+#include "Camera/PlayerCameraManager.h"      // PendingViewTarget — 블렌드 중 새 대상 판정
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -47,7 +48,7 @@ ACA3DCharacter::ACA3DCharacter()
 	// 캡슐 크기는 엔진 기본(반지름 34, 반높이 88) 유지 — ⚠️ 임시, 셀 크기 확정 시 함께 튜닝.
 	// 1칸 폭(임시 100) 통로 통과 가능: 지름 68 < 100.
 
-	// 45도 스냅 카메라(Task 11)와의 역할 분담: 카메라 yaw 는 컨트롤러 ControlRotation 이
+	// 90도 스냅 카메라(Task 11)와의 역할 분담: 카메라 yaw 는 컨트롤러 ControlRotation 이
 	// 소유하므로 캐릭터가 카메라를 따라 돌면 안 된다 — 이동 방향을 보게 한다.
 	bUseControllerRotationYaw = false;                        // CMC 기본에서 변경 (기본 true)
 	GetCharacterMovement()->bOrientRotationToMovement = true; // CMC 기본에서 변경 (기본 false)
@@ -234,13 +235,6 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	// 권한 가드 **위**다 — 이 값은 클라에서 굴러야 관전 카메라가 부드럽다.
-	// 데디 가드도 걸지 않는다: 결과가 GetViewRotation() 이고, 그건 엔진이 넷모드와 무관하게
-	// 부르는 폰 질의라 서버에서만 값이 굳어 있으면 나중에 조용한 어긋남이 된다
-	// (복제되는 인덱스를 각 머신이 같은 규칙으로 재현하는 것이라 "시각 전용"이 아니다).
-	// 비용은 캐릭터당 틱당 RInterpTo 하나다.
-	UpdateSpectateCamYaw(DeltaSeconds);
-
 	if (!HasAuthority()) return; // 불변식 5 — 낙사 판정은 상태 변경으로 이어지므로 서버 전용
 
 	// 낙사 → ServerKill. Dead 면 스킵 (중복 호출 방지). 갇힌 채 추락하는 상황은
@@ -279,44 +273,73 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 
 // ─── 관전 카메라 각 (2026-08-09) ─────────────────────────────────────────────
 
-void ACA3DCharacter::UpdateSpectateCamYaw(float DeltaSeconds)
+const APlayerController* ACA3DCharacter::GetLocalViewingController() const
 {
-	// 목표는 복제된 45도 스냅 인덱스. PlayerState 가 아직 안 왔으면(스폰 직후) 0번 칸으로 둔다 —
-	// 어차피 다음 프레임에 도착하고, 첫 프레임 스냅이 그 값을 그대로 받아 간다.
-	const ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
-	const uint8 TargetIndex = CA3DPlayerState ? CA3DPlayerState->CamYawIndex : static_cast<uint8>(0);
-	const float TargetYaw = CameraYawSnap::IndexToYawDeg(TargetIndex);
-
-	if (!bSpectateCamYawInitialized)
+	// 내가 로컬 플레이어의 폰이면 그 컨트롤러가 곧 카메라다 — ViewTarget 조회보다 **먼저** 본다.
+	// 카메라 매니저가 없는 환경(자동화 테스트 월드)에서도 이 가지는 항상 성립하고,
+	// 살아 있는 내 폰이라는 가장 흔한 경우를 반복 없이 끝낸다.
+	if (const APlayerController* OwningPC = Cast<APlayerController>(GetController()))
 	{
-		SpectateCamYaw = TargetYaw; // 첫 프레임은 보간하지 않는다 (헤더 주석)
-		bSpectateCamYawInitialized = true;
-		return;
+		if (OwningPC->IsLocalPlayerController())
+		{
+			return OwningPC;
+		}
 	}
 
-	// FRotator 경유 — ±180 랩을 정규화해 7번 칸(315도) → 0번 칸(0도)이 뒤로 315도를 도는 대신
-	// 앞으로 45도만 돈다. 컨트롤러의 로컬 카메라 보간(PlayerTick)과 완전히 같은 식이다.
-	const FRotator Current(0.f, SpectateCamYaw, 0.f);
-	const FRotator Target(0.f, TargetYaw, 0.f);
-	SpectateCamYaw = static_cast<float>(FMath::RInterpTo(
-		Current, Target, DeltaSeconds, ResolveVisualRules(GetWorld())->CameraYawInterpSpeed).Yaw);
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+	{
+		const APlayerController* PC = It->Get();
+		if (!PC || !PC->IsLocalPlayerController())
+		{
+			continue; // 원격 플레이어의 컨트롤러(서버에 뜬 것)는 이 머신의 카메라가 아니다
+		}
+
+		// 블렌드 중에는 **이전 대상(ViewTarget)과 새 대상(PendingViewTarget) 둘 다** 카메라
+		// 계산을 탄다. 한쪽만 인정하면 대상 전환 0.4초 동안 한 화면 안에서 각이 두 개가 되어
+		// 카메라가 휘청인다 — 둘 다 같은 컨트롤러 각을 돌려줘야 위치만 매끄럽게 옮겨간다.
+		if (PC->GetViewTarget() == this)
+		{
+			return PC;
+		}
+		if (PC->PlayerCameraManager && PC->PlayerCameraManager->PendingViewTarget.Target == this)
+		{
+			return PC;
+		}
+	}
+	return nullptr;
+}
+
+float ACA3DCharacter::GetReplicatedCamYawDeg() const
+{
+	// PlayerState 가 아직 안 왔으면(스폰 직후) 0번 칸. 다음 프레임이면 도착한다.
+	const ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
+	return CameraYawSnap::IndexToYawDeg(CA3DPlayerState ? CA3DPlayerState->CamYawIndex : 0);
 }
 
 FRotator ACA3DCharacter::GetViewRotation() const
 {
-	// 로컬 플레이어가 조종 중인 폰 = 내 화면. 진짜 카메라의 출처는 그 컨트롤러의
-	// ControlRotation 이고 Q/E 보간까지 거기 들어 있다 — 손대지 않는다.
-	// (내 폰에서 복제 인덱스를 쓰면 45도 스냅이 계단으로 보이고 회전 입력이 한 틱 늦어진다.)
-	const APlayerController* OwningPC = Cast<APlayerController>(GetController());
-	if (OwningPC && OwningPC->IsLocalPlayerController())
+	// **지금 이 폰을 보고 있는 로컬 컨트롤러**가 있으면 그 컨트롤러의 ControlRotation 이 카메라
+	// 각이다. 살아서 조종 중인 내 폰과, 죽어서 관전 중인 남의 폰이 **같은 가지**로 처리된다 —
+	// 그래야 관전 중에도 Q/E 회전이 그대로 먹는다 (2026-08-09 사용자 요청).
+	//
+	// 관전자별로 다른 각을 보게 되지만 그게 맞다: 카메라는 보는 사람의 것이다. 한 머신에
+	// 로컬 컨트롤러는 하나뿐이라 "누구 각을 쓸까" 라는 모호함도 없다.
+	if (const APlayerController* Viewer = GetLocalViewingController())
 	{
-		return Super::GetViewRotation();
+		return Viewer->GetControlRotation();
 	}
 
-	// 그 밖(봇 · 원격 플레이어의 폰) = **누군가 나를 관전할 때의 각**.
-	// 고정 내려보기 pitch + 복제 인덱스를 따라간 보간 yaw — 플레이어 카메라와 같은 규칙이라
-	// 관전으로 넘어가도 격자가 눕지 않고 45도 스냅이 유지된다.
-	return FRotator(ResolveVisualRules(GetWorld())->CameraPitchDeg, SpectateCamYaw, 0.f);
+	// 아무도 로컬에서 보고 있지 않은 폰(봇 · 원격 플레이어) = **이 폰의 표현**.
+	// 관전 대상을 이 폰으로 바꾸는 순간 관전자가 이 각을 **시작각으로 받아 간다**
+	// (ACA3DPlayerController::SetSpectateTarget) — "다른 플레이어가 보는 시점 그대로" 는
+	// 여기서 성립한다. 받은 뒤부터는 관전자가 Q/E 로 자유롭게 돌린다.
+	return FRotator(ResolveVisualRules(GetWorld())->CameraPitchDeg, GetReplicatedCamYawDeg(), 0.f);
 }
 
 void ACA3DCharacter::ServerTryKickBomb(const FVector& WorldInputDirection)

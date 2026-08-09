@@ -9,7 +9,7 @@ class UInputAction;
 class ACA3DPlayerState;
 struct FInputActionValue;
 
-// 입력(Enhanced Input)과 45도 스냅 회전 고정 각도 카메라만 담당 (Task 11, GDD 5장).
+// 입력(Enhanced Input)과 90도 스냅 회전 고정 각도 카메라만 담당 (Task 11, GDD 5장).
 // 클라 로컬 전용 관심사 — 게임 상태를 바꾸지 않는다. 판정·상태 변경은 캐릭터(서버 RPC) 소관.
 //
 // 카메라 구조: "캐릭터 SpringArm(bUsePawnControlRotation) + 이 컨트롤러의 ControlRotation" 채택
@@ -27,7 +27,7 @@ public:
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override; // 카메라 yaw 보간 (시각 전용)
 
-	// 클라→서버: 내 카메라 yaw 스냅 인덱스(0~7). **관전자에게 보여줄 표현 값**이라 서버가 받아
+	// 클라→서버: 내 카메라 yaw 스냅 인덱스(0~3). **관전자에게 보여줄 표현 값**이라 서버가 받아
 	// ACA3DPlayerState::CamYawIndex 로 복제한다 — 내 카메라 자체는 여전히 로컬 ControlRotation 이
 	// 굴린다(서버는 내 시점을 몰라도 된다). 호출은 인덱스가 **바뀌는 순간에만** (PushCamYawIndex).
 	UFUNCTION(Server, Reliable)
@@ -48,7 +48,7 @@ protected:
 	TObjectPtr<UInputAction> IA_PlaceBomb;  // Digital — 핸들러는 Task 16 에서 구현 (바인딩 자리만)
 
 	UPROPERTY(EditDefaultsOnly, Category="Input")
-	TObjectPtr<UInputAction> IA_RotateCam;  // Axis1D — Q=-1 / E=+1, ±45도 스냅
+	TObjectPtr<UInputAction> IA_RotateCam;  // Axis1D — Q=-1 / E=+1, ±90도 스냅
 
 	// Digital — 니들 수동 사용 (Task 23, 사용자 확정: 자동 사용 아님).
 	// 폭탄과 다른 키여야 한다: 갇힌 상태에서 폭탄 키를 누르는 것과 니들을 쓰는 것은
@@ -62,17 +62,17 @@ protected:
 	void OnJumpCompleted();
 	void OnPlaceBomb();                           // 셀 계산·검증은 캐릭터/서버 소관 — 여기선 전달만
 	void OnUseNeedle();                           // 판정은 캐릭터/서버 소관 — 여기선 전달만
-	void OnRotateCam(const FInputActionValue& V); // ±45도 스냅, 보간 회전
+	void OnRotateCam(const FInputActionValue& V); // ±90도 스냅, 보간 회전
 
 private:
 	// 카메라 상태 — 스냅 인덱스가 목표각이고 SmoothCamYaw 가 보간 현재각.
 	// 스텝은 랩하지 않고 누적한다 (보간이 FRotator 정규화로 최단 경로를 택하므로 안전).
-	// ⚠️ 45도 스텝 상수를 여기 두지 않는다 — 스냅 공식의 단일 출처는 CameraYawSnap 이다
+	// ⚠️ 90도 스텝 상수를 여기 두지 않는다 — 스냅 공식의 단일 출처는 CameraYawSnap 이다
 	//    (Core/CameraYawSnap.h). 여기에 사본을 두는 순간 관전 각과 갈라진다.
 	int32 CamYawSteps = 0;
 	float SmoothCamYaw = 0.f;
 
-	// 지금 고른 45도 칸 (0~7) — 복제 값 ACA3DPlayerState::CamYawIndex 와 같은 좌표계다.
+	// 지금 고른 90도 칸 (0~3) — 복제 값 ACA3DPlayerState::CamYawIndex 와 같은 좌표계다.
 	uint8 GetCamYawIndex() const;
 
 	// 카메라 기준 입력 모드가 쓰는 스냅 목표각(도). 보간 중에도 이동 기준이 흔들리지

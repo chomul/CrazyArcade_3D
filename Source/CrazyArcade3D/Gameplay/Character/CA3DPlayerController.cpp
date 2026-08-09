@@ -6,7 +6,7 @@
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
 #include "Framework/CA3DPlayerState.h" // 관전 대상 목록(bAlive)·복제 카메라 각의 출처 — .cpp 에서만
-#include "Core/CameraYawSnap.h"        // 45도 스냅 공식의 단일 출처 (Gameplay→Core 는 허용)
+#include "Core/CameraYawSnap.h"        // 90도 스냅 공식의 단일 출처 (Gameplay→Core 는 허용)
 #include "Camera/PlayerCameraManager.h" // EViewTargetBlendFunction (SetViewTargetWithBlend 인자)
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -24,12 +24,12 @@
 // 소유는 여전히 이 컨트롤러(ControlRotation)라 "카메라는 컨트롤러 관심사" 원칙도 유지된다.
 
 // WASD 입력 기준 (설계서 7장) — **카메라 기준으로 확정** (2026-07-30 PIE 비교 후 사용자 결정).
-// 월드 축 기준은 카메라를 45도 돌린 뒤 "화면 위 = W" 가 깨져서 방향 감각이 어긋난다.
+// 월드 축 기준은 카메라를 90도 돌린 뒤 "화면 위 = W" 가 깨져서 방향 감각이 어긋난다.
 // 월드 축 동작은 비교·디버그용으로 0 을 남겨 둔다.
 static TAutoConsoleVariable<int32> CVarCA3DCameraRelativeInput(
 	TEXT("ca3d.CameraRelativeInput"),
 	1,
-	TEXT("WASD 입력 기준. 1 = 카메라 기준(기본, 45도 스냅각에 맞춰 회전), 0 = 월드 축"));
+	TEXT("WASD 입력 기준. 1 = 카메라 기준(기본, 90도 스냅각에 맞춰 회전), 0 = 월드 축"));
 
 namespace
 {
@@ -51,7 +51,7 @@ namespace
 	}
 }
 
-// ─── 45도 스냅 (공식은 CameraYawSnap 한 곳에만) ──────────────────────────────
+// ─── 90도 스냅 (공식은 CameraYawSnap 한 곳에만) ──────────────────────────────
 
 uint8 ACA3DPlayerController::GetCamYawIndex() const
 {
@@ -84,7 +84,7 @@ void ACA3DPlayerController::ServerSetCamYawIndex_Implementation(uint8 NewIndex)
 	// 데디에서 껐다가 서버에 바닥이 사라졌던 것과 같은 계열의 함정이다.
 	if (ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>())
 	{
-		// 들어온 값은 신뢰하지 않는다 — StepsToIndex 가 0~7 로 접는다 (클라가 200 을 보내도 안전).
+		// 들어온 값은 신뢰하지 않는다 — StepsToIndex 가 0~3 으로 접는다 (클라가 200 을 보내도 안전).
 		CA3DPlayerState->CamYawIndex = CameraYawSnap::StepsToIndex(NewIndex);
 	}
 }
@@ -165,7 +165,7 @@ void ACA3DPlayerController::PlayerTick(float DeltaTime)
 
 	const UCA3DRuleSet* Rules = ResolveRules(GetWorld());
 
-	// 45도 스냅 보간 — FRotator 경유로 ±180 랩을 정규화해 항상 최단 경로로 돈다.
+	// 90도 스냅 보간 — FRotator 경유로 ±180 랩을 정규화해 항상 최단 경로로 돈다.
 	// 회전 중에도 이동은 안 끊긴다: 이동 기준은 월드축 또는 스냅각(OnMove)이라 보간각과 무관.
 	const FRotator Current(0.f, SmoothCamYaw, 0.f);
 	const FRotator Target(0.f, GetSnappedCamYaw(), 0.f);
@@ -174,7 +174,7 @@ void ACA3DPlayerController::PlayerTick(float DeltaTime)
 	// 고정 내려보기 pitch + 보간 yaw — 캐릭터의 CameraBoom(bUsePawnControlRotation)이 소비한다.
 	SetControlRotation(FRotator(Rules->CameraPitchDeg, SmoothCamYaw, 0.f));
 
-	// 내가 고른 45도 칸을 서버로 (바뀐 순간에만). 이 가드 안쪽인 것이 맞다 — **자기 시점을
+	// 내가 고른 90도 칸을 서버로 (바뀐 순간에만). 이 가드 안쪽인 것이 맞다 — **자기 시점을
 	// 아는 것은 로컬 컨트롤러뿐**이고, 데디 서버에는 그 시점의 원본이 애초에 없다.
 	// 서버는 받은 값을 PlayerState 로 복제하고(ServerSetCamYawIndex — 거기엔 데디 가드가 없다)
 	// 다른 클라가 나를 관전할 때 그 값으로 카메라 각을 만든다.
@@ -209,7 +209,7 @@ void ACA3DPlayerController::OnMove(const FInputActionValue& V)
 	FVector2D WorldAxis;
 	if (CVarCA3DCameraRelativeInput.GetValueOnGameThread() != 0)
 	{
-		// 카메라 기준 — 45도 스냅각 기준으로 회전. 보간각이 아니라 스냅각을 쓰므로
+		// 카메라 기준 — 90도 스냅각 기준으로 회전. 보간각이 아니라 스냅각을 쓰므로
 		// 회전 연출 중에도 이동 기준이 흔들리지 않는다.
 		const FRotationMatrix Basis(FRotator(0.f, GetSnappedCamYaw(), 0.f));
 		const FVector Dir =
@@ -275,7 +275,7 @@ void ACA3DPlayerController::OnRotateCam(const FInputActionValue& V)
 	const float Dir = V.Get<float>();
 	if (FMath::IsNearlyZero(Dir)) return;
 
-	CamYawSteps += (Dir > 0.f) ? 1 : -1; // ±45도 스냅 — 실제 회전은 PlayerTick 의 보간이
+	CamYawSteps += (Dir > 0.f) ? 1 : -1; // ±90도 스냅 — 실제 회전은 PlayerTick 의 보간이
 }
 
 // ─── 관전 (사망 후 생존자 추적·순환) ─────────────────────────────────────────
@@ -342,6 +342,13 @@ void ACA3DPlayerController::SetSpectateTarget(ACA3DPlayerState* NewTarget)
 	{
 		return;
 	}
+
+	// **대상이 보던 각을 시작각으로 받아 간다** (2026-08-09 사용자 요청 "다른 플레이어가 보는
+	// 시점 그대로"). 받은 뒤부터는 내 것이다 — Q/E 로 자유롭게 돌린다.
+	// 여기서 스냅하지 않고 스텝만 바꾸는 이유: PlayerTick 의 보간이 카메라 위치 블렌드
+	// (SpectateBlendTime)와 나란히 돌아 각과 위치가 함께 미끄러진다. 스냅하면 위치는
+	// 블렌드되는데 각만 먼저 튄다.
+	CamYawSteps = static_cast<int32>(NewTarget->CamYawIndex);
 
 	// **시점만** 옮긴다. UnPossess + 관전 폰 스폰 경로를 쓰지 않는 이유: 내 폰이 사라지면
 	// 부활 여지·입력 바인딩·HUD 의 폰 캐시가 전부 끊긴다 (Task 27 의 폰 유지 결정과 충돌).

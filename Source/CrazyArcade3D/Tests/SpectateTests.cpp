@@ -263,7 +263,7 @@ bool FSpectateTest::RunTest(const FString& Parameters)
 	PC->OnMove(SpecAxis(1.f, 0.f));
 	TestTrue(TEXT("⑧ 종료 후 좌/우 입력: 대상 불변 (B)"), PC->SpectateTarget == B);
 
-	// ─── 9. 45도 스냅 공식 — 인덱스 ↔ 각도 왕복이 8칸 전부 정확 ───
+	// ─── 9. 스냅 공식 — 인덱스 ↔ 각도 왕복이 모든 칸에서 정확 ───
 	//
 	// 이 왕복이 깨지면 "내가 보는 각"과 "관전자가 나를 볼 때의 각"이 조용히 어긋난다.
 	// 공식이 CameraYawSnap 한 곳에만 있다는 것이 이 검증의 전제다 — 컨트롤러가 사본을
@@ -275,7 +275,9 @@ bool FSpectateTest::RunTest(const FString& Parameters)
 
 		TestEqual(TEXT("⑨ 인덱스 → 각도 → 인덱스 왕복"),
 			static_cast<int32>(CameraYawSnap::YawDegToIndex(Deg)), Step);
-		TestEqual(TEXT("⑨ 각도는 45도 배수"), Deg, Step * CameraYawSnap::StepDeg);
+		// 스텝 크기(90도)를 여기 상수로 박지 않는다 — 값이 바뀌면 테스트가 규칙을 검증하는 게
+		// 아니라 옛 값을 지키게 된다. 검증할 것은 "인덱스 × 스텝" 이라는 관계다.
+		TestEqual(TEXT("⑨ 각도는 스텝 배수"), Deg, Step * CameraYawSnap::StepDeg);
 
 		// 한 바퀴 더 돌아온 각도도 같은 칸이어야 한다 (컨트롤러는 스텝을 랩하지 않는다).
 		TestEqual(TEXT("⑨ +360도 랩"),
@@ -291,85 +293,95 @@ bool FSpectateTest::RunTest(const FString& Parameters)
 			static_cast<int32>(CameraYawSnap::StepsToIndex(Step - CameraYawSnap::NumSteps * 3)), Step);
 	}
 
-	// ─── 10. 히스테리시스 — 경계에서 흔들려도 카메라가 45도씩 튀지 않는다 ───
+	// ─── 10. 히스테리시스 — 경계에서 흔들려도 카메라가 한 칸씩 튀지 않는다 ───
 	//
-	// 봇의 이동 방향은 연속 값이라 22.5도(칸 경계)에 걸친 채 미세하게 떨 수 있다.
-	// 히스테리시스가 없으면 그 떨림이 그대로 카메라 45도 왕복이 된다.
+	// 봇의 이동 방향은 연속 값이라 칸 경계(StepDeg/2)에 걸친 채 미세하게 떨 수 있다.
+	// 히스테리시스가 없으면 그 떨림이 그대로 카메라 한 칸 왕복이 된다.
 	const float Hysteresis = Rules->SpectateBotCamYawHysteresisDeg;
+	const float Boundary = CameraYawSnap::StepDeg * 0.5f; // 칸 경계 — 스텝 크기가 바뀌면 같이 따라간다
 
 	// 먼저 "히스테리시스가 없으면 실제로 넘어간다" 를 확인한다 — 이걸 안 보면 아래 검증이
 	// 그냥 무딘 임계값 덕분인지 히스테리시스 덕분인지 알 수 없다.
-	TestEqual(TEXT("⑩ 히스테리시스 0: 22.6도는 다음 칸으로 넘어간다"),
-		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(22.6f, 0, 0.f)), 1);
-	TestEqual(TEXT("⑩ 히스테리시스 0: 22.4도는 제자리"),
-		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(22.4f, 0, 0.f)), 0);
+	TestEqual(TEXT("⑩ 히스테리시스 0: 경계 바로 너머는 다음 칸으로"),
+		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(Boundary + 0.1f, 0, 0.f)), 1);
+	TestEqual(TEXT("⑩ 히스테리시스 0: 경계 바로 앞은 제자리"),
+		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(Boundary - 0.1f, 0, 0.f)), 0);
 
 	// 같은 각을 경계 너머로 미세하게 왕복시킨다 — 인덱스가 한 번도 바뀌면 안 된다.
+	// 흔들림 폭(±1.5도)이 히스테리시스보다 작다는 것이 이 검증의 전제다.
 	uint8 WobbleIndex = 0;
-	const float WobbleSamples[] = { 22.4f, 22.6f, 23.4f, 21.8f, 22.5f, 24.f, 22.f };
-	for (const float Sample : WobbleSamples)
+	const float WobbleSamples[] = { -0.1f, 0.1f, 0.9f, -0.7f, 0.f, 1.5f, -0.5f };
+	for (const float Offset : WobbleSamples)
 	{
-		WobbleIndex = CameraYawSnap::YawDegToIndexWithHysteresis(Sample, WobbleIndex, Hysteresis);
+		WobbleIndex = CameraYawSnap::YawDegToIndexWithHysteresis(Boundary + Offset, WobbleIndex, Hysteresis);
 	}
 	TestEqual(TEXT("⑩ 경계 왕복: 인덱스 불변 (카메라가 안 튄다)"), static_cast<int32>(WobbleIndex), 0);
 
 	// 그렇다고 붙잡고 있으면 안 된다 — 봇이 확실히 방향을 틀면 따라가야 한다.
-	TestEqual(TEXT("⑩ 한 칸(45도) 확실히 이동: 따라간다"),
-		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(45.f, 0, Hysteresis)), 1);
-	TestEqual(TEXT("⑩ 반대로 크게 이동: 7번 칸으로"),
-		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(310.f, 0, Hysteresis)), 7);
+	TestEqual(TEXT("⑩ 한 칸 확실히 이동: 따라간다"),
+		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(CameraYawSnap::StepDeg, 0, Hysteresis)), 1);
+	TestEqual(TEXT("⑩ 반대로 한 칸: 마지막 칸으로"),
+		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(360.f - CameraYawSnap::StepDeg, 0, Hysteresis)),
+		CameraYawSnap::NumSteps - 1);
 
-	// 0 ↔ 7 경계도 ±180 랩을 넘어 이어져야 한다 (352도는 0번 칸에서 8도 거리다).
-	TestEqual(TEXT("⑩ 0/7 경계 랩: 352도는 0번 칸 유지"),
+	// 0 ↔ 마지막 칸 경계도 ±180 랩을 넘어 이어져야 한다 (352도는 0번 칸에서 8도 거리다).
+	TestEqual(TEXT("⑩ 0/마지막 칸 경계 랩: 352도는 0번 칸 유지"),
 		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(352.f, 0, Hysteresis)), 0);
 
 	// 룰셋 값이 비상식적으로 커도 한 칸 이동은 반드시 통과해야 한다 (클램프 확인) —
 	// 안 그러면 카메라가 특정 각에 영원히 붙는다.
-	TestEqual(TEXT("⑩ 히스테리시스 과다(90도)여도 한 칸 이동은 통과"),
-		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(45.f, 0, 90.f)), 1);
+	TestEqual(TEXT("⑩ 히스테리시스 과다(한 칸 전체)여도 한 칸 이동은 통과"),
+		static_cast<int32>(CameraYawSnap::YawDegToIndexWithHysteresis(
+			CameraYawSnap::StepDeg, 0, CameraYawSnap::StepDeg)), 1);
 
-	// ─── 11. GetViewRotation — 관전자가 보는 각의 분기 ───
+	// ─── 11. GetViewRotation — "누가 보고 있는가" 로 갈린다 ───
 	//
-	// 이번 수정의 핵심이다. 같은 함수가 폰에 따라 다른 답을 내야 한다:
-	//   · 내가 조종 중인 폰 → 내 컨트롤러의 ControlRotation (Q/E 보간이 거기 들어 있다)
-	//   · 봇·원격 폰       → 복제된 스냅 인덱스로 만든 고정 내려보기 각
+	// 2026-08-09 개정: 각의 주인이 **보는 사람**이다. 같은 함수가 상황에 따라 다른 답을 낸다:
+	//   · 로컬 컨트롤러가 보고 있는 폰(조종 중이든 관전 중이든) → 그 컨트롤러의 ControlRotation
+	//   · 아무도 로컬에서 안 보는 폰(봇·원격)                   → 복제된 스냅 인덱스 = 이 폰의 표현
+	// 두 번째가 첫 번째의 **시작각**이 된다 (⑬).
+	const uint8 BotIndex = static_cast<uint8>(CameraYawSnap::NumSteps - 1); // 마지막 칸
 	ACA3DCharacter* BotPawn = Cast<ACA3DCharacter>(C->GetPawn());
 	if (TestNotNull(TEXT("⑪ 봇 역할 폰 확보"), BotPawn))
 	{
-		C->CamYawIndex = 3;                    // 서버(ABotController)가 써 넣었을 값
-		BotPawn->UpdateSpectateCamYaw(0.016f); // 첫 호출은 보간 없이 스냅한다
+		C->CamYawIndex = BotIndex; // 서버(ABotController)가 써 넣었을 값
 
 		// FRotator 는 UE5 에서 double 기반이라 float 룰셋 값과 비교하려면 명시 캐스트가 필요하다
 		// (섞어 쓰면 TestEqual 오버로드가 모호해진다).
 		const FRotator BotView = BotPawn->GetViewRotation();
-		TestEqual(TEXT("⑪ 봇 폰: yaw = 스냅 인덱스 3 (135도)"),
-			static_cast<float>(BotView.Yaw), CameraYawSnap::IndexToYawDeg(3));
-		TestEqual(TEXT("⑪ 봇 폰: pitch = 룰셋 고정 내려보기 각 (지면에 눕지 않는다)"),
+		TestEqual(TEXT("⑪ 아무도 안 보는 봇 폰: yaw = 복제된 스냅 인덱스"),
+			static_cast<float>(BotView.Yaw), CameraYawSnap::IndexToYawDeg(BotIndex));
+		TestEqual(TEXT("⑪ 아무도 안 보는 봇 폰: pitch = 룰셋 고정 내려보기 각 (지면에 눕지 않는다)"),
 			static_cast<float>(BotView.Pitch), Rules->CameraPitchDeg);
-
-		// 인덱스가 뛰어도 카메라는 순간이동하지 않는다 — 보간이 폰 쪽에 있다는 증거.
-		C->CamYawIndex = 0;
-		BotPawn->UpdateSpectateCamYaw(0.016f);
-		TestTrue(TEXT("⑪ 인덱스 변경 직후: 목표각으로 순간이동하지 않는다"),
-			!FMath::IsNearlyEqual(static_cast<float>(BotPawn->GetViewRotation().Yaw),
-				CameraYawSnap::IndexToYawDeg(0)));
 	}
 
-	// 로컬 플레이어의 폰은 손대지 않는다 — 복제 인덱스를 일부러 다르게 세워 두고,
-	// 그래도 컨트롤러 값이 나오는지 본다.
+	// 로컬 컨트롤러가 보고 있는 폰은 그 컨트롤러의 각을 쓴다 — 복제 인덱스를 일부러 다르게
+	// 세워 두고, 그래도 컨트롤러 값이 나오는지 본다.
 	PC->SetAsLocalPlayerController(); // 테스트 월드에는 ULocalPlayer 가 없어 명시로 세운다
 	OwnPawn->Controller = PC;         // Possess 는 입력 시스템까지 깨우므로 연결만 (위 SetPawn 관례)
-	const FRotator LocalControlRotation(Rules->CameraPitchDeg, 90.f, 0.f);
+	const FRotator LocalControlRotation(Rules->CameraPitchDeg, CameraYawSnap::StepDeg, 0.f);
 	PC->SetControlRotation(LocalControlRotation);
-	OwnState->CamYawIndex = 3;        // 복제 값은 135도 — 여기 끌려가면 안 된다
-	OwnPawn->UpdateSpectateCamYaw(0.016f);
+	OwnState->CamYawIndex = BotIndex; // 복제 값은 다른 칸 — 여기 끌려가면 안 된다
 
-	TestEqual(TEXT("⑪ 로컬 플레이어 폰: 컨트롤러의 ControlRotation 을 그대로 쓴다"),
+	TestEqual(TEXT("⑪ 로컬 컨트롤러가 보는 폰: ControlRotation 을 그대로 쓴다"),
 		static_cast<float>(OwnPawn->GetViewRotation().Yaw),
 		static_cast<float>(LocalControlRotation.Yaw));
-	TestTrue(TEXT("⑪ 로컬 플레이어 폰: 복제 인덱스(135도)에 끌려가지 않는다"),
+	TestTrue(TEXT("⑪ 로컬 컨트롤러가 보는 폰: 복제 인덱스에 끌려가지 않는다"),
 		!FMath::IsNearlyEqual(static_cast<float>(OwnPawn->GetViewRotation().Yaw),
-			CameraYawSnap::IndexToYawDeg(3)));
+			CameraYawSnap::IndexToYawDeg(BotIndex)));
+
+	// **관전 중 회전이 먹는가** — 관전 대상 폰이 관전자의 각을 따라야 한다 (2026-08-09 사용자 요청).
+	// ViewTarget 배선은 PlayerCameraManager 가 있어야 성립하는데 테스트 월드에는 없을 수 있다.
+	// 없으면 조용히 건너뛴다 — 여기서 실패하면 "관전 규칙" 이 아니라 "테스트 월드 구성" 을
+	// 검증하게 된다 (그 경우는 `-game` 실전이 잡는다).
+	if (BotPawn && PC->GetViewTarget() == BotPawn)
+	{
+		const FRotator SpectateRotation(Rules->CameraPitchDeg, CameraYawSnap::StepDeg * 2.f, 0.f);
+		PC->SetControlRotation(SpectateRotation);
+		TestEqual(TEXT("⑪ 관전 중인 남의 폰: 관전자의 ControlRotation 을 따른다 (Q/E 가 먹는다)"),
+			static_cast<float>(BotPawn->GetViewRotation().Yaw),
+			static_cast<float>(SpectateRotation.Yaw));
+	}
 
 	// ─── 12. 서버 RPC 는 스냅이 **바뀔 때만** 나간다 ───
 	//
@@ -398,15 +410,38 @@ bool FSpectateTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("⑫ 같은 각을 유지하는 동안은 재전송 없음 (매 틱 보내지 않는다)"),
 		static_cast<int32>(OwnState->CamYawIndex), static_cast<int32>(RpcSentinel));
 
-	// 한 바퀴 돌아 같은 칸으로 돌아오면(스텝 +8) 인덱스가 같으므로 그동안 나간 RPC 는
-	// 8번이 아니라 매 칸 1번씩이다 — 마지막 한 칸에서 다시 0번 칸이 되는 것만 확인한다.
+	// 한 바퀴 돌아 같은 칸으로 돌아오면 인덱스가 같으므로 그동안 나간 RPC 는 매 칸 1번씩이다 —
+	// 마지막 한 칸에서 다시 0번 칸이 되는 것만 확인한다.
 	for (int32 Turn = 0; Turn < CameraYawSnap::NumSteps - 1; ++Turn)
 	{
 		PC->OnRotateCam(FInputActionValue(1.f));
 		PC->PushCamYawIndex();
 	}
-	TestEqual(TEXT("⑫ 8칸을 돌면 0번 칸으로 복귀"),
+	TestEqual(TEXT("⑫ 한 바퀴를 돌면 0번 칸으로 복귀"),
 		static_cast<int32>(OwnState->CamYawIndex), 0);
+
+	// ─── 13. 관전 대상을 바꾸면 **그 사람이 보던 각**을 시작각으로 받아 온다 ───
+	//
+	// "다른 플레이어가 보는 시점 그대로" 는 여기서 성립한다 (2026-08-09 사용자 요청).
+	// 받은 뒤부터는 관전자 것이라 Q/E 로 자유롭게 돌린다 — ⑪ 의 마지막 검증이 그 절반이고,
+	// 이 검증이 나머지 절반(시작각을 실제로 받아 오는가)이다.
+	{
+		// 관전자의 현재 각과 **다른** 칸을 대상에 심는다 — 안 그러면 우연히 같아서 통과한다.
+		const uint8 BeforeIndex = PC->GetCamYawIndex();
+		const uint8 TargetIndex = CameraYawSnap::StepsToIndex(static_cast<int32>(BeforeIndex) + 1);
+		B->CamYawIndex = TargetIndex;
+
+		PC->SetSpectateTarget(B);
+
+		TestEqual(TEXT("⑬ 관전 시작각 = 대상의 복제된 스냅 인덱스"),
+			static_cast<int32>(PC->GetCamYawIndex()), static_cast<int32>(TargetIndex));
+
+		// 이어서 Q/E 를 누르면 **그 각을 기준으로** 한 칸 더 돈다 (받아온 값 위에 쌓인다).
+		PC->OnRotateCam(FInputActionValue(1.f));
+		TestEqual(TEXT("⑬ 받아온 각에서 이어서 회전한다"),
+			static_cast<int32>(PC->GetCamYawIndex()),
+			static_cast<int32>(CameraYawSnap::StepsToIndex(static_cast<int32>(TargetIndex) + 1)));
+	}
 
 	// ─── 정리 ───
 	GEngine->DestroyWorldContext(World);
