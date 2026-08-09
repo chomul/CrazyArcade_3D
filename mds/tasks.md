@@ -301,6 +301,39 @@
       · 검증: 두 타깃 빌드 통과 · 전체 24스위트 실패 0(`Spectate` ⑬ 신규) ·
         `-game` 실전(봇 6, 200초) 관전 자동 전환 3회 · 종료 후 전환 없음 · Error·ensure 0
       · 미검증: **관전 중 Q/E 를 사람이 직접** 눌러 확인 · 90도가 실제로 더 나은가(사각지대 체감)
+- [x] **(후속) 사운드·이펙트 훅 — 아트 패스의 C++ 절반** (2026-08-09)
+      게임플레이는 끝났는데 프로젝트에 `USoundBase`·`UNiagaraSystem` 참조가 **한 곳도 없었다** —
+      에셋을 만들어도 꽂을 자리가 없는 상태였다. 재생 경로·룰셋 슬롯·트리거 배선을 만들었다.
+      제작 절차는 `mds/Checklists/31-AssetPass.md` (사용자의 에디터 작업 단일 목록)
+      · `Gameplay/CA3DFeedback`(신규) — `ECA3DCue` 10종 + `Play` 단일 경로.
+        **데디 가드가 `Play` 한 곳에만** 있다 (호출부마다 흩어지면 언젠가 하나가 빠진다).
+        에셋 미지정은 조용히 no-op + **큐당 Verbose 1회** (지금 상태에서 로그 도배 금지)
+      · 소리와 이펙트를 **한 호출로 함께** 낸다 — 큐가 곧 "사건" 이라 둘이 따로 놀면 안 된다
+      · **동시 재생 상한을 C++ 로 세지 않는다** — Sound Concurrency **에셋**의 일이다(GDD 7.4).
+        C++ 로 또 세면 두 벌이 된다. 대신 체크리스트에 "이 에셋이 유일한 상한" 이라고 못 박았다
+      · 클라 도달 경로가 없는 큐(아이템·킥·매치 종료)를 위해 `ACA3DCueRelay`(Unreliable Multicast).
+        아이템·폭탄은 사건 직후 `Destroy()` 되어 자기 액터의 RPC 전송이 보장되지 않고
+        GameMode 는 클라에 아예 없다 (`AExplosionFXRelay` 가 `ABomb` 을 탈락시킨 것과 같은 사정)
+      · **설치음 중복 방지**: 설치자는 예측 시점(즉시), 남·리슨 호스트는 서버 확정 시점.
+        `ReleasePredictedVisualAt` 을 bool 로 바꿔 "방금 내 예측을 회수했는가" 하나로 갈랐다 —
+        소리만 RTT 만큼 늦으면 예측이 지연을 감추는 목적 자체가 무너진다
+      · **`Voxel` 에 소리를 넣지 않았다** — `OnGridChanged` 를 `UCA3DFeedbackSubsystem`(Gameplay)이
+        구독한다. 델리게이트 인자는 "이번에 비워진 셀" 뿐이라 Voxel 은 여전히 게임 규칙을 모른다
+      · ⚠️ **`ApplyDestruction` 이 요청 목록이 아니라 실제로 바뀐 칸을 알리도록 고쳤다**
+        (파괴음 테스트가 잡았다). 같은 셀이 두 번 들어오는 것은 정상 경로다 — 중간 접속 따라잡기·
+        연쇄 범위 겹침·서든데스와 폭탄이 같은 칸. 그때 요청 목록을 알리면 아무것도 안 부서졌는데
+        "부서졌다" 가 나가 구독자가 헛돈다
+      · `SuddenDeathImpact` 큐는 **뺐다** — 서든데스 낙하가 폭탄과 **같은 함수**(`ServerApplyExplosionAt`)를
+        지나므로 별도 큐를 만들면 한 발에 두 소리가 겹치거나, 안 겹치려고 적용 경로를 갈라야 한다
+      · Build.cs 에 `Niagara`(Private) 추가
+      · 검증: 두 타깃 빌드 통과 · **전체 25스위트 실패 0**(`Feedback` 신규) ·
+        `-game` 실전(봇 6, 200초): 7종 큐가 **각각 1회씩** 발화(Death·BombPlace·Explosion·
+        BlockBreak·ItemPickup·Trapped·MatchEnd), Error·ensure 0
+      · ⚠️ 테스트 한계를 문서화: **자동화 월드에서는 RPC 래퍼를 불러도 엔진이 `_Implementation` 을
+        태우지 않는다**(Role=Authority·NetMode=Standalone·콜스페이스 Local 인데도). 검증 범위를
+        "우리 코드가 릴레이를 1회 부르는가" 까지로 좁히고, 실제 도달은 리슨+클라 PIE 몫으로 남겼다
+      · 미검증: 리슨+클라에서 **설치자가 설치음을 한 번만 듣는가** · 데디 exe 에서 사운드·나이아가라
+        미실행 · 8인 연쇄에서 Concurrency 동작 · `Kick`·`SuddenDeathWarn` 실전 발화
 
 ## 진행 중 메모
 

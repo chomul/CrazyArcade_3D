@@ -6,6 +6,7 @@
 #include "Gameplay/Bomb/Bomb.h"
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
 #include "Gameplay/Bomb/PredictedBombVisual.h"
+#include "Gameplay/CA3DFeedback.h"
 #include "Core/PoolSubsystem.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
@@ -726,15 +727,22 @@ bool ACA3DCharacter::TryAcquirePredictedVisual(const FIntVector& Cell)
 		{
 			Visual->Cell = Cell; // 매칭 키 — 풀 재사용 잔존값을 매번 덮어쓴다 (오염 방지)
 			PredictedBombVisuals.Add(Visual);
+
+			// 설치음은 **여기서** 낸다 — 예측이 존재하는 목적이 왕복 지연을 감추는 것인데
+			// 소리만 서버 확정까지 기다리면 "눌렀는데 반응이 늦다" 가 그대로 남는다.
+			// 목록에 실제로 들어간 경우에만 낸다: 그래야 "예측 회수 == 이미 소리 냄" 이라는
+			// 1:1 대응이 성립해 ABomb::BeginPlay 의 중복 방지가 정확해진다.
+			CA3DFeedback::Play(GetWorld(), ECA3DCue::BombPlace, VoxelWorld->CellToWorld(Cell));
 		}
 	}
 	return true;
 }
 
-void ACA3DCharacter::ReleasePredictedVisualAt(const FIntVector& Cell)
+bool ACA3DCharacter::ReleasePredictedVisualAt(const FIntVector& Cell)
 {
 	UPoolSubsystem* Pool = GetWorld() ? GetWorld()->GetSubsystem<UPoolSubsystem>() : nullptr;
 
+	bool bReleasedAny = false;
 	for (int32 Index = PredictedBombVisuals.Num() - 1; Index >= 0; --Index)
 	{
 		APredictedBombVisual* Visual = PredictedBombVisuals[Index];
@@ -752,7 +760,9 @@ void ACA3DCharacter::ReleasePredictedVisualAt(const FIntVector& Cell)
 			Pool->Release(Visual);
 		}
 		PredictedBombVisuals.RemoveAt(Index);
+		bReleasedAny = true;
 	}
+	return bReleasedAny;
 }
 
 void ACA3DCharacter::ServerPlaceBomb_Implementation(FIntVector Cell)

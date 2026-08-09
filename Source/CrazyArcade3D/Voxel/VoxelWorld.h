@@ -36,9 +36,13 @@ public:
 	bool IsGridInitialized() const { return bGridInitialized; }
 
 	// 그리드 변경(파괴 적용) 알림 — 서버·클라 각자 ApplyDestruction 직후 로컬 브로드캐스트.
-	// 소비처 예: ABomb 위험 프리뷰 갱신 (퓨즈 중 지형이 바뀌면 표시 범위가 실폭발과 어긋나므로 재계산).
-	// Voxel 은 구독자가 누구인지 모른다 — "게임 규칙을 몰라야 함" 의존 규칙 유지.
-	DECLARE_MULTICAST_DELEGATE(FOnGridChanged);
+	// 인자는 **이번 묶음에서 실제로 비워진 셀들**이다 (호출당 1회 = 파괴 1묶음).
+	// 소비처 예: ABomb 위험 프리뷰 갱신 (퓨즈 중 지형이 바뀌면 표시 범위가 실폭발과 어긋나므로
+	// 재계산), UCA3DFeedbackSubsystem 의 블록 파괴 큐(어디서 부서졌는지 알아야 소리를 놓는다).
+	//
+	// Voxel 은 구독자가 누구인지도, 왜 부서졌는지도 모른다 — 넘기는 것은 **자기 데이터의
+	// 변경분**뿐이다. 그래서 소리·룰셋을 알게 되는 일 없이 "게임 규칙을 몰라야 함" 이 유지된다.
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnGridChanged, const TArray<FIntVector>& /*ChangedCells*/);
 	FOnGridChanged OnGridChanged;
 
 	// ─── 좌표 변환 (셀 크기를 아는 유일한 곳) ───

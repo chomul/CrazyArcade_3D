@@ -7,6 +7,7 @@
 #include "Gameplay/Character/CA3DCharacter.h"        // Framework→Gameplay 허용 (Framework→전부)
 #include "Gameplay/Character/CA3DPlayerController.h"
 #include "Gameplay/SuddenDeath/SuddenDeathSubsystem.h"
+#include "Gameplay/CA3DFeedback.h"                   // 매치 종료 큐 (Framework→Gameplay 허용)
 #include "AI/BotController.h"                        // Framework→AI 허용 (Framework→전부)
 #include "UI/CA3DHUD.h"                              // Framework→UI 허용 (Framework→전부)
 #include "Voxel/VoxelWorld.h"
@@ -507,6 +508,14 @@ void ACA3DGameMode::ResolvePendingDeaths()
 	if (CA3DGameState->bMatchEnded)
 	{
 		StopSuddenDeath();
+
+		// ── 종료 큐: 매치당 1회 ──
+		// 이 함수는 위쪽에서 bMatchEnded 를 보고 되돌아가므로(중복 종료 방지) 여기는 종료가
+		// 확정된 그 한 번뿐이다. GameMode 는 **클라에 존재하지 않는** 액터라 클라 쪽 트리거가
+		// 없다 — GameState 에 OnRep 을 다는 방법도 있지만 그러면 리슨 호스트가 빠져(서버에는
+		// OnRep 이 오지 않는다) 결국 여기서 한 번 더 불러야 한다. 릴레이 한 발이 더 단순하다.
+		// 위치는 없다 — 종료음은 감쇠 없는 2D 사운드가 전제다 (룰셋 MatchEndSound 주석).
+		CA3DFeedback::ServerBroadcast(GetWorld(), ECA3DCue::MatchEnd, FVector::ZeroVector);
 	}
 
 	UE_LOG(LogCA3D, Log,

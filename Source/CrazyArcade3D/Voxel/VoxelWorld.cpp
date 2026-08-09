@@ -421,9 +421,22 @@ namespace CA3DGridHash
 void AVoxelWorld::ApplyDestruction(const TArray<FIntVector>& Cells)
 {
 	// 불변식 1 — 파괴의 단일 경로. 이 함수 밖에서 파괴 목적의 Grid.Set 금지.
+	//
+	// **알리는 것은 요청받은 칸이 아니라 실제로 비워진 칸이다.** 같은 셀이 두 번 들어오는 것은
+	// 정상 경로다 — 중간 접속 클라의 DestroyedCells 따라잡기, 연쇄 폭발의 범위 겹침, 서든데스와
+	// 폭탄이 같은 칸을 치는 경우. 그때 요청 목록을 그대로 알리면 **아무것도 안 부서졌는데
+	// "부서졌다" 는 알림**이 나가고, 구독자(프리뷰 갱신·파괴음)가 헛돈다.
+	TArray<FIntVector> ChangedCells;
+	ChangedCells.Reserve(Cells.Num());
 	for (const FIntVector& Cell : Cells)
 	{
+		if (Grid.Get(Cell) == EBlockType::Empty)
+		{
+			continue; // 이미 비어 있다 — 이번 호출로 바뀐 것이 없다
+		}
+
 		Grid.Set(Cell, EBlockType::Empty);
+		ChangedCells.Add(Cell);
 
 		if (Renderer)
 		{
@@ -431,9 +444,9 @@ void AVoxelWorld::ApplyDestruction(const TArray<FIntVector>& Cells)
 		}
 	}
 
-	if (Cells.Num() > 0)
+	if (ChangedCells.Num() > 0)
 	{
-		OnGridChanged.Broadcast();
+		OnGridChanged.Broadcast(ChangedCells);
 
 #if !UE_BUILD_SHIPPING
 		// 🏁 게이트 근거를 자동으로 남긴다 — 서버·클라가 **각자 같은 이 함수**를 통과하므로
@@ -443,7 +456,7 @@ void AVoxelWorld::ApplyDestruction(const TArray<FIntVector>& Cells)
 		int32 SolidCount = 0;
 		const uint32 Hash = CA3DGridHash::Compute(Grid, SolidCount);
 		UE_LOG(LogCA3D, Display, TEXT("그리드 해시 #%d [%s]: %08X (솔리드 %d칸 / 이번 파괴 %d칸)"),
-			DestructionApplyCount, *CA3DGridHash::InstanceLabel(GetWorld()), Hash, SolidCount, Cells.Num());
+			DestructionApplyCount, *CA3DGridHash::InstanceLabel(GetWorld()), Hash, SolidCount, ChangedCells.Num());
 #endif
 	}
 }

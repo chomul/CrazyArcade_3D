@@ -3,6 +3,7 @@
 #include "CrazyArcade3D.h"
 #include "Core/PoolSubsystem.h"
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
+#include "Gameplay/CA3DFeedback.h"
 #include "Voxel/VoxelGrid.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
@@ -125,6 +126,23 @@ void ASuddenDeathRelay::MulticastWarnDrop_Implementation(const TArray<FIntVector
 {
 	if (IsRunningDedicatedServer()) return; // 불변식 5 — 시각 전용 (리슨 호스트는 플레이어라 표시)
 
+	AVoxelWorld* VoxelWorld = ResolveVoxelWorld();
+
+	// ── 예고 큐: 웨이브당 1회 ──
+	// 마커 클래스 확인보다 **위**에 둔다. 소리와 마커는 서로 다른 에셋이라 한쪽만 준비된
+	// 상태가 정상이고, 마커가 없다고 경고음까지 사라지면 "피할 수 있는가" 라는 요건이
+	// 에셋 지정 순서에 좌우된다. 셀마다가 아니라 웨이브당인 이유는 DropsPerWave 를 올려도
+	// 경고는 한 사건이기 때문이다 (여러 발이 한꺼번에 예고되는 것이 이 값의 목적이다).
+	if (VoxelWorld && Cells.Num() > 0)
+	{
+		FVector Sum = FVector::ZeroVector;
+		for (const FIntVector& Cell : Cells)
+		{
+			Sum += VoxelWorld->CellToWorld(Cell);
+		}
+		CA3DFeedback::Play(GetWorld(), ECA3DCue::SuddenDeathWarn, Sum / static_cast<double>(Cells.Num()));
+	}
+
 	// 룰셋 해석 — 마커 클래스의 출처. 복제 미도착이면 CDO 폴백 (AExplosionFXRelay 와 동일 관례).
 	const UCA3DRuleSet* Rules = SuddenDeathResolveRules(GetWorld());
 
@@ -142,7 +160,6 @@ void ASuddenDeathRelay::MulticastWarnDrop_Implementation(const TArray<FIntVector
 		return;
 	}
 
-	AVoxelWorld* VoxelWorld = ResolveVoxelWorld();
 	UPoolSubsystem* Pool = GetWorld() ? GetWorld()->GetSubsystem<UPoolSubsystem>() : nullptr;
 	if (!VoxelWorld || !Pool)
 	{

@@ -105,7 +105,10 @@ public:
 
 	// 클라: Cell 일치하는 예측 비주얼을 풀에 반납하고 목록에서 제거.
 	// 호출처는 서버 확정(ABomb::BeginPlay — 진짜 폭탄으로 교체)과 거부(ClientRejectBomb) 두 곳.
-	void ReleasePredictedVisualAt(const FIntVector& Cell);
+	//
+	// **반환값 = 실제로 회수한 것이 있는가.** ABomb::BeginPlay 가 설치음 중복을 피하는 데 쓴다 —
+	// 회수했다는 것은 이 클라가 예측 시점에 이미 설치음을 냈다는 뜻이다 (거기 주석 참조).
+	bool ReleasePredictedVisualAt(const FIntVector& Cell);
 
 	// 클라→서버: 셀에 폭탄 설치 요청. 서버가 권위 검증(개수·셀 Empty·기존 폭탄·Alive) 후
 	// ABomb 스폰 + ServerArm. 실패 시 ClientRejectBomb.

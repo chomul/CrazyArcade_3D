@@ -4,6 +4,7 @@
 #include "Gameplay/Bomb/ExplosionSubsystem.h" // 셀→아이템 레지스트리 (ActiveBombs 관례와 동일)
 #include "Gameplay/Character/CA3DCharacter.h"
 #include "Gameplay/Character/StatusComponent.h"
+#include "Gameplay/CA3DFeedback.h"
 #include "Gameplay/SpinVisual.h"
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
@@ -207,6 +208,20 @@ void AItemPickup::OnOverlap(AActor* OverlappedActor, AActor* OtherActor)
 	// 효과 적용은 전부 StatusComponent 소관 — 아이템은 "무엇을" 만 알고 "어떻게" 는 모른다
 	// (Cap 클램프·속도 재계산이 한 곳에 있어야 봇·플레이어·치트가 같은 규칙을 탄다).
 	Status->ServerApplyItem(Type);
+
+	// ── 획득 큐: 클라에 도달하는 자연 경로가 없다 ──
+	//
+	// 획득 판정은 서버 단독이고, 클라가 보는 것은 "액터가 사라졌다" 뿐이다 — 그런데 그것만
+	// 으로는 **주웠다**와 **물줄기에 탔다**(ServerBurn)를 구분할 수 없다. 둘은 규칙이 다른
+	// 사건이라(GDD 3장 — 태우면 효과가 없다) 같은 소리를 내면 안 된다. 그렇다고 이 액터에서
+	// 직접 Multicast 를 쏘면 바로 아래 Destroy() 때문에 전송 보장이 없다
+	// (AExplosionFXRelay.h 가 ABomb 을 소유 액터 후보에서 탈락시킨 것과 같은 사정).
+	// 그래서 릴레이를 쓴다 — 사건당 Unreliable 한 발.
+	//
+	// StatusComponent 의 OnRep_Stats 로 대신하지 않은 이유: 그 경로는 스탯이 **변했을 때만**
+	// 불려서 상한에 도달한 아이템(롤러 만렙·니들 중복)은 소리가 안 나고, 반대로 접속 시점의
+	// 초기 복제와도 구분되지 않는다.
+	CA3DFeedback::ServerBroadcast(GetWorld(), ECA3DCue::ItemPickup, GetActorLocation());
 
 	UE_LOG(LogCA3D, Log, TEXT("AItemPickup %s: 획득 — %s 가 셀 (%d, %d, %d) 의 %s 취득"),
 		*GetName(), *Character->GetName(), Cell.X, Cell.Y, Cell.Z, *UEnum::GetValueAsString(Type));

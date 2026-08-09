@@ -110,10 +110,24 @@ private:
 	// ACA3DCharacter::ApplyDeathState 단일 경로를 타게 한다 (부활 시 되돌릴 항목이 한 곳에).
 	void ApplyOwnerDeathState();
 
+	// 갇힘·탈출·사망 큐 (사운드/이펙트). 서버 Server* 와 클라 OnRep_Life 가 **같은 이 함수**를
+	// 지난다 — 서버는 OnRep 이 안 불리고 클라는 Server* 를 안 타므로 양쪽에서 각자 정확히 1회다.
+	// (데디 서버는 CA3DFeedback::Play 최상단 가드에서 되돌아간다 — 여기에 가드를 두지 않는 이유는
+	//  가드가 흩어지면 언젠가 하나가 빠지기 때문. CA3DFeedback.h 주석 참조.)
+	//
+	// **전이**를 봐야 하므로 직전 상태를 따로 들고 있는다: LifeState 만 보면 "Alive 로 바뀐 것"이
+	// 니들 탈출인지 최초 스폰인지 구분되지 않고, OnRep 은 값이 아니라 도착 사실만 알려 준다.
+	void PlayLifeStateCue();
+
+	// 큐 판정용 직전 상태 — **복제하지 않는다** (머신마다 로컬 관찰값이면 충분하고,
+	// 복제하면 같은 사실을 두 벌로 들고 있게 된다).
+	ELifeState LastCuedLifeState = ELifeState::Alive;
+
 	// 갇힘 만료 타이머 — 만료 시 ServerKill(Water). ServerEscape/ServerKill 이 해제.
 	FTimerHandle TrappedTimer;
 
 	friend class FStatusComponentTest; // 자동화 테스트가 타이머 가동 여부 검증을 위한 접근
 	friend class FDeathHandlingTest;   // 갇힘 타이머 잔존 여부 검증을 위한 접근 (Task 27)
 	friend class FItemPickupTest;      // 니들 탈출 시 타이머 해제 검증을 위한 접근 (Task 23)
+	friend class FFeedbackTest;        // 클라 경로(OnRep_Life) 재진입 시 큐 중복 여부 검증을 위한 접근
 };

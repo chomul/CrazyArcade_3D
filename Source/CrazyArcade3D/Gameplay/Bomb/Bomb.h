@@ -158,8 +158,13 @@ private:
 	// 클라(+리슨): 위험 프리뷰 데칼 — 실폭발과 **같은** Propagate 를 호출한다 (별도 계산 금지 —
 	// 설계서 5장 9번 "표시와 실제가 구조적으로 일치"). 그리드/룰셋 미도착 시 next-tick 재시도.
 	void TryShowDangerPreview();
-	void RefreshDangerPreview(); // 그리드 변경 알림 수신 — 기존 데칼 반납 후 재계산
+	void RefreshDangerPreview(); // 기존 데칼 반납 후 재계산 (셀 변경·그리드 변경 공용)
 	void ReleasePreviewDecals();
+
+	// AVoxelWorld::OnGridChanged 바인딩 전용 껍데기 — 어떤 칸이 바뀌었는지는 프리뷰 재계산에
+	// 필요 없다(Propagate 가 그리드 전체를 다시 읽는다). 시그니처를 맞추기 위한 한 줄이라
+	// RefreshDangerPreview 를 직접 부르는 다른 호출부(OnRep_Cell·ServerSetCell)와 분리해 둔다.
+	void HandleGridChanged(const TArray<FIntVector>& ChangedCells);
 
 	// ─── 킥 미끄러짐 (서버 전용) ────────────────────────────────────────────
 	//

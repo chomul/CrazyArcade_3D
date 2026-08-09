@@ -35,6 +35,15 @@ public class CrazyArcade3D : ModuleRules
 			// (Device ID 자격이 로컬에 없으면 로그인이 EOS_NotFound 로 떨어진다).
 			"EOSShared",
 			"EOSSDK",
+			// 큐 이펙트 재생 (Gameplay/CA3DFeedback.cpp 의 UNiagaraFunctionLibrary).
+			//
+			// **Public 이 아닌 이유**: 나이아가라 타입이 나오는 곳은 두 군데뿐이고 둘 다
+			// 전방 선언으로 끝난다 — UCA3DRuleSet 의 TObjectPtr<UNiagaraSystem> 슬롯과
+			// CA3DFeedback::ResolveCueAssets 의 인자. 실제 헤더(NiagaraFunctionLibrary.h /
+			// NiagaraSystem.h)가 필요한 것은 .cpp 하나뿐이다. Public 으로 올리면 이 모듈을
+			// 쓰는 모든 파일이 나이아가라 헤더 트리를 함께 파싱해 빌드 시간만 늘어난다
+			// (OnlineSubsystem 을 Private 으로 둔 것과 같은 판단).
+			"Niagara",
 		});
 
 		// 도메인 폴더를 짧은 경로로 include 하기 위한 설정.

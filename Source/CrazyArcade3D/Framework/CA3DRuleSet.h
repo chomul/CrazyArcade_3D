@@ -11,6 +11,8 @@ class APredictedBombVisual;
 class AItemPickup;
 class ASuddenDeathDropMarker;
 class UMaterialParameterCollection;
+class USoundBase;      // 아래 Feedback 카테고리 — 전방 선언으로 충분 (헤더 최소화)
+class UNiagaraSystem;  // 〃 (Niagara 는 Private 의존 — 공개 헤더에 나이아가라 헤더를 끌어오지 않는다)
 
 // 매치 규칙·튜닝 값의 단일 출처. 로직 없음 — 순수 데이터.
 // 인스턴스를 여러 개 만들어 룰셋 프리셋(기본전/스피드전 등)으로 쓴다.
@@ -471,4 +473,102 @@ public:
 	// 이동속도 배율 상한 (롤러 스택 상한 역할). (값 미확정 — 임시)
 	UPROPERTY(EditAnywhere, Category="Status")
 	float MoveSpeedMulCap = 1.6f;
+
+	// ── Feedback (사운드·이펙트 슬롯) ─────────────────────────────
+	//
+	// 각 줄이 **사건 하나**다 (Gameplay/CA3DFeedback.h 의 ECA3DCue). 소리와 이펙트를 한 쌍으로
+	// 묶어 둔 이유: 재생이 한 호출로 나가야 한 사건에서 소리와 이펙트가 따로 노는 일이 없다.
+	//
+	// **전부 비워 두어도 게임은 정상 동작한다** — 미지정 큐는 조용히 넘어가고 큐당 한 번만
+	// Verbose 로그를 남긴다 (WaterSegmentClass·DropMarkerClass 와 같은 관례).
+	//
+	// TMap<ECA3DCue, ...> 이 아니라 이름 있는 개별 필드인 이유: 여기 값은 사람이 에디터에서
+	// 채우는 것이라 **필드 이름이 곧 설명**이어야 하고, TMap 은 "키를 고른다" 는 단계가 하나
+	// 더 붙는 데다 키를 빠뜨려도 컴파일러가 알려 주지 않는다.
+	//
+	// 튜닝 노브는 아래 볼륨 배수 하나뿐이다. 감쇠(3D 음향 — GDD 5장)·동종 사운드 동시 재생
+	// 상한(GDD 7.4 의 4~5개)·랜덤 피치는 **전부 에셋 쪽 일**이다: 각각 Attenuation 에셋,
+	// Sound Concurrency 에셋, Sound Cue 가 처리한다. C++ 에서 또 세면 규칙이 두 벌이 된다.
+	//
+	// ⚠️ 감쇠를 지정하지 않은 사운드는 2D 로 재생된다 — MatchEnd 처럼 위치가 없는 큐는
+	// 감쇠를 비워 두면 그대로 화면 전체 소리가 된다 (코드에서 분기할 필요 없음).
+
+	// 폭탄이 눈앞에 생긴 순간. 설치자는 로컬 예측 시점에, 나머지는 서버 확정 도착 시점에 —
+	// **한 폭탄에 정확히 한 번**만 난다 (ABomb::BeginPlay 가 예측을 회수했으면 내지 않는다).
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> BombPlaceSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> BombPlaceFX;
+
+	// 물줄기가 퍼지는 순간. 연쇄 **1단계당 1회** — 셀마다가 아니다 (물줄기 세그먼트 FX 는
+	// 별개로 AWaterSegment 가 셀마다 낸다). 서든데스 낙하 폭발도 같은 경로라 이 큐를 쓴다.
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> ExplosionSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> ExplosionFX;
+
+	// 블록이 부서진 순간. 파괴 **1묶음당 1회** — 한 폭발에 20칸이 함께 부서져도 한 번이고,
+	// 위치는 그 칸들의 무게중심이다.
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> BlockBreakSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> BlockBreakFX;
+
+	// 아이템을 주운 순간 (아이템 위치). 물줄기에 타 없어진 것은 획득이 아니므로 나지 않는다.
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> ItemPickupSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> ItemPickupFX;
+
+	// 물방울에 갇힌 순간 (그 캐릭터 위치). 남이 갇혀도 난다 — 판을 읽는 정보다.
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> TrappedSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> TrappedFX;
+
+	// 니들로 갇힘에서 빠져나온 순간.
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> EscapeSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> EscapeFX;
+
+	// 사망한 순간 (익사·낙사·서든데스 공통 — 원인별로 나누지 않는다).
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> DeathSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> DeathFX;
+
+	// 폭탄을 차 보낸 순간 (폭탄 위치). 미끄러지는 내내가 아니라 **시작 1회**다.
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> KickSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> KickFX;
+
+	// 서든데스 낙하 예고가 뜬 순간. 웨이브당 1회 — DropsPerWave 를 올려도 소리는 한 번이다.
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> SuddenDeathWarnSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> SuddenDeathWarnFX;
+
+	// 매치가 끝난 순간 (우승·무승부 공통, 매치당 1회). 위치가 없는 큐 —
+	// 감쇠를 비운 2D 사운드를 넣는 것이 전제다.
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<USoundBase> MatchEndSound;
+
+	UPROPERTY(EditAnywhere, Category="Feedback")
+	TObjectPtr<UNiagaraSystem> MatchEndFX;
+
+	// 모든 큐에 곱해지는 볼륨 배수. 개별 소리의 크기는 에셋(또는 Sound Class)에서 잡고,
+	// 이 값은 "게임 효과음 전체가 조금 크다/작다" 를 한 번에 미는 용도다.
+	UPROPERTY(EditAnywhere, Category="Feedback", meta=(ClampMin="0.0", ClampMax="4.0"))
+	float FeedbackVolumeMultiplier = 1.f;
 };

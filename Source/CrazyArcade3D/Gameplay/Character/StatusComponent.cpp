@@ -2,6 +2,7 @@
 
 #include "CrazyArcade3D.h"
 #include "Gameplay/Character/CA3DCharacter.h"
+#include "Gameplay/CA3DFeedback.h"
 #include "Gameplay/Item/ItemTypes.h"
 #include "Framework/CA3DRuleSet.h"     // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h"   // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
@@ -116,6 +117,7 @@ void UStatusComponent::ServerTrap()
 
 	// 서버측 즉시 반영 (TrappedMoveSpeed) — 클라는 OnRep_Life 가 같은 경로를 탄다.
 	RefreshOwnerMoveSpeed();
+	PlayLifeStateCue(); // 〃 (리슨 호스트는 OnRep 이 안 오므로 여기가 유일한 경로)
 
 	UE_LOG(LogCA3D, Log, TEXT("UStatusComponent %s: 갇힘 — %.1f초 후 익사"),
 		*GetOwner()->GetName(), Rules->TrappedDuration);
@@ -136,6 +138,7 @@ void UStatusComponent::ServerEscape()
 
 	// 속도 복원 — 서버측 즉시, 클라는 OnRep 으로 같은 경로.
 	RefreshOwnerMoveSpeed();
+	PlayLifeStateCue();
 
 	UE_LOG(LogCA3D, Log, TEXT("UStatusComponent %s: 니들 탈출 — Alive 복귀"), *GetOwner()->GetName());
 }
@@ -159,6 +162,7 @@ void UStatusComponent::ServerKill(EDeathCause Cause)
 
 	// 사망 상태 적용 (Task 27) — 컬리전·이동 모드·메시. 클라는 OnRep_Life 가 같은 함수를 탄다.
 	ApplyOwnerDeathState();
+	PlayLifeStateCue();
 
 	UE_LOG(LogCA3D, Log, TEXT("UStatusComponent %s: 사망 — 원인 %s"),
 		*GetOwner()->GetName(), *UEnum::GetValueAsString(Cause));
@@ -207,6 +211,10 @@ void UStatusComponent::OnRep_Life()
 		ApplyOwnerDeathState();
 	}
 
+	// 갇힘·탈출·사망 큐 — 서버 Server* 와 **같은 함수**를 탄다. OnRep 은 클라에서만 불리고
+	// 서버(리슨 호스트 포함)는 Server* 에서 이미 지났으므로 양쪽이 각자 1회다.
+	PlayLifeStateCue();
+
 	if (IsRunningDedicatedServer()) return; // 불변식 5 — 이하 시각 전용
 
 	// TODO(후속 Task): 갇힘 물방울 비주얼·사망 연출.
@@ -242,6 +250,46 @@ void UStatusComponent::RefreshOwnerMoveSpeed()
 	if (ACA3DCharacter* Character = Cast<ACA3DCharacter>(GetOwner()))
 	{
 		Character->RefreshMoveSpeed();
+	}
+}
+
+void UStatusComponent::PlayLifeStateCue()
+{
+	const ELifeState Previous = LastCuedLifeState;
+	if (Previous == LifeState)
+	{
+		return; // 전이가 아니다 (같은 값이 다시 복제되거나 Server* 가 중복 호출된 경우)
+	}
+	LastCuedLifeState = LifeState;
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+	const FVector Location = Owner->GetActorLocation();
+
+	switch (LifeState)
+	{
+	case ELifeState::Trapped:
+		CA3DFeedback::Play(GetWorld(), ECA3DCue::Trapped, Location);
+		break;
+
+	case ELifeState::Alive:
+		// Trapped → Alive 는 니들 탈출뿐이다 (ServerEscape 가 유일한 경로). 최초 스폰은
+		// LastCuedLifeState 초기값이 Alive 라 여기까지 오지 않는다.
+		if (Previous == ELifeState::Trapped)
+		{
+			CA3DFeedback::Play(GetWorld(), ECA3DCue::Escape, Location);
+		}
+		break;
+
+	case ELifeState::Dead:
+		CA3DFeedback::Play(GetWorld(), ECA3DCue::Death, Location);
+		break;
+
+	default:
+		break; // Spectating 은 지금 쓰지 않는다 (OnRep_Life 주석)
 	}
 }
 

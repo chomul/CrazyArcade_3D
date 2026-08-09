@@ -5,6 +5,7 @@
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
 #include "Gameplay/Character/CA3DCharacter.h"
 #include "Gameplay/Character/StatusComponent.h"
+#include "Gameplay/CA3DFeedback.h"
 #include "Gameplay/SpinVisual.h"
 #include "Core/PoolSubsystem.h"
 #include "Voxel/VoxelWorld.h"
@@ -148,12 +149,28 @@ void ABomb::BeginPlay()
 	// 서버 확정 도착 — 같은 셀의 예측 비주얼(APredictedBombVisual)을 진짜 폭탄으로 교체하는
 	// 지점 (데이터 흐름 3.1). OwnerChar 는 복제되지 않으므로 로컬 플레이어의 폰 기준이 맞다 —
 	// 예측 목록은 설치자 로컬에만 있고, 남의 폭탄이면 셀 매칭이 안 돼 no-op 이다.
+	bool bReplacedLocalPrediction = false;
 	if (APlayerController* LocalPC = GetWorld()->GetFirstPlayerController())
 	{
 		if (ACA3DCharacter* LocalChar = Cast<ACA3DCharacter>(LocalPC->GetPawn()))
 		{
-			LocalChar->ReleasePredictedVisualAt(Cell);
+			bReplacedLocalPrediction = LocalChar->ReleasePredictedVisualAt(Cell);
 		}
+	}
+
+	// ── 설치음: 소리가 두 번 나면 안 된다 ──
+	//
+	// 설치자에게는 예측 비주얼이 **먼저** 뜨고(ACA3DCharacter::TryAcquirePredictedVisual 가
+	// 그 순간 큐를 낸다), 나중에 진짜 폭탄이 복제돼 온다. 여기서 무조건 내면 설치자만 두 번
+	// 듣는다. 그래서 판단 기준을 "방금 내 예측을 회수했는가" 하나로 둔다 — 회수했다는 것은
+	// 이 클라가 이미 설치음을 낸 폭탄이라는 뜻이다.
+	//
+	// 소리를 예측 쪽에 둔 이유: 예측이 존재하는 목적이 왕복 지연을 감추는 것인데, 소리만
+	// RTT 만큼 늦으면 "눌렀는데 반응이 늦다" 는 감각이 그대로 남는다. 남의 폭탄과 리슨
+	// 호스트(예측을 만들지 않는다)는 여기가 유일한 경로라 정확히 한 번 난다.
+	if (!bReplacedLocalPrediction)
+	{
+		CA3DFeedback::Play(GetWorld(), ECA3DCue::BombPlace, GetActorLocation());
 	}
 
 	TryShowDangerPreview();
@@ -424,7 +441,7 @@ void ABomb::TryShowDangerPreview()
 	// 퓨즈 중 다른 폭발이 지형을 바꾸면 재계산 — 설치 시점 스냅샷이 남으면 표시 ≠ 실폭발 (5장 9번).
 	if (!GridChangedHandle.IsValid())
 	{
-		GridChangedHandle = CachedVoxelWorld->OnGridChanged.AddUObject(this, &ABomb::RefreshDangerPreview);
+		GridChangedHandle = CachedVoxelWorld->OnGridChanged.AddUObject(this, &ABomb::HandleGridChanged);
 	}
 
 	const UCA3DRuleSet* Rules = ResolveBombRules(GetWorld());
@@ -454,6 +471,11 @@ void ABomb::TryShowDangerPreview()
 			PreviewDecals.Add(Decal);
 		}
 	}
+}
+
+void ABomb::HandleGridChanged(const TArray<FIntVector>& /*ChangedCells*/)
+{
+	RefreshDangerPreview();
 }
 
 void ABomb::RefreshDangerPreview()
@@ -542,6 +564,16 @@ void ABomb::ServerStartKick(const FIntVector& Direction)
 	// **물리·판정이지 시각이 아니므로** 데디에서도 돌아야 한다 — 여기서 켜고 멈출 때 되돌린다.
 	// (HISM 을 "시각 전용" 으로 보고 데디에서 껐다가 서버에 바닥이 사라졌던 것과 같은 계열의 함정.)
 	ServerRefreshMovementTick();
+
+	// ── 킥 큐: 클라에 도달하는 자연 경로가 없다 ──
+	//
+	// bKicking 은 비복제고(헤더), 클라가 볼 수 있는 것은 ReplicatedMovement 로 액터가
+	// 미끄러지는 결과뿐이다. "움직이기 시작했다" 를 클라가 스스로 판정하게 하면
+	// 보간 지연·정지 후 재킥에서 오탐이 나고, 그러려고 폭탄에 클라 틱 로직을 얹는 것은
+	// 소리 하나에 비해 너무 비싸다. 그래서 Multicast 를 한 발 쓴다 —
+	// **킥 시작 1회**뿐이다 (이 함수는 밀고 있는 동안 매 틱 불리지만 위 bKicking 가드에서
+	// 되돌아가므로, 여기까지 오는 것은 실제로 차진 그 프레임 하나다).
+	CA3DFeedback::ServerBroadcast(GetWorld(), ECA3DCue::Kick, GetActorLocation());
 
 	UE_LOG(LogCA3D, Log, TEXT("ABomb %s: 킥 시작 — 셀 (%d, %d, %d) 에서 (%d, %d, %d) 방향 최대 %d칸 / %.0f cm/s"),
 		*GetName(), Cell.X, Cell.Y, Cell.Z, KickDirection.X, KickDirection.Y, KickDirection.Z,
