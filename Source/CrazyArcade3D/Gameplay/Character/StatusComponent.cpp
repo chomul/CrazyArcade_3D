@@ -98,6 +98,39 @@ void UStatusComponent::ServerApplyItem(EItemType Item)
 		MaxBombCount, BombRange, MoveSpeedMul, bHasNeedle, bHasKick);
 }
 
+bool UStatusComponent::HasRoomForItem(EItemType Item) const
+{
+	// 죽었거나 관전 중이면 ServerApplyItem 이 통째로 무시한다 — 그 사실을 여기서도 그대로 반영한다.
+	if (LifeState == ELifeState::Dead || LifeState == ELifeState::Spectating)
+	{
+		return false;
+	}
+
+	const UCA3DRuleSet* Rules = ResolveRules();
+
+	// 아래 각 줄은 ServerApplyItem 의 같은 이름 case 와 **짝**이다 (헤더 주석).
+	switch (Item)
+	{
+	case EItemType::Balloon:
+		return MaxBombCount < Rules->MaxBombCountCap;
+	case EItemType::Potion:
+		return BombRange < Rules->MaxBombRangeCap;
+	case EItemType::Roller:
+		// FMath::Min(MoveSpeedMul + Step, Cap) 이 값을 바꾸는가. 이미 Cap 에 붙어 있으면 안 바뀐다.
+		// (Cap 직전이면 한 칸 덜 올라도 오르긴 오르므로 여전히 이득이다 — 그래서 '>= Cap' 이다.)
+		return MoveSpeedMul < Rules->MoveSpeedMulCap - KINDA_SMALL_NUMBER;
+	case EItemType::Needle:
+		return !bHasNeedle; // bool 소모품 — 이미 들고 있으면 두 번째는 아무것도 아니다
+	case EItemType::Kick:
+		return !bHasKick;   // 〃
+	default:
+		// 새 아이템이 추가됐는데 여기 안 들어온 경우. **true 가 안전측**이다 —
+		// "쓸모없다"고 단정해 영영 안 줍는 것보다 한 번 주우러 가 보는 쪽이 낫다.
+		ensureMsgf(false, TEXT("UStatusComponent::HasRoomForItem: 미처리 아이템 %d"), static_cast<int32>(Item));
+		return true;
+	}
+}
+
 void UStatusComponent::ServerTrap()
 {
 	if (!GetOwner()->HasAuthority()) return; // 불변식 5

@@ -78,6 +78,11 @@ public:
 	void UnregisterItem(AItemPickup* Item);
 	AItemPickup* FindItemAt(const FIntVector& Cell) const;
 
+	// 현재 아이템 셀 목록 — 좌표 사전순 정렬 TArray (GetActiveBombCellsSorted 와 같은 이유·같은 규칙).
+	// 소비처: 봇의 아이템 목표 선택 — 여기가 정렬돼 있어야 "어느 아이템을 노리는가"가
+	// 등록 순서(서버 로컬)에 흔들리지 않는다 (불변식 4 준용).
+	TArray<FIntVector> GetActiveItemCellsSorted() const;
+
 private:
 	// 단계마다 (명세 6단계): ① PendingChain 의 폭탄들 Propagate → ② ServerDestroyBlocks(Broken)
 	// (불변식 1) → ③ 물줄기 셀 Multicast(AExplosionFXRelay — 클라 FX) → ④ WaterCells 안

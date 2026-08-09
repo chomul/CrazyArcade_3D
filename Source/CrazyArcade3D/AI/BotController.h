@@ -6,15 +6,16 @@
 #include "BotController.generated.h"
 
 class ACA3DCharacter;
+class AItemPickup;
 class AVoxelWorld;
 class UCA3DRuleSet;
 class UStatusComponent;
 struct FVoxelGrid;
 
 // 봇 FSM 상태 (Task 20 · 구조 결정 12 — BT 미사용).
-// 전이 우선순위는 **Evade > PopTrapped > (설치) > Attack > Wander**:
+// 전이 우선순위는 **Evade > PopTrapped > (설치) > SeekItem > Attack > Wander**:
 // 위험은 다른 어떤 판단보다 먼저다. 발밑이 물줄기 범위면 상대가 코앞이어도 먼저 빠져나간다.
-// 갇힌 상대(PopTrapped)가 그 다음인 근거는 ABotController::Replan 의 해당 절 주석에.
+// 나머지 순서의 근거는 각각 ABotController::Replan 의 해당 절 주석에.
 UENUM()
 enum class EBotState : uint8
 {
@@ -22,6 +23,7 @@ enum class EBotState : uint8
 	Attack,     // 도달 가능한 상대 쪽으로 접근 — 놓을 만한 자리에 오면 설치 후 Evade
 	Evade,      // 발밑 셀이 위험 → 위험하지 않은 가장 가까운 셀로 탈출
 	PopTrapped, // 물방울에 갇힌 상대에게 걸어 들어가 터뜨린다 — 확정 킬 (2026-08-10)
+	SeekItem,   // **가까운** 아이템을 주우러 간다 — 멀면 애초에 목표가 아니다 (2026-08-10)
 };
 
 // 서버 전용 FSM 봇 (Task 20).
@@ -84,6 +86,11 @@ private:
 	// 버릴까"만 판단한다. 그래서 이 값이 흔들려도 계획의 결정론은 영향을 받지 않는다.
 	TWeakObjectPtr<ACA3DCharacter> PopTarget;
 
+	// SeekItem 이 노리고 있는 아이템 (2026-08-10). PopTarget 과 같은 이유로 약참조다 —
+	// 아이템은 **남이 먼저 먹으면 그 자리에서 파괴된다.** 강참조로 붙들면 이미 사라진 아이템을
+	// 봇이 GC 에서 붙잡고 서 있게 된다.
+	TWeakObjectPtr<AItemPickup> SeekTarget;
+
 	// ─── 판정 (전부 Propagate 재사용 — 봇 전용 계산 없음) ───
 
 	// 위험 판정: 활성 폭탄 전부에 대해 Propagate 를 호출해 WaterCells 에 Cell 이 들어가는지 본다.
@@ -118,6 +125,12 @@ private:
 	// (Z 를 세지 않는 이유: 낙하는 한 걸음에 여러 칸을 내려간다 — 세면 코앞의 상대를 버린다.)
 	void GatherTrappedEnemyFootCells(const FIntVector& FromCell, TArray<FIntVector>& OutCells) const;
 
+	// 지금 노릴 만한 아이템 셀 — **정렬된 레지스트리**(UExplosionSubsystem::GetActiveItemCellsSorted)
+	// 에서 두 가지로 거른다: ① 거리 프리필터(위와 같은 수평 맨해튼 하한) ② **먹어도 아무 변화가
+	// 없는 것 제외**(UStatusComponent::HasRoomForItem). 액터를 순회하지 않는다 — 레지스트리가
+	// 이미 정렬돼 있어 결정론이 공짜다.
+	void GatherSeekableItemCells(const FIntVector& FromCell, TArray<FIntVector>& OutCells) const;
+
 	// 그 칸에 서 있을 수 있는가 — `VoxelMove::IsStandable` + 머리 공간.
 	// 머리 공간을 보는 이유는 캡슐 높이(176)가 셀(100)보다 커서 1칸 높이 틈에는 못 들어가기 때문 —
 	// 안 보면 봇이 영원히 못 들어가는 칸을 목적지로 잡고 벽에 붙어 비빈다.
@@ -150,6 +163,17 @@ private:
 	// 갇힘 수명이 TrappedDuration(4초)뿐이라 재계획 주기(0.4초)를 기다리지 않고 매 틱 본다.
 	bool IsPopTargetValid() const;
 
+	// 가까운 아이템을 주우러 가는 경로를 잡는다 (SeekItem). 잡았으면 true.
+	// 구조는 PlanPopTrapped 와 같다 — 목표 집합 1회 BFS · 위험 셀 통과 금지 · 걸음 수 상한.
+	// 목표 셀이 곧 아이템 셀이라 도착하면 획득 오버랩이 알아서 처리한다(따로 부를 것이 없다).
+	bool PlanSeekItem(const FIntVector& FootCell, const TArray<FIntVector>& DangerCells);
+
+	// SeekItem 목표가 아직 유효한가 — **매 틱** 본다. 아이템은 남이 먼저 먹거나 물줄기에 타서
+	// 사라지는 것이 흔하고(액터 소멸이 곧 상실), 그 사이 스탯이 상한에 닿으면 주울 이유도 사라진다.
+	// DangerCells 를 받는 이유: Tick 이 이미 계산해 둔 값이라 공짜인데, "곧 터질 자리의 아이템"을
+	// 계속 주우러 가는 것이 실전에서 가장 비싼 실수다.
+	bool IsSeekTargetValid(const TArray<FIntVector>& DangerCells) const;
+
 	// 위험하지 않은 가장 가까운 셀로의 경로를 잡는다 (Evade).
 	void PlanEscape(const FIntVector& FootCell, const TArray<FIntVector>& DangerCells);
 
@@ -174,4 +198,5 @@ private:
 
 	friend class FBotControllerTest;  // 자동화 테스트가 FSM 판정·BFS 를 직접 호출하기 위한 접근
 	friend class FBotPopTrappedTest;  // 〃 (갇힌 적 노리기 — 목표 선택·경로·파기 검증)
+	friend class FBotSeekItemTest;    // 〃 (아이템 줍기 — 목표 선택·거리 상한·거르기 검증)
 };

@@ -461,6 +461,30 @@ AItemPickup* UExplosionSubsystem::FindItemAt(const FIntVector& Cell) const
 	return nullptr;
 }
 
+TArray<FIntVector> UExplosionSubsystem::GetActiveItemCellsSorted() const
+{
+	TArray<FIntVector> Cells;
+	Cells.Reserve(ActiveItems.Num());
+	for (const TObjectPtr<AItemPickup>& ItemPtr : ActiveItems)
+	{
+		AItemPickup* Item = ItemPtr.Get();
+		if (IsValid(Item))
+		{
+			Cells.Add(Item->GetCell());
+		}
+	}
+
+	// 좌표 사전순(X→Y→Z) — GetActiveBombCellsSorted 와 **같은 규칙**이다. 정렬을 공유해야
+	// "폭탄을 보는 순서"와 "아이템을 보는 순서"가 같은 종류의 결정론을 갖는다 (불변식 4 준용).
+	Cells.Sort([](const FIntVector& A, const FIntVector& B)
+	{
+		if (A.X != B.X) return A.X < B.X;
+		if (A.Y != B.Y) return A.Y < B.Y;
+		return A.Z < B.Z;
+	});
+	return Cells;
+}
+
 // ─── 내부 ────────────────────────────────────────────────────────────────────
 
 AVoxelWorld* UExplosionSubsystem::ResolveVoxelWorld()

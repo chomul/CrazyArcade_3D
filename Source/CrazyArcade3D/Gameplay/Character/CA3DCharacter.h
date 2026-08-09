@@ -241,4 +241,5 @@ private:
 	friend class FSpectateTest;         // 관전 카메라 각 보간을 Tick 부작용 없이 돌리기 위한 접근
 	friend class FTrappedPopTest;       // 갇힌 상대 터뜨리기 판정을 Tick 부작용 없이 돌리기 위한 접근
 	friend class FBotPopTrappedTest;    // 봇이 갇힌 적을 노리는 경로 검증의 튜닝 수동 적용을 위한 접근
+	friend class FBotSeekItemTest;      // 봇이 아이템을 노리는 경로 검증의 튜닝 수동 적용을 위한 접근
 };

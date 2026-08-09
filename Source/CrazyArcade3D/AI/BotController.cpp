@@ -6,6 +6,7 @@
 #include "Gameplay/Bomb/Bomb.h"
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
 #include "Gameplay/Bomb/ExplosionTypes.h"
+#include "Gameplay/Item/ItemPickup.h" // 아이템 목표 — 종류(GetItemType)와 셀만 읽는다
 #include "Voxel/VoxelGrid.h"
 #include "Voxel/VoxelMovement.h" // 이동 규칙(설 수 있는 칸·한 걸음)의 단일 출처 — 검증기와 공유한다
 #include "Voxel/VoxelWorld.h"
@@ -210,6 +211,52 @@ void ABotController::GatherTrappedEnemyFootCells(const FIntVector& FromCell, TAr
 	}
 
 	OutCells.Sort(BotCellLess); // 액터 순서 제거 (GatherEnemyFootCells 와 같은 규칙)
+}
+
+void ABotController::GatherSeekableItemCells(const FIntVector& FromCell, TArray<FIntVector>& OutCells) const
+{
+	OutCells.Reset();
+
+	UWorld* World = GetWorld();
+	UExplosionSubsystem* Explosion = World ? World->GetSubsystem<UExplosionSubsystem>() : nullptr;
+	const ACA3DCharacter* BotChar = GetBotCharacter(); // 이름이 Character 면 AController::Character 를 가린다
+	const UStatusComponent* Status = BotChar ? BotChar->GetStatus() : nullptr;
+	if (!Explosion || !Status)
+	{
+		return;
+	}
+
+	const int32 MaxCells = FMath::Max(ResolveRules()->BotSeekItemMaxCells, 1);
+
+	// **정렬된 레지스트리가 순회 순서다.** 여기서 TActorIterator 를 쓰지 않는 이유는
+	// UExplosionSubsystem 헤더에 이미 적혀 있다 — 액터 순회 순서는 실행마다 달라질 수 있어
+	// 판정 입력으로 부적합하다. 정렬 목록을 그대로 받으므로 OutCells 도 정렬 상태를 유지한다.
+	for (const FIntVector& Cell : Explosion->GetActiveItemCellsSorted())
+	{
+		// 거리 프리필터 — 수평 맨해튼은 실제 경로 길이의 하한이다 (GatherTrappedEnemyFootCells 주석).
+		// BFS 전에 후보를 줄이는 것이 목적이지, 이것으로 최종 판정을 하지는 않는다.
+		if (FMath::Abs(Cell.X - FromCell.X) + FMath::Abs(Cell.Y - FromCell.Y) > MaxCells)
+		{
+			continue;
+		}
+
+		const AItemPickup* Item = Explosion->FindItemAt(Cell);
+		if (!Item)
+		{
+			continue; // 정렬 목록과 레지스트리 사이에 사라진 아이템 — 무시 (GatherDangerCells 관례)
+		}
+
+		// **먹어도 아무 변화가 없는 것은 거른다.** 이미 상한인 스탯을 주우러 가는 것은
+		// 그냥 낭비다 — 그 시간에 싸우거나 다른 아이템을 먹는 편이 언제나 낫다.
+		// 판정은 UStatusComponent 가 진다 (ServerApplyItem 바로 옆) — 여기서 Cap 을 다시
+		// 읽으면 클램프 규칙이 두 벌이 되어 언젠가 한쪽만 바뀐다.
+		if (!Status->HasRoomForItem(Item->GetItemType()))
+		{
+			continue;
+		}
+
+		OutCells.Add(Cell);
+	}
 }
 
 bool ABotController::IsStandable(const FVoxelGrid& Grid, const FIntVector& Cell) const
@@ -449,6 +496,7 @@ void ABotController::Tick(float DeltaSeconds)
 		PathIndex = 0;
 		bPlanFailed = false;
 		PopTarget.Reset();
+		SeekTarget.Reset();
 		return;
 	}
 
@@ -486,11 +534,12 @@ void ABotController::Tick(float DeltaSeconds)
 	TimeSinceReplan += DeltaSeconds;
 	TimeSinceBombAttempt += DeltaSeconds;
 
-	// 재계획 조건 네 가지. 세 번째(주기)가 없으면 막힌 봇이 영원히 벽을 민다.
+	// 재계획 조건 다섯 가지. 세 번째(주기)가 없으면 막힌 봇이 영원히 벽을 민다.
 	//   ① 위험 상태가 바뀌었다 — 즉시(우선순위 최상위라 다음 주기를 기다리면 늦다)
 	//   ② 경로를 다 썼다 — 단 **직전 계획이 실패했다면 제외**(bPlanFailed 주석 참조)
 	//   ③ 재계획 주기 경과 — **매 틱 BFS 를 돌리지 않기 위한 장치**가 이것이다
 	//   ④ 갇힌 상대를 노리는 중인데 그 상대가 사라졌다 — 아래 참조
+	//   ⑤ 아이템을 주우러 가는 중인데 그 아이템이 사라졌다 — 〃
 	const bool bStateMismatch  = bDanger != (State == EBotState::Evade);
 	const bool bPathExhausted  = !PathCells.IsValidIndex(PathIndex);
 	const bool bReplanDue      = TimeSinceReplan >= Rules->BotReplanInterval;
@@ -501,7 +550,12 @@ void ABotController::Tick(float DeltaSeconds)
 	// 검사가 싸다: 상태가 PopTrapped 일 때만, 포인터 하나 + enum 비교 하나다.
 	const bool bPopTargetLost  = (State == EBotState::PopTrapped) && !IsPopTargetValid();
 
-	if (bStateMismatch || bReplanDue || bPopTargetLost || (bPathExhausted && !bPlanFailed))
+	// 아이템은 **남이 먼저 먹는 것이 흔하다** — 그 순간 액터가 파괴되므로 약참조가 곧 신호다.
+	// 여기서 안 잡으면 봇이 빈 칸까지 걸어간 뒤에야(경로 소진) 상황을 깨닫는다.
+	// 위와 마찬가지로 상태가 SeekItem 일 때만 도는 검사다.
+	const bool bSeekTargetLost = (State == EBotState::SeekItem) && !IsSeekTargetValid(DangerCells);
+
+	if (bStateMismatch || bReplanDue || bPopTargetLost || bSeekTargetLost || (bPathExhausted && !bPlanFailed))
 	{
 		Replan(FootCell, DangerCells);
 		bPlanFailed = (PathCells.Num() == 0);
@@ -590,7 +644,26 @@ void ABotController::Replan(const FIntVector& FootCell, const TArray<FIntVector>
 		return;
 	}
 
-	// ── ④ Attack — 도달 가능한 상대가 있으면 접근 ──
+	// ── ④ SeekItem — **가까운** 아이템만 (2026-08-10 사용자 확정: "가까이 있을 때만 줍기") ──
+	//
+	// **설치보다 아래인 근거**: 위 분기는 이미 `ShouldPlaceBombAt(FootCell)` 을 통과했다 —
+	// 즉 봇은 **지금 서 있는 자리가 놓을 만한 자리**다. 그 기회를 버리고 아이템을 주우러
+	// 걸어가면, 돌아왔을 때 그 자리는 대개 의미가 없어져 있다(상대가 지나갔거나 블록이 이미
+	// 부서졌거나). 게다가 폭탄을 놓는 것이 곧 **아이템을 만들어 내는 행위**다 —
+	// 파괴 블록이 부서져야 아이템이 노출된다. 설치를 미루면 파밍 자체가 줄어든다.
+	//
+	// **Attack 보다 위인 근거**: Attack 은 "상대를 향해 먼 길을 걷는" 목표라 보상이 확정적이지
+	// 않고 시간도 길다. 어차피 이동 중이라면 6걸음 이내의 아이템을 주워 가는 편이 언제나 이득이다.
+	// 게다가 Attack 에는 쿨다운이 없어 아래에 두면 **거의 항상 Attack 이 이겨 SeekItem 이
+	// 영영 발동하지 않는다** (도달 가능한 상대는 대개 존재한다).
+	//
+	// 갇힌 상대(②)보다 아래인 것은 자명하다 — 확정 킬이 스탯 하나보다 크다.
+	if (Status->LifeState == ELifeState::Alive && PlanSeekItem(FootCell, DangerCells))
+	{
+		return;
+	}
+
+	// ── ⑤ Attack — 도달 가능한 상대가 있으면 접근 ──
 	TArray<FIntVector> EnemyCells;
 	GatherEnemyFootCells(EnemyCells);
 	const AVoxelWorld* VoxelWorld = ResolveVoxelWorld();
@@ -616,7 +689,7 @@ void ABotController::Replan(const FIntVector& FootCell, const TArray<FIntVector>
 		}
 	}
 
-	// ── ⑤ Wander — 갈 곳이 없으면 돌아다닌다 ──
+	// ── ⑥ Wander — 갈 곳이 없으면 돌아다닌다 ──
 	State = EBotState::Wander;
 	PlanWander(FootCell, DangerCells);
 }
@@ -717,6 +790,95 @@ bool ABotController::PlanPopTrapped(const FIntVector& FootCell, const TArray<FIn
 		TEXT("ABotController %s: 갇힌 상대 노림 — (%d,%d,%d) → (%d,%d,%d) %d걸음 (상한 %d)"),
 		*GetName(), FootCell.X, FootCell.Y, FootCell.Z, GoalCell.X, GoalCell.Y, GoalCell.Z,
 		Steps, Rules->BotPopTrappedMaxCells);
+	return true;
+}
+
+bool ABotController::IsSeekTargetValid(const TArray<FIntVector>& DangerCells) const
+{
+	const AItemPickup* Target = SeekTarget.Get();
+	if (!IsValid(Target))
+	{
+		return false; // 남이 먼저 먹었거나 물줄기에 탔다 — **액터 소멸이 곧 목표 상실**이다
+	}
+
+	// 곧 터질 자리의 아이템은 포기한다. 계속 주우러 가면 도착하는 순간 물줄기와 만난다 —
+	// 실전에서 가장 비싼 실수라 재계획 주기(0.4초)를 기다리지 않고 매 틱 본다.
+	// (Tick 이 이미 계산해 둔 DangerCells 를 받아 쓰므로 추가 비용은 배열 조회 하나뿐이다.)
+	if (DangerCells.Contains(Target->GetCell()))
+	{
+		return false;
+	}
+
+	// 가는 도중에 다른 아이템을 먹어 스탯이 상한에 닿았을 수 있다 — 그러면 주울 이유가 사라진다.
+	const ACA3DCharacter* BotChar = GetBotCharacter(); // 이름이 Character 면 AController::Character 를 가린다
+	const UStatusComponent* Status = BotChar ? BotChar->GetStatus() : nullptr;
+	return Status && Status->HasRoomForItem(Target->GetItemType());
+}
+
+bool ABotController::PlanSeekItem(const FIntVector& FootCell, const TArray<FIntVector>& DangerCells)
+{
+	SeekTarget.Reset(); // 성공했을 때만 다시 채운다 (PlanPopTrapped 와 같은 규칙)
+
+	const AVoxelWorld* VoxelWorld = ResolveVoxelWorld();
+	UWorld* World = GetWorld();
+	UExplosionSubsystem* Explosion = World ? World->GetSubsystem<UExplosionSubsystem>() : nullptr;
+	if (!VoxelWorld || !Explosion)
+	{
+		return false;
+	}
+
+	// ⚠️ **노릴 아이템이 하나도 없으면 여기서 끝난다** — BFS 이전이다. 매치 대부분의 시간에
+	// 이 목표의 비용은 레지스트리 한 번 훑기뿐이다 (PlanPopTrapped 와 같은 구조).
+	TArray<FIntVector> ItemCells;
+	GatherSeekableItemCells(FootCell, ItemCells);
+	if (ItemCells.Num() == 0)
+	{
+		return false;
+	}
+
+	const FVoxelGrid& Grid = VoxelWorld->GetGrid();
+
+	// ⚠️ **위험 셀은 통과하지 않는다** — Attack·PopTrapped 와 같은 통행 규칙이다.
+	// 아이템은 폭발이 만들어 내므로 갓 노출된 아이템 주변은 위험 구역과 겹치기 쉽다.
+	// 스탯 하나 때문에 물줄기를 가로지르는 것은 어떤 계산으로도 이득이 아니다.
+	auto IsPassable = [this, &Grid, &DangerCells](const FIntVector& Each)
+	{
+		return IsStandable(Grid, Each) && !DangerCells.Contains(Each);
+	};
+
+	// 아이템마다 BFS 를 돌리지 않는다 — 목표 **집합** 1회 BFS 의 결과가 곧 "걸음 수가 가장
+	// 적은 아이템" 이다. 확장 순서는 VoxelMove::PlanarDirs 고정 순서뿐이고 ItemCells 는
+	// 멤버십 조회로만 쓰이므로, 고르는 아이템은 "그리드 + 출발 셀"만으로 결정된다 (결정론).
+	auto IsGoal = [&ItemCells](const FIntVector& Each) { return ItemCells.Contains(Each); };
+
+	TArray<FIntVector> Path;
+	if (!RunBFS(FootCell, IsPassable, IsGoal, Path) || Path.Num() <= 1)
+	{
+		// Path.Num()==1 은 "이미 그 칸에 서 있다" — 획득 오버랩이 알아서 처리하므로
+		// 목표로 삼을 것이 없다. 도달 불가도 같은 처리: 호출부가 원래 목표로 내려간다.
+		return false;
+	}
+
+	const int32 Steps = Path.Num() - 1;
+	if (Steps > FMath::Max(ResolveRules()->BotSeekItemMaxCells, 1))
+	{
+		return false; // **직선이 아니라 걸음 수**다 — 벽 너머 3칸은 가까운 것이 아니다
+	}
+
+	// 목표 아이템은 **레지스트리 조회**로 확정한다 (PlanPopTrapped 가 액터를 훑어야 했던 것과
+	// 다른 점이다 — 아이템은 셀이 곧 키다). 액터 순회가 아예 없으니 결정론이 공짜로 따라온다.
+	const FIntVector GoalCell = Path.Last();
+	SeekTarget = Explosion->FindItemAt(GoalCell);
+
+	State = EBotState::SeekItem;
+	PathCells = MoveTemp(Path);
+	PathIndex = 1; // 0 은 현재 서 있는 칸
+
+	UE_LOG(LogCA3D, Verbose,
+		TEXT("ABotController %s: 아이템 노림 — (%d,%d,%d) → (%d,%d,%d) %d걸음 (상한 %d) / 종류 %s"),
+		*GetName(), FootCell.X, FootCell.Y, FootCell.Z, GoalCell.X, GoalCell.Y, GoalCell.Z,
+		Steps, ResolveRules()->BotSeekItemMaxCells,
+		SeekTarget.IsValid() ? *UEnum::GetValueAsString(SeekTarget->GetItemType()) : TEXT("?"));
 	return true;
 }
 

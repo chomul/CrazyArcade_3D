@@ -87,6 +87,16 @@ public:
 	// 아이템 적용 — 스탯 증가는 룰셋 Cap 으로 클램프. Dead 이후는 무시.
 	void ServerApplyItem(EItemType Item);
 
+	// "이 아이템을 지금 먹으면 **무엇이든 바뀌는가**" (2026-08-10 — 봇의 아이템 목표 선별용).
+	//
+	// ⚠️ 가치 판단이 아니다 — "범위가 급한가 속도가 급한가" 같은 것은 여기 들어오지 않는다
+	// (튜닝 지옥의 입구다). 오직 **이미 상한이라 먹어도 아무 일도 안 일어나는가**만 본다.
+	//
+	// **ServerApplyItem 바로 옆에 두는 것이 이 함수의 전부다.** 클램프 조건이 두 파일로
+	// 갈라지면 "봇은 상한인 줄 아는데 실제로는 아직 오르는" 어긋남이 조용히 생긴다 —
+	// 아래 구현은 위 함수의 각 case 와 1:1 로 대응한다. 한쪽을 고치면 다른 쪽이 눈에 들어온다.
+	bool HasRoomForItem(EItemType Item) const;
+
 	// Alive → Trapped. 룰셋 TrappedDuration 타이머 시작 — 만료 시 ServerKill(Water).
 	void ServerTrap();
 
