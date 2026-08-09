@@ -33,5 +33,21 @@ public:
 	UPROPERTY(Replicated)
 	bool bAlive = true;
 
+	// 이 참가자를 **관전하는 사람이 볼 카메라 yaw** — 45도 스냅 인덱스(0~7).
+	// 변환은 CameraYawSnap(Core/CameraYawSnap.h) 한 곳에만 있다.
+	//
+	// 왜 복제하는가: 카메라 yaw 는 원래 컨트롤러의 로컬 값(ControlRotation)이라 남의 화면으로
+	// 건너가지 않는다. 그런데 관전 카메라의 각은 **대상 폰의 스프링암**(bUsePawnControlRotation)
+	// → APawn::GetViewRotation() 이 정한다. 복제되는 표현 값이 없으면 관전자는
+	//   · 봇을 볼 때     → AAIController 가 계산한 연속 각(45도 배수가 아니다)
+	//   · 원격 폰을 볼 때 → 폰의 Controller 가 null 이라 엉뚱한 폴백 각
+	// 을 보게 되어 격자가 비스듬히 눕고 카메라가 계속 미끄러진다.
+	//
+	// **관전 대상은 여전히 복제하지 않는다** (Checklist 29) — 그건 각자의 로컬 시점이다.
+	// 여기 있는 것은 관전 상태가 아니라 **폰의 표현**이라 복제가 맞다. 8방향이라 uint8 하나면
+	// 충분하고, 갱신은 값이 바뀌는 순간(Q/E · 봇의 방향 전환)뿐이라 대역폭도 사실상 0 이다.
+	UPROPERTY(Replicated)
+	uint8 CamYawIndex = 0;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

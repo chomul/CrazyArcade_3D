@@ -103,6 +103,15 @@ public:
 	UPROPERTY(EditAnywhere, Category="Bomb", meta=(ClampMin="0.0", ClampMax="0.5"))
 	float BombKickReachToleranceCells = 0.1f;
 
+	// 발판이 없는 칸에 들어간 폭탄이 떨어지는 속도(칸/초). 2026-08-09 사용자 확정:
+	// "절벽에서 밀었을 때 공중을 가로질러 미끄러지는" 문제를 낙하로 해결한다.
+	// 중력(CMC)이 아니라 등속인 이유: 낙하도 킥과 같은 **칸 단위 판정**을 타야 하고
+	// (한 칸 내려갈 때마다 Cell.Z 갱신 → 폭발 원점·위험 데칼이 따라온다), 가속을 넣으면
+	// 프레임이 길 때 한 틱에 여러 칸을 건너뛰는 계산이 킥 쪽과 두 벌이 된다.
+	// 킥 속도(8)보다 빠르게 잡아 "밀려나간 뒤 곧바로 떨어진다" 로 보이게 한다.
+	UPROPERTY(EditAnywhere, Category="Bomb", meta=(ClampMin="1.0"))
+	float BombFallSpeedCellsPerSec = 12.f;
+
 	// ── Life ──────────────────────────────────────────────
 
 	// 물방울에 갇힌 상태 지속 시간(초). 3~5초 권장.
@@ -236,6 +245,14 @@ public:
 	// 절반보다 크게 잡아 대각 입력의 약한 축이 한 칸을 더 넘기지 않게 한다.
 	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.05", ClampMax="1.0"))
 	float SpectateCycleAxisThreshold = 0.5f;
+
+	// 봇의 관전 카메라 yaw 가 다음 45도 칸으로 넘어가기까지 필요한 초과 각도(도).
+	// 2026-08-09: 봇에게는 "보고 있는 시점" 이 없어 이동 방향을 45도로 스냅해 대신 쓴다.
+	// 히스테리시스가 0 이면 경계(22.5도)에서 방향이 미세하게 흔들릴 때마다 카메라가 45도씩
+	// 튄다 — 관전 중 가장 눈에 띄는 멀미 요인이다. 크게 잡으면 봇이 확실히 방향을 튼 뒤에도
+	// 카메라가 한참 안 돈다.
+	UPROPERTY(EditAnywhere, Category="Camera", meta=(ClampMin="0.0", ClampMax="22.0"))
+	float SpectateBotCamYawHysteresisDeg = 12.f;
 
 	// ── Map ───────────────────────────────────────────────
 

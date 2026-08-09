@@ -11,4 +11,8 @@ void ACA3DPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(ACA3DPlayerState, ColorIndex);
 	DOREPLIFETIME(ACA3DPlayerState, FinalRank);
 	DOREPLIFETIME(ACA3DPlayerState, bAlive);
+
+	// 관전 카메라 각도 전원에게 — 누구든 이 참가자를 관전 대상으로 고를 수 있다.
+	// COND_OwnerOnly 로 좁히면 정작 필요한 사람(관전자)에게만 안 간다.
+	DOREPLIFETIME(ACA3DPlayerState, CamYawIndex);
 }

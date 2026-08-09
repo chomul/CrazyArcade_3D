@@ -56,6 +56,9 @@ public:
 
 	bool IsKicking() const { return bKicking; }
 
+	// 발판 없는 칸으로 밀려 떨어지는 중인가 (2026-08-09 사용자 확정 — 아래 낙하 절 참조).
+	bool IsFalling() const { return bFalling; }
+
 	// 막힘 박스의 실제 반경(cm, 스케일 반영). 킥 접촉 판정이 "캡슐 반지름 + 이 값" 으로
 	// 사거리를 만든다 — 호출부가 룰셋 계수 × CellSize 를 다시 곱하지 않게 한다 (공식 중복 금지).
 	float GetBlockingExtent() const;
@@ -174,7 +177,7 @@ private:
 	// 서버: 미끄러짐 진행 (Tick 에서만 호출). 셀 중심에 도달할 때마다 칸 단위 판정을 한다.
 	void ServerUpdateKick(float DeltaSeconds);
 
-	// 서버: 미끄러짐 종료 — 셀 중심으로 스냅하고 데디에서는 틱을 다시 끈다.
+	// 서버: 미끄러짐 종료 — 셀 중심으로 스냅하고 (낙하 중이 아니면) 데디에서 틱을 다시 끈다.
 	void ServerStopKick();
 
 	bool bKicking = false;                            // 미끄러지는 중
@@ -182,6 +185,42 @@ private:
 	int32 KickCellsRemaining = 0;                     // 남은 이동 칸 수 (룰셋 BombKickMaxCells 에서 시작)
 	FVector KickTargetLocation = FVector::ZeroVector; // 다음 셀 중심의 월드 좌표
 	float KickSpeed = 0.f;                            // cm/s — 시작 시 룰셋 × CellSize 로 1회 계산
+
+	// ─── 낙하 (서버 전용 — 2026-08-09 사용자 확정: "절벽으로 밀어 떨어뜨리기") ──────
+	//
+	// 킥으로 **새 셀 중심에 도달한 순간** 그 칸 바로 아래가 솔리드가 아니면 떨어진다.
+	// 이미 설치돼 가만히 있는 폭탄의 발판이 폭발로 사라졌을 때의 낙하는 **범위 밖**이다 —
+	// 그건 "언제 무너지는가"(폭발 처리 순서·연쇄와 얽힌다)를 따로 정해야 하는 별개 규칙이다.
+	//
+	// 중력(CMC)이 아니라 **수직 등속**인 이유는 룰셋 BombFallSpeedCellsPerSec 주석에 있다:
+	// 낙하도 킥과 같은 칸 단위 판정을 타야 하고, 가속을 넣으면 "프레임이 길 때 여러 칸"
+	// 계산이 킥 쪽과 두 벌이 된다.
+
+	// 서버: 낙하 시작. 수평 이동을 그 자리에서 끊는다 (포물선 금지 — 칸 정렬이 깨지면
+	// Cell(폭발 원점)과 실제 위치가 영구히 어긋난다).
+	void ServerStartFall();
+
+	// 서버: 낙하 진행 (Tick 에서만 호출). 한 칸 내려갈 때마다 착지·이탈을 판정한다.
+	void ServerUpdateFall(float DeltaSeconds);
+
+	// 서버: 착지·중단. 셀 중심으로 스냅하고 데디에서는 틱을 되돌린다.
+	// **남은 킥 거리는 쓰지 않는다** — 목적이 "떨어뜨린다"이고, 착지 후 계속 미끄러지면
+	// 협곡 바닥에서 어디까지 굴러갈지 예측이 안 된다 (ServerStartFall 이 킥을 이미 끊었다).
+	void ServerStopFall();
+
+	// 그 칸이 발판 위에 있는가 — 바로 아래가 솔리드면 참. **그리드만 본다**: 다른 폭탄이나
+	// 플레이어는 발판이 아니다 (그것을 발판으로 치면 아래 폭탄이 터지는 순간 위 폭탄이
+	// 공중에 박힌다 — 그 뒤처리가 곧 "범위 밖"으로 미뤄 둔 규칙이다).
+	// 그리드를 모르면 참을 돌려준다 — 모르는 채로 떨어뜨리지 않는다 (안전측).
+	bool IsSupportedAt(const FIntVector& InCell) const;
+
+	// 서버: 스스로 움직이는 동안에만 틱이 필요하다 — 켜고 끄는 판단을 여기 한 곳에 모은다.
+	// 킥→낙하 전환 때 ServerStopKick 이 틱을 꺼버려 폭탄이 공중에 박히는 사고를 구조적으로 막는다.
+	void ServerRefreshMovementTick();
+
+	bool bFalling = false;                            // 떨어지는 중
+	FVector FallTargetLocation = FVector::ZeroVector; // 한 칸 아래 셀 중심의 월드 좌표
+	float FallSpeed = 0.f;                            // cm/s — 시작 시 룰셋 × CellSize 로 1회 계산
 
 	friend class FBombTest; // 자동화 테스트가 퓨즈 타이머·플래그 검증을 위한 접근
 	friend class FBombKickTest; // 자동화 테스트가 킥 상태·수동 틱 검증을 위한 접근

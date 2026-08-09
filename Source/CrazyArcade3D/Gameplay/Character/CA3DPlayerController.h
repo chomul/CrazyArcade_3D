@@ -27,6 +27,12 @@ public:
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override; // 카메라 yaw 보간 (시각 전용)
 
+	// 클라→서버: 내 카메라 yaw 스냅 인덱스(0~7). **관전자에게 보여줄 표현 값**이라 서버가 받아
+	// ACA3DPlayerState::CamYawIndex 로 복제한다 — 내 카메라 자체는 여전히 로컬 ControlRotation 이
+	// 굴린다(서버는 내 시점을 몰라도 된다). 호출은 인덱스가 **바뀌는 순간에만** (PushCamYawIndex).
+	UFUNCTION(Server, Reliable)
+	void ServerSetCamYawIndex(uint8 NewIndex);
+
 protected:
 	// BP 서브클래스(BP_CA3DPlayerController)에서 에셋만 지정 — BP 로직 금지.
 	UPROPERTY(EditDefaultsOnly, Category="Input")
@@ -59,17 +65,27 @@ protected:
 	void OnRotateCam(const FInputActionValue& V); // ±45도 스냅, 보간 회전
 
 private:
-	// 45도 스냅 스텝 (GDD 5장 확정 — 구조 상수).
-	static constexpr float CamYawStepDeg = 45.f;
-
-	// 카메라 상태 — CamYawSteps × 45 가 목표각, SmoothCamYaw 가 보간 현재각.
+	// 카메라 상태 — 스냅 인덱스가 목표각이고 SmoothCamYaw 가 보간 현재각.
 	// 스텝은 랩하지 않고 누적한다 (보간이 FRotator 정규화로 최단 경로를 택하므로 안전).
+	// ⚠️ 45도 스텝 상수를 여기 두지 않는다 — 스냅 공식의 단일 출처는 CameraYawSnap 이다
+	//    (Core/CameraYawSnap.h). 여기에 사본을 두는 순간 관전 각과 갈라진다.
 	int32 CamYawSteps = 0;
 	float SmoothCamYaw = 0.f;
 
+	// 지금 고른 45도 칸 (0~7) — 복제 값 ACA3DPlayerState::CamYawIndex 와 같은 좌표계다.
+	uint8 GetCamYawIndex() const;
+
 	// 카메라 기준 입력 모드가 쓰는 스냅 목표각(도). 보간 중에도 이동 기준이 흔들리지
 	// 않도록 보간각(SmoothCamYaw)이 아니라 스냅각을 쓴다 — 회전 중 이동이 끊기지 않는다.
-	float GetSnappedCamYaw() const { return CamYawSteps * CamYawStepDeg; }
+	float GetSnappedCamYaw() const;
+
+	// 스냅 인덱스가 **바뀐 순간에만** 서버로 올린다. Q/E 를 누를 때뿐이라 매우 드물다 —
+	// 매 틱 보내면 8인 기준으로 초당 수백 개의 RPC 가 아무 변화 없이 오간다.
+	void PushCamYawIndex();
+
+	// 마지막으로 서버에 올린 인덱스. 복제 기본값(0)과 초기 스텝(0)이 이미 일치하므로
+	// 한 번도 회전하지 않은 플레이어는 RPC 를 단 한 번도 보내지 않는다.
+	uint8 LastSentCamYawIndex = 0;
 
 	// ─── 관전 (사망 후 생존자 추적 — 2026-08-06 사용자 확정) ────────────────────
 	//

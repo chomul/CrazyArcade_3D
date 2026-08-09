@@ -40,16 +40,34 @@ namespace
 
 ABomb::ABomb()
 {
-	// 틱은 메시 제자리 회전 **전용** (2026-08-06). 판정·타이머는 전부 이벤트/타이머다 —
-	// 여기에 상태 변경 로직을 얹지 말 것. 데디 서버는 BeginPlay 에서 틱을 끈다.
+	// 틱이 지는 일은 **메시 제자리 회전(시각)과 스스로 하는 이동(킥·낙하) 둘뿐이다.**
+	// 퓨즈·연쇄·피격은 전부 이벤트/타이머다 — 여기에 더 얹지 말 것 (근거는 Tick 본문 주석).
+	// 데디 서버는 BeginPlay 에서 틱을 끄고, 움직이는 동안만 ServerRefreshMovementTick 이 되켠다.
 	PrimaryActorTick.bCanEverTick = true;
 
 	bReplicates = true;
 	// 맵 전체가 한 화면 규모(21×21) — 컬링으로 폭탄 액터를 놓치면 클라 프리뷰가 어긋난다.
 	bAlwaysRelevant = true;
 
+	// ⚠️ **위치 복제를 명시적으로 켠다** (2026-08-09 — "킥하면 위험 데칼만 움직이고 폭탄
+	// 메시는 제자리" 버그의 진짜 원인).
+	//
+	// `AActor::bReplicateMovement` 는 **기본값이 false 다.** InitializeDefaults() 에 대입이
+	// 없고 UObject 메모리는 생성 전에 0 으로 채워지기 때문이다 (UObjectGlobals.cpp 의 Memzero).
+	// 움직이는 액터가 각자 켜는 구조이고, 엔진에서도 APawn 생성자가 SetReplicatingMovement(true)
+	// 를 직접 부른다. 안 켜면 ReplicatedMovement 가
+	// `DOREPCUSTOMCONDITION_ACTIVE_FAST(AActor, ReplicatedMovement, IsReplicatingMovement())`
+	// 로 통째로 비활성이라 **클라에는 스폰 위치만 도착하고 이후 이동이 한 번도 안 간다.**
+	// 반면 Cell 은 ReplicatedUsing=OnRep_Cell 로 잘 가므로 위험 데칼만 옆 칸으로 옮겨 다닌다 —
+	// 증상이 정확히 그것이었다. 킥이 액터를 직접 움직이는(무브먼트 컴포넌트 없는) 구조라
+	// 이 플래그 말고는 위치를 알릴 경로가 없다. 낙하(아래)가 붙으면서 Z 까지 걸린다.
+	SetReplicatingMovement(true);
+
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
-	// 킥으로 움직인다 — Static 루트면 SetActorLocation 이 경고만 남기고 아무 일도 안 한다.
+	// 킥·낙하로 움직인다 — Static 루트면 SetActorLocation 이 경고만 남기고 아무 일도 안 한다.
+	// (USceneComponent 생성자가 이미 Movable 을 넣으므로 지금은 no-op 이다. 의도를 못 박아
+	//  루트 타입이 바뀌어도 규칙이 남게 두는 줄이다 — 메시·박스도 같은 이유로 손대지 않는다:
+	//  UStaticMeshComponent·UBoxComponent 모두 Mobility 를 재정의하지 않아 Movable 이다.)
 	RootComponent->SetMobility(EComponentMobility::Movable);
 
 	// 표시 전용 — 막힘 판정은 아래 BlockingBox 가 따로 진다. 메시에 컬리전을 얹으면
@@ -118,7 +136,9 @@ void ABomb::BeginPlay()
 			MeshComponent->DestroyComponent();
 			MeshComponent = nullptr;
 		}
-		SetActorTickEnabled(false); // 틱은 회전 전용 — 데디에서는 돌 메시가 없다
+		// 데디에는 돌릴 메시가 없다 — 평소에는 끈다. 킥·낙하가 시작되면
+		// ServerRefreshMovementTick 이 되켠다 (이동은 시각이 아니라 물리·판정이다).
+		SetActorTickEnabled(false);
 		return;
 	}
 
@@ -177,9 +197,20 @@ void ABomb::Tick(float DeltaSeconds)
 	// 않는다. ② 칸 판정(정지 조건·Cell 갱신)은 셀 중심에 도달한 순간에만 일어나므로 서버
 	// 틱레이트가 달라져도 "몇 칸 갔는가 / 어디서 멈췄는가" 는 같다 — 달라지는 것은 도착 시각뿐.
 	// 여기에 타이머·연쇄·피격을 얹지 말 것은 그대로다.
-	if (bKicking && HasAuthority())
+	//
+	// 낙하도 같은 규율을 탄다 (2026-08-09). **else if 가 중요하다**: ServerUpdateKick 이 이번
+	// 틱에 낙하를 시작하면 bKicking 이 false / bFalling 이 true 로 바뀌는데, 두 갈래를 따로
+	// if 로 쓰면 같은 DeltaSeconds 를 낙하가 한 번 더 먹어 시간이 두 번 흐른다.
+	if (HasAuthority())
 	{
-		ServerUpdateKick(DeltaSeconds);
+		if (bKicking)
+		{
+			ServerUpdateKick(DeltaSeconds);
+		}
+		else if (bFalling)
+		{
+			ServerUpdateFall(DeltaSeconds);
+		}
 	}
 
 	// 회전(시각) — 데디에서는 메시가 없고 속도도 0 이라 no-op (CA3DSpin::ApplyYaw 계약).
@@ -315,6 +346,12 @@ void ABomb::ServerForceDetonate()
 	// 실제로 처리되는 시점(ChainStepDelay 뒤)의 셀이 지금 셀과 달라져 "터진 자리" 가 어긋난다.
 	// 폭발 원점은 이 순간의 Cell 로 굳는다.
 	ServerStopKick();
+
+	// 낙하 중이었다면 여기서도 멈춘다 — 같은 이유다. **공중 셀이면 공중 셀에서 터진다**:
+	// ServerStopFall 이 Cell 중심으로 스냅하므로 폭발 원점과 보이는 위치가 어긋나지 않는다
+	// (허공에서 터지는 것이 이상해 보이더라도, 원점을 임의로 땅으로 끌어내리면 위험 데칼과
+	//  실폭발이 갈린다 — 설계서 5장 9번이 그걸 금지한다).
+	ServerStopFall();
 
 	GetWorldTimerManager().ClearTimer(FuseTimer); // 연쇄 유발 시 남은 퓨즈 무시
 
@@ -504,7 +541,7 @@ void ABomb::ServerStartKick(const FIntVector& Direction)
 	// 데디 서버는 BeginPlay 에서 틱을 껐다 (회전 전용이라 돌릴 메시가 없다). 미끄러짐은
 	// **물리·판정이지 시각이 아니므로** 데디에서도 돌아야 한다 — 여기서 켜고 멈출 때 되돌린다.
 	// (HISM 을 "시각 전용" 으로 보고 데디에서 껐다가 서버에 바닥이 사라졌던 것과 같은 계열의 함정.)
-	SetActorTickEnabled(true);
+	ServerRefreshMovementTick();
 
 	UE_LOG(LogCA3D, Log, TEXT("ABomb %s: 킥 시작 — 셀 (%d, %d, %d) 에서 (%d, %d, %d) 방향 최대 %d칸 / %.0f cm/s"),
 		*GetName(), Cell.X, Cell.Y, Cell.Z, KickDirection.X, KickDirection.Y, KickDirection.Z,
@@ -599,6 +636,18 @@ void ABomb::ServerUpdateKick(float DeltaSeconds)
 		ServerSetCell(Cell + KickDirection);
 		--KickCellsRemaining;
 
+		// ── 낙하 판정이 정지 판정보다 **먼저다** (2026-08-09 사용자 확정) ──
+		// 새 칸의 발밑이 비었으면 남은 킥 거리와 무관하게 여기서 떨어진다. 순서를 뒤집으면
+		// "마지막 칸이 절벽이면 공중에 그대로 선다" 가 되어 원래 버그가 그 한 칸만 남는다.
+		if (!IsSupportedAt(Cell))
+		{
+			ServerStartFall();
+			// 이번 틱에 남은 거리는 버린다. 킥 속도로 잰 거리를 낙하 속도로 환산해 이어 쓰면
+			// 두 속도가 한 프레임 안에서 섞여 "몇 칸 내려갔나" 가 프레임 길이에 의존한다 —
+			// 칸 단위 판정을 지키는 쪽이 낫다. 버리는 양은 한 프레임의 셀 이하다.
+			return;
+		}
+
 		if (KickCellsRemaining <= 0 || !CanKickInto(Cell + KickDirection))
 		{
 			// 최대 거리를 다 썼거나 **다음 칸이 막혔다** — 그 앞 칸(= 지금 칸)에서 멈춘다.
@@ -655,11 +704,168 @@ void ABomb::ServerStopKick()
 		SetActorLocation(CachedVoxelWorld->CellToWorld(Cell));
 	}
 
-	// ServerStartKick 이 켠 틱을 되돌린다 (데디 기준 — 클라·리슨은 회전 때문에 계속 돌아야 한다).
-	if (IsRunningDedicatedServer())
-	{
-		SetActorTickEnabled(false);
-	}
+	// ServerStartKick 이 켠 틱을 되돌린다 — 단, **낙하로 넘어가는 중이면 끄면 안 된다.**
+	// 그 판단은 ServerRefreshMovementTick 한 곳이 진다 (여기서 직접 끄면 킥→낙하 전환 때
+	// 데디 서버의 폭탄이 공중에 박힌다).
+	ServerRefreshMovementTick();
 
 	UE_LOG(LogCA3D, Log, TEXT("ABomb %s: 킥 정지 — 셀 (%d, %d, %d)"), *GetName(), Cell.X, Cell.Y, Cell.Z);
+}
+
+// ─── 낙하 (서버 전용 — 2026-08-09 사용자 확정) ────────────────────────────────
+
+bool ABomb::IsSupportedAt(const FIntVector& InCell) const
+{
+	if (!CachedVoxelWorld)
+	{
+		return true; // 그리드를 모르면 떨어뜨리지 않는다 (헤더 주석 — 안전측)
+	}
+
+	// 그리드 바깥(맵 바닥 아래)은 FVoxelGrid::Get 이 Empty 로 돌려주므로 자연히 "발판 없음" 이다.
+	// 그 상태로 계속 내려가는 것을 막는 것은 ServerUpdateFall 의 이탈 판정이다.
+	return CachedVoxelWorld->GetGrid().IsSolid(InCell + FIntVector(0, 0, -1));
+}
+
+void ABomb::ServerRefreshMovementTick()
+{
+	if (!IsRunningDedicatedServer())
+	{
+		return; // 클라·리슨은 회전(시각) 때문에 항상 돈다 — 여기서 끄면 폭탄이 안 돈다
+	}
+
+	// 데디는 돌릴 메시가 없어 BeginPlay 에서 틱을 껐다. 스스로 움직이는 동안에만 되켠다 —
+	// 이동은 시각이 아니라 물리·판정이다 (HISM 함정과 같은 계열).
+	SetActorTickEnabled(bKicking || bFalling);
+}
+
+void ABomb::ServerStartFall()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	if (bFalling || bDetonated || !CachedVoxelWorld)
+	{
+		return;
+	}
+
+	const UCA3DRuleSet* Rules = ResolveBombRules(GetWorld());
+
+	// bFalling 을 **ServerStopKick 보다 먼저** 세운다 — 그래야 ServerRefreshMovementTick 이
+	// "아직 움직이는 중" 으로 보고 데디에서 틱을 끄지 않는다.
+	bFalling = true;
+	FallSpeed = Rules->BombFallSpeedCellsPerSec * CachedVoxelWorld->CellSize;
+
+	// 수평 이동을 그 자리에서 끊는다 — **포물선 금지.** 낙하하면서 옆으로도 가면 칸 정렬이
+	// 깨지고, 그러면 Cell(폭발 원점)과 실제 위치가 영구히 어긋난다. 남은 킥 거리도 버린다.
+	// (ServerStopKick 이 Cell 중심으로 스냅한다 — 여기 도달 시점엔 이미 중심이지만 경로는 하나로.)
+	ServerStopKick();
+
+	FallTargetLocation = CachedVoxelWorld->CellToWorld(Cell + FIntVector(0, 0, -1));
+
+	// ServerStopKick 이 이미 한 번 불렀지만, 킥 중이 아닌 상태에서 들어오는 호출자가 생겨도
+	// 데디에서 틱이 켜지도록 여기서 못 박는다 (안 켜지면 폭탄이 공중에 박힌다).
+	ServerRefreshMovementTick();
+
+	UE_LOG(LogCA3D, Log, TEXT("ABomb %s: 낙하 시작 — 셀 (%d, %d, %d) 발밑이 비었다 / %.0f cm/s"),
+		*GetName(), Cell.X, Cell.Y, Cell.Z, FallSpeed);
+}
+
+void ABomb::ServerUpdateFall(float DeltaSeconds)
+{
+	if (!HasAuthority() || !bFalling || !CachedVoxelWorld) return; // 불변식 5
+
+	// 킥과 **같은 모양의 루프**다: 이번 틱에 쓸 거리를 칸 단위로 소비하면서 칸마다 판정한다.
+	// 프레임이 길어도 여러 칸을 그냥 통과하지 않는다 — 통과시키면 중간의 착지 지점과
+	// 그리드 이탈 지점을 놓친다.
+	float RemainingDistance = FallSpeed * DeltaSeconds;
+
+	while (bFalling && RemainingDistance > 0.f)
+	{
+		// 지금 향하고 있는 칸. 그리드 밖이면 이 낙하가 마지막 구간이다 —
+		// **착지할 솔리드가 하나도 없는 열**이라는 뜻이다.
+		const FIntVector EnteringCell = Cell + FIntVector(0, 0, -1);
+		const bool bLeavingGrid = !CachedVoxelWorld->GetGrid().IsValid(EnteringCell);
+
+		const FVector Location = GetActorLocation();
+		// 수직 등속 — X·Y 는 낙하 시작 시점에 셀 중심으로 고정돼 움직이지 않는다.
+		const float Distance = Location.Z - FallTargetLocation.Z;
+
+		if (Distance > RemainingDistance)
+		{
+			// 아직 아래 셀 중심에 못 미친다 — 그만큼만 내려가고 이번 틱 종료.
+			SetActorLocation(FVector(Location.X, Location.Y, Location.Z - RemainingDistance));
+			return;
+		}
+
+		// 아래 셀 중심 도착 — 여기서만 칸 단위 판정이 일어난다.
+		SetActorLocation(FallTargetLocation);
+		RemainingDistance -= Distance;
+
+		if (bLeavingGrid)
+		{
+			// 그리드 바닥 아래로 나갔다 — **폭발 없이** 사라진다. 허공에서 터져봐야
+			// 아무것도 못 맞히고, 위험 데칼만 맵 밖에 남는다.
+			//
+			// ⚠️ 여기서 ServerSetCell 을 부르지 않는다. Cell 이 단 한 프레임이라도 그리드
+			// 밖이 되면 Propagate·FindBombAt·위험 데칼이 전부 유효하지 않은 원점을 받는다 —
+			// Cell 은 마지막 유효 칸 그대로 두고 액터만 없앤다.
+			UE_LOG(LogCA3D, Log, TEXT("ABomb %s: 맵 밖으로 낙하 — 셀 (%d, %d, %d) 아래에 착지할 것이 없다. 폭발 없이 소멸"),
+				*GetName(), Cell.X, Cell.Y, Cell.Z);
+
+			bFalling = false;
+			// 퓨즈를 끊는다 — 타이머 매니저가 죽은 액터를 걸러 주긴 하지만 "폭발 없이" 를
+			// 코드로 못 박아 둔다.
+			GetWorldTimerManager().ClearTimer(FuseTimer);
+
+			// 슬롯 반환·레지스트리 해제를 **여기서 직접** 한다 — EndPlay 안전망에 맡기지 않는다.
+			// ① 맵 밖 낙하는 이제 정상 종료 경로다. 안전망은 "예상 못 한 파괴" 를 위한 것이고,
+			//    정상 경로가 안전망에 의존하면 안전망이 진짜 이상을 덮는 순간을 알 수 없다.
+			// ② EndPlay 라우팅은 조건부다: AActor::Destroyed → RouteEndPlay 는
+			//    bActorInitialized && ActorHasBegunPlay 일 때만 EndPlay 를 부른다. 실제로
+			//    자동화 테스트 월드에서 이 경로가 돌지 않아 소유자의 ActiveBombCount 가
+			//    1 로 남았다 (⑩ 실패로 잡힘) — 즉 "죽으면 알아서 반환된다" 는 보장이 아니다.
+			// bSlotReturned 가 1회를 보장하므로 EndPlay 가 뒤따라 불려도 이중 반환은 없다.
+			ServerReleaseSlot();
+
+			Destroy();
+			return;
+		}
+
+		// **한 칸 내려갈 때마다 Cell.Z 를 갱신한다.** 폭발 원점·위험 데칼(OnRep_Cell)·
+		// UExplosionSubsystem::FindBombAt 의 조회 키가 전부 이 값이라, 갱신을 미루면
+		// "보이는 위치는 아래, 터지는 곳은 위" 가 된다.
+		ServerSetCell(EnteringCell);
+
+		// ── 착지 ── 남은 킥 거리는 이미 ServerStartFall 이 버렸다 (헤더 주석).
+		if (IsSupportedAt(Cell))
+		{
+			ServerStopFall();
+			return;
+		}
+
+		FallTargetLocation = CachedVoxelWorld->CellToWorld(Cell + FIntVector(0, 0, -1));
+	}
+}
+
+void ABomb::ServerStopFall()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	if (!bFalling)
+	{
+		return;
+	}
+
+	bFalling = false;
+
+	// 셀 중심으로 스냅 — ServerStopKick 과 같은 이유다. 착지 경로는 이미 중심에 있지만,
+	// 퓨즈 만료(ServerForceDetonate)로 **공중에서** 멈추는 경로가 있다. 그때 Cell 은 지금
+	// 내려오던 칸이므로 그 칸 중심으로 올려붙여야 폭발 원점과 보이는 위치가 일치한다.
+	if (CachedVoxelWorld)
+	{
+		SetActorLocation(CachedVoxelWorld->CellToWorld(Cell));
+	}
+
+	ServerRefreshMovementTick();
+
+	UE_LOG(LogCA3D, Log, TEXT("ABomb %s: 낙하 정지 — 셀 (%d, %d, %d)"), *GetName(), Cell.X, Cell.Y, Cell.Z);
 }

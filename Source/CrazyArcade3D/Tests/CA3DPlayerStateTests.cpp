@@ -299,16 +299,19 @@ bool FCA3DPlayerStateTest::RunTest(const FString& Parameters)
 		// (부모 클래스까지 재귀로 세팅되므로 아래 부모 호출도 함께 안전해진다).
 		ACA3DPlayerState::StaticClass()->SetUpRuntimeReplicationData();
 
-		// 부모(APlayerState) 등록분과의 개수 차이가 정확히 3 이어야
-		// DOREPLIFETIME 3줄이 실제로 실행된 것이다.
+		// 부모(APlayerState) 등록분과의 개수 차이가 정확히 4 여야
+		// DOREPLIFETIME 4줄이 실제로 실행된 것이다.
+		// 2026-08-09: CamYawIndex(관전 카메라 각) 추가로 3 → 4. 이 숫자를 올릴 때는
+		// **왜 새 값이 복제돼야 하는지**를 먼저 답할 것 — 복제 대상이 늘어나는 것은
+		// 대역폭이 아니라 "누가 이 값의 주인인가" 가 늘어나는 것이다.
 		TArray<FLifetimeProperty> ChildProps;
 		Players[0]->GetLifetimeReplicatedProps(ChildProps);
 
 		TArray<FLifetimeProperty> ParentProps;
 		Players[0]->APlayerState::GetLifetimeReplicatedProps(ParentProps);
 
-		TestEqual(TEXT("⑦ GetLifetimeReplicatedProps 가 부모 대비 3개 추가 등록"),
-			ChildProps.Num() - ParentProps.Num(), 3);
+		TestEqual(TEXT("⑦ GetLifetimeReplicatedProps 가 부모 대비 4개 추가 등록"),
+			ChildProps.Num() - ParentProps.Num(), 4);
 	}
 
 	// GameState 의 종료 플래그도 복제 대상인지 (결과 화면 Task 26 의 트리거).

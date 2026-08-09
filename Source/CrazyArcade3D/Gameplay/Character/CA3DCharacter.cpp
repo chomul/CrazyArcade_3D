@@ -10,6 +10,9 @@
 #include "Voxel/VoxelWorld.h"
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
+#include "Framework/CA3DPlayerState.h" // 복제되는 관전 카메라 각의 출처 — .cpp 에서만
+#include "Core/CameraYawSnap.h"        // 45도 스냅 공식의 단일 출처 (Gameplay→Core 는 허용)
+#include "GameFramework/PlayerController.h" // 로컬 플레이어 판정 (GetViewRotation 분기)
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -231,6 +234,13 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	// 권한 가드 **위**다 — 이 값은 클라에서 굴러야 관전 카메라가 부드럽다.
+	// 데디 가드도 걸지 않는다: 결과가 GetViewRotation() 이고, 그건 엔진이 넷모드와 무관하게
+	// 부르는 폰 질의라 서버에서만 값이 굳어 있으면 나중에 조용한 어긋남이 된다
+	// (복제되는 인덱스를 각 머신이 같은 규칙으로 재현하는 것이라 "시각 전용"이 아니다).
+	// 비용은 캐릭터당 틱당 RInterpTo 하나다.
+	UpdateSpectateCamYaw(DeltaSeconds);
+
 	if (!HasAuthority()) return; // 불변식 5 — 낙사 판정은 상태 변경으로 이어지므로 서버 전용
 
 	// 낙사 → ServerKill. Dead 면 스킵 (중복 호출 방지). 갇힌 채 추락하는 상황은
@@ -265,6 +275,48 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 	{
 		ServerTryKickBomb(Movement->GetCurrentAcceleration());
 	}
+}
+
+// ─── 관전 카메라 각 (2026-08-09) ─────────────────────────────────────────────
+
+void ACA3DCharacter::UpdateSpectateCamYaw(float DeltaSeconds)
+{
+	// 목표는 복제된 45도 스냅 인덱스. PlayerState 가 아직 안 왔으면(스폰 직후) 0번 칸으로 둔다 —
+	// 어차피 다음 프레임에 도착하고, 첫 프레임 스냅이 그 값을 그대로 받아 간다.
+	const ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
+	const uint8 TargetIndex = CA3DPlayerState ? CA3DPlayerState->CamYawIndex : static_cast<uint8>(0);
+	const float TargetYaw = CameraYawSnap::IndexToYawDeg(TargetIndex);
+
+	if (!bSpectateCamYawInitialized)
+	{
+		SpectateCamYaw = TargetYaw; // 첫 프레임은 보간하지 않는다 (헤더 주석)
+		bSpectateCamYawInitialized = true;
+		return;
+	}
+
+	// FRotator 경유 — ±180 랩을 정규화해 7번 칸(315도) → 0번 칸(0도)이 뒤로 315도를 도는 대신
+	// 앞으로 45도만 돈다. 컨트롤러의 로컬 카메라 보간(PlayerTick)과 완전히 같은 식이다.
+	const FRotator Current(0.f, SpectateCamYaw, 0.f);
+	const FRotator Target(0.f, TargetYaw, 0.f);
+	SpectateCamYaw = static_cast<float>(FMath::RInterpTo(
+		Current, Target, DeltaSeconds, ResolveVisualRules(GetWorld())->CameraYawInterpSpeed).Yaw);
+}
+
+FRotator ACA3DCharacter::GetViewRotation() const
+{
+	// 로컬 플레이어가 조종 중인 폰 = 내 화면. 진짜 카메라의 출처는 그 컨트롤러의
+	// ControlRotation 이고 Q/E 보간까지 거기 들어 있다 — 손대지 않는다.
+	// (내 폰에서 복제 인덱스를 쓰면 45도 스냅이 계단으로 보이고 회전 입력이 한 틱 늦어진다.)
+	const APlayerController* OwningPC = Cast<APlayerController>(GetController());
+	if (OwningPC && OwningPC->IsLocalPlayerController())
+	{
+		return Super::GetViewRotation();
+	}
+
+	// 그 밖(봇 · 원격 플레이어의 폰) = **누군가 나를 관전할 때의 각**.
+	// 고정 내려보기 pitch + 복제 인덱스를 따라간 보간 yaw — 플레이어 카메라와 같은 규칙이라
+	// 관전으로 넘어가도 격자가 눕지 않고 45도 스냅이 유지된다.
+	return FRotator(ResolveVisualRules(GetWorld())->CameraPitchDeg, SpectateCamYaw, 0.f);
 }
 
 void ACA3DCharacter::ServerTryKickBomb(const FVector& WorldInputDirection)

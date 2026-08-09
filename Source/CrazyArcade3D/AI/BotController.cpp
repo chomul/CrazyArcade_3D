@@ -12,6 +12,7 @@
 #include "Framework/CA3DRuleSet.h"    // AI→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h"  // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
 #include "Framework/CA3DPlayerState.h"
+#include "Core/CameraYawSnap.h" // 45도 스냅 공식의 단일 출처 — 봇도 같은 변환을 쓴다
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Algo/Reverse.h"
 #include "EngineUtils.h"
@@ -375,17 +376,32 @@ void ABotController::Tick(float DeltaSeconds)
 		return;
 	}
 
-	// ── 관전 카메라 각도 (사망 후 관전 — 봇 판단과 무관한 시각 값) ──
-	// 봇의 ControlRotation 은 봇 자신에게는 아무 의미가 없다(캐릭터가 bUseControllerRotationYaw
-	// = false 라 폰이 따라 돌지 않는다). 그런데 **관전자가 이 봇을 볼 때의 카메라 각**이 바로
-	// 이 값이다: 캐릭터의 CameraBoom 이 bUsePawnControlRotation 이고, APawn::GetViewRotation 이
-	// 컨트롤러의 ControlRotation 을(원격 클라에서는 서버가 복제해 준 그 값을) 그대로 돌려준다.
-	// AAIController 기본 구현은 "상대 폰을 보고 있지 않으면 pitch = 0" 이라 그대로 두면
-	// 관전 카메라가 지면에 눕는다 — 게임의 고정 내려보기 각(CameraPitchDeg)으로 덮어쓴다.
-	// Super::Tick(= AAIController::Tick) 이후에 쓰는 이유는 기본 구현이 방금 계산한 yaw
-	// (봇이 향한 방향)는 살리고 pitch 만 바꾸기 위해서다. 데디 가드를 걸지 않는다:
-	// 데디 서버에서는 이 값이 복제되어 **클라의** 관전 카메라 각이 된다.
-	SetControlRotation(FRotator(ResolveRules()->CameraPitchDeg, GetControlRotation().Yaw, 0.f));
+	// ── 관전 카메라 yaw (봇 판단과 무관한 **표현** 값) ──
+	//
+	// 봇에게는 "보고 있는 시점"이 없다 — 사람은 Q/E 로 8방향 중 하나를 고르지만 봇은 카메라를
+	// 갖지 않는다. 그래서 **이동 방향**을 대신 쓴다: 캐릭터가 bOrientRotationToMovement 라
+	// 액터 회전이 곧 봇이 가고 있는 쪽이고, 관전자 입장에서 "가는 쪽이 화면 위"가 가장 덜
+	// 어색하다. 멈춰 있을 때도 마지막 방향이 남아 있어(속도와 달리) 각이 떨리지 않는다.
+	//
+	// 45도로 스냅하는 이유는 이 게임 카메라가 8방향 고정이기 때문이다 — 스냅하지 않으면
+	// 봇을 관전할 때만 격자가 비스듬히 기울어 칸 세기가 무너진다. 히스테리시스(룰셋)는
+	// 경계에 걸친 방향이 미세하게 흔들릴 때 카메라가 45도씩 왕복하는 것을 막는다.
+	//
+	// 데디 가드를 걸지 **않는다** — 이 값은 복제되어 **클라의** 관전 카메라 각이 된다
+	// (복제되는 값을 서버가 쓰는 것은 "시각"이 아니다).
+	//
+	// 예전에는 여기서 ControlRotation 의 pitch 를 CameraPitchDeg 로 덮어썼다. 이제 각을 만드는
+	// 곳이 ACA3DCharacter::GetViewRotation() 한 곳이라 지웠다 — 남겨두면 같은 값을 두 곳이
+	// 정한다. 지워도 봇의 이동·판단·외형은 그대로다: 캐릭터가 bUseControllerRotationYaw =
+	// bUseControllerRotationPitch = bUseControllerRotationRoll = false 라 AAIController 가
+	// 부르는 APawn::FaceRotation 이 아무 일도 하지 않는다.
+	if (ACA3DPlayerState* BotState = GetPlayerState<ACA3DPlayerState>())
+	{
+		BotState->CamYawIndex = CameraYawSnap::YawDegToIndexWithHysteresis(
+			static_cast<float>(BotChar->GetActorRotation().Yaw), // FRotator 는 double 기반
+			BotState->CamYawIndex,
+			ResolveRules()->SpectateBotCamYawHysteresisDeg);
+	}
 
 	// 사망 — 아무 입력도 만들지 않는다. 캐릭터(Move/DoJump)에도 생존 가드가 있지만
 	// 여기서 끊어야 시체가 매 틱 BFS 를 돌리는 낭비가 없다 (관전 중 8명분이면 무시 못 한다).

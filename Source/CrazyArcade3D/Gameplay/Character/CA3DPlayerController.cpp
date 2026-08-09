@@ -5,7 +5,8 @@
 #include "Gameplay/Character/StatusComponent.h" // 관전 진입 조건(내 폰이 죽었는가)의 출처
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
-#include "Framework/CA3DPlayerState.h" // 관전 대상 목록(bAlive)의 출처 — .cpp 에서만
+#include "Framework/CA3DPlayerState.h" // 관전 대상 목록(bAlive)·복제 카메라 각의 출처 — .cpp 에서만
+#include "Core/CameraYawSnap.h"        // 45도 스냅 공식의 단일 출처 (Gameplay→Core 는 허용)
 #include "Camera/PlayerCameraManager.h" // EViewTargetBlendFunction (SetViewTargetWithBlend 인자)
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -47,6 +48,44 @@ namespace
 			}
 		}
 		return GetDefault<UCA3DRuleSet>();
+	}
+}
+
+// ─── 45도 스냅 (공식은 CameraYawSnap 한 곳에만) ──────────────────────────────
+
+uint8 ACA3DPlayerController::GetCamYawIndex() const
+{
+	return CameraYawSnap::StepsToIndex(CamYawSteps);
+}
+
+float ACA3DPlayerController::GetSnappedCamYaw() const
+{
+	return CameraYawSnap::IndexToYawDeg(GetCamYawIndex());
+}
+
+void ACA3DPlayerController::PushCamYawIndex()
+{
+	const uint8 Index = GetCamYawIndex();
+	if (Index == LastSentCamYawIndex)
+	{
+		return; // 바뀐 게 없다 — **매 틱 RPC 를 보내지 않는 지점이 여기다**
+	}
+
+	LastSentCamYawIndex = Index;
+	ServerSetCamYawIndex(Index); // 리슨 호스트/스탠드얼론은 권한이 있어 곧바로 서버 경로로 들어간다
+}
+
+void ACA3DPlayerController::ServerSetCamYawIndex_Implementation(uint8 NewIndex)
+{
+	if (!HasAuthority()) return; // 불변식 5 (Server RPC 라 실도달 없음 — 명시 가드)
+
+	// 데디 가드를 걸지 **않는다.** 시각처럼 보이지만 이건 복제되는 표현 값이라, 서버에서
+	// 막으면 다른 클라의 관전 카메라가 영원히 0도로 남는다 — HISM 을 "시각 전용"으로 보고
+	// 데디에서 껐다가 서버에 바닥이 사라졌던 것과 같은 계열의 함정이다.
+	if (ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>())
+	{
+		// 들어온 값은 신뢰하지 않는다 — StepsToIndex 가 0~7 로 접는다 (클라가 200 을 보내도 안전).
+		CA3DPlayerState->CamYawIndex = CameraYawSnap::StepsToIndex(NewIndex);
 	}
 }
 
@@ -134,6 +173,12 @@ void ACA3DPlayerController::PlayerTick(float DeltaTime)
 
 	// 고정 내려보기 pitch + 보간 yaw — 캐릭터의 CameraBoom(bUsePawnControlRotation)이 소비한다.
 	SetControlRotation(FRotator(Rules->CameraPitchDeg, SmoothCamYaw, 0.f));
+
+	// 내가 고른 45도 칸을 서버로 (바뀐 순간에만). 이 가드 안쪽인 것이 맞다 — **자기 시점을
+	// 아는 것은 로컬 컨트롤러뿐**이고, 데디 서버에는 그 시점의 원본이 애초에 없다.
+	// 서버는 받은 값을 PlayerState 로 복제하고(ServerSetCamYawIndex — 거기엔 데디 가드가 없다)
+	// 다른 클라가 나를 관전할 때 그 값으로 카메라 각을 만든다.
+	PushCamYawIndex();
 
 	// 관전 시점 유지 — 대상이 죽었으면 다음 생존자로 넘긴다 (시각 전용, 위 가드 안쪽).
 	UpdateSpectateView();
