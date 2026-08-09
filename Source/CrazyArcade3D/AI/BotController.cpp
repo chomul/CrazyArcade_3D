@@ -174,6 +174,44 @@ void ABotController::GatherEnemyFootCells(TArray<FIntVector>& OutCells) const
 	OutCells.Sort(BotCellLess); // 액터 순서 제거 — 동점(같은 거리) 상대 선택이 흔들리지 않게
 }
 
+void ABotController::GatherTrappedEnemyFootCells(const FIntVector& FromCell, TArray<FIntVector>& OutCells) const
+{
+	OutCells.Reset();
+
+	UWorld* World = GetWorld();
+	const APawn* Self = GetPawn();
+	if (!World)
+	{
+		return;
+	}
+
+	const int32 MaxCells = FMath::Max(ResolveRules()->BotPopTrappedMaxCells, 1);
+
+	for (ACA3DCharacter* Other : TActorRange<ACA3DCharacter>(World))
+	{
+		if (!IsValid(Other) || Other == Self)
+		{
+			continue;
+		}
+		const UStatusComponent* OtherStatus = Other->GetStatus();
+		if (!OtherStatus || OtherStatus->LifeState != ELifeState::Trapped)
+		{
+			continue; // 갇힌 사람만 목표다 — 산 사람은 기존 Attack 이, 시체는 아무도 안 본다
+		}
+
+		// 수평 맨해튼은 실제 경로 길이의 **하한**이므로(헤더 주석) 여기서 거른 목표는
+		// BFS 로도 상한 안에 못 들어온다 — 갈 수 있는 상대를 잘못 버리지 않으면서 BFS 를 아낀다.
+		const FIntVector Cell = Other->GetFootCell();
+		if (FMath::Abs(Cell.X - FromCell.X) + FMath::Abs(Cell.Y - FromCell.Y) > MaxCells)
+		{
+			continue;
+		}
+		OutCells.AddUnique(Cell);
+	}
+
+	OutCells.Sort(BotCellLess); // 액터 순서 제거 (GatherEnemyFootCells 와 같은 규칙)
+}
+
 bool ABotController::IsStandable(const FVoxelGrid& Grid, const FIntVector& Cell) const
 {
 	// 판정 본체는 VoxelMove — FMapValidator::IsStandable 과 **같은 함수**다 (머리 공간만 추가).
@@ -410,6 +448,7 @@ void ABotController::Tick(float DeltaSeconds)
 		PathCells.Reset();
 		PathIndex = 0;
 		bPlanFailed = false;
+		PopTarget.Reset();
 		return;
 	}
 
@@ -447,15 +486,22 @@ void ABotController::Tick(float DeltaSeconds)
 	TimeSinceReplan += DeltaSeconds;
 	TimeSinceBombAttempt += DeltaSeconds;
 
-	// 재계획 조건 세 가지. 세 번째(주기)가 없으면 막힌 봇이 영원히 벽을 민다.
+	// 재계획 조건 네 가지. 세 번째(주기)가 없으면 막힌 봇이 영원히 벽을 민다.
 	//   ① 위험 상태가 바뀌었다 — 즉시(우선순위 최상위라 다음 주기를 기다리면 늦다)
 	//   ② 경로를 다 썼다 — 단 **직전 계획이 실패했다면 제외**(bPlanFailed 주석 참조)
 	//   ③ 재계획 주기 경과 — **매 틱 BFS 를 돌리지 않기 위한 장치**가 이것이다
+	//   ④ 갇힌 상대를 노리는 중인데 그 상대가 사라졌다 — 아래 참조
 	const bool bStateMismatch  = bDanger != (State == EBotState::Evade);
 	const bool bPathExhausted  = !PathCells.IsValidIndex(PathIndex);
 	const bool bReplanDue      = TimeSinceReplan >= Rules->BotReplanInterval;
 
-	if (bStateMismatch || bReplanDue || (bPathExhausted && !bPlanFailed))
+	// 갇힌 상대 목표는 **수명이 아주 짧다**(TrappedDuration 4초). 대상이 니들로 탈출하거나
+	// 익사하면 재계획 주기(0.4초)를 기다리지 않고 그 틱에 목표를 버린다 — 안 그러면 이미
+	// 풀려난 상대를 계속 밀고 있게 되고, 그동안 다른 판단(회피·설치)이 통째로 늦는다.
+	// 검사가 싸다: 상태가 PopTrapped 일 때만, 포인터 하나 + enum 비교 하나다.
+	const bool bPopTargetLost  = (State == EBotState::PopTrapped) && !IsPopTargetValid();
+
+	if (bStateMismatch || bReplanDue || bPopTargetLost || (bPathExhausted && !bPlanFailed))
 	{
 		Replan(FootCell, DangerCells);
 		bPlanFailed = (PathCells.Num() == 0);
@@ -500,7 +546,25 @@ void ABotController::Replan(const FIntVector& FootCell, const TArray<FIntVector>
 		return;
 	}
 
-	// ── ② 설치 — 안전할 때만. 지상에 있을 때만 시도한다 ──
+	// ── ② 갇힌 상대 처치 — 위험 회피 바로 다음 (2026-08-10 사용자 확정) ──
+	//
+	// **폭탄 설치·추격보다 위인 근거 세 가지.** 순서를 뒤집으면 기능이 거의 발동하지 않는다:
+	//   ① 갇힌 상대에게 폭탄은 **아무 효과가 없다** — UStatusComponent::ServerTrap 이 Alive 가
+	//      아니면 무시하므로 물줄기를 또 맞아도 갇힘 시간이 늘지 않는다. 반면 몸으로 닿으면
+	//      즉사다. 확정 킬이라 다른 어떤 공격보다 기대값이 높다.
+	//   ② 설치 분기는 성공하면 곧바로 Evade 로 전이해 **목표에서 멀어진다.**
+	//   ③ 갇힘 수명은 TrappedDuration(4초)뿐인데 봇의 설치 쿨다운만 BotBombCooldown(2초)이다 —
+	//      한 주기만 미뤄도 놓친다.
+	// 위험 회피(①)보다는 확실히 아래다 — 위 분기가 이미 return 했다.
+	//
+	// 봇 자신이 갇혀 있으면 노리지 않는다: 터뜨리는 쪽은 Alive 여야 한다는 규칙(사람과 동일)
+	// 때문에 어차피 못 터뜨리고, 갇힌 봇은 TrappedMoveSpeed 라 도착도 못 한다.
+	if (Status->LifeState == ELifeState::Alive && PlanPopTrapped(FootCell, DangerCells))
+	{
+		return;
+	}
+
+	// ── ③ 설치 — 안전할 때만. 지상에 있을 때만 시도한다 ──
 	// 공중 설치는 캐릭터가 -Z 스캔으로 자기 셀을 다시 고르므로(TryGetBombPlacementCell)
 	// ShouldPlaceBombAt 이 검사한 셀과 실제 설치 셀이 달라질 수 있다 —
 	// 그러면 "탈출로 확인한 자리"와 "폭탄이 놓인 자리"가 어긋나 자폭한다.
@@ -526,7 +590,7 @@ void ABotController::Replan(const FIntVector& FootCell, const TArray<FIntVector>
 		return;
 	}
 
-	// ── ③ Attack — 도달 가능한 상대가 있으면 접근 ──
+	// ── ④ Attack — 도달 가능한 상대가 있으면 접근 ──
 	TArray<FIntVector> EnemyCells;
 	GatherEnemyFootCells(EnemyCells);
 	const AVoxelWorld* VoxelWorld = ResolveVoxelWorld();
@@ -552,9 +616,108 @@ void ABotController::Replan(const FIntVector& FootCell, const TArray<FIntVector>
 		}
 	}
 
-	// ── ④ Wander — 갈 곳이 없으면 돌아다닌다 ──
+	// ── ⑤ Wander — 갈 곳이 없으면 돌아다닌다 ──
 	State = EBotState::Wander;
 	PlanWander(FootCell, DangerCells);
+}
+
+bool ABotController::IsPopTargetValid() const
+{
+	const ACA3DCharacter* Target = PopTarget.Get();
+	if (!IsValid(Target))
+	{
+		return false; // 폭발로 파괴됐거나 애초에 없다
+	}
+	const UStatusComponent* TargetStatus = Target->GetStatus();
+
+	// **여전히 갇혀 있어야** 목표다. 니들 탈출(Alive)·익사(Dead) 어느 쪽이든 여기서 즉시 걸린다.
+	return TargetStatus && TargetStatus->LifeState == ELifeState::Trapped;
+}
+
+bool ABotController::PlanPopTrapped(const FIntVector& FootCell, const TArray<FIntVector>& DangerCells)
+{
+	PopTarget.Reset(); // 성공했을 때만 다시 채운다 — 실패하고 옛 대상이 남으면 목표 파기가 늦는다
+
+	const UCA3DRuleSet* Rules = ResolveRules();
+	if (!Rules->bPopTrappedOnContact)
+	{
+		return false; // 규칙 자체가 꺼져 있으면 노릴 이유가 없다 (사람과 같은 룰셋 값을 본다)
+	}
+
+	const AVoxelWorld* VoxelWorld = ResolveVoxelWorld();
+	if (!VoxelWorld)
+	{
+		return false;
+	}
+
+	// ⚠️ **갇힌 사람이 없으면 여기서 끝난다.** 평상시 이 목표의 비용은 캐릭터 목록 한 번
+	// 훑기(≤8명, BFS 없음)뿐이다 — BFS 는 실제로 노릴 대상이 있을 때만 돈다.
+	TArray<FIntVector> TrappedCells;
+	GatherTrappedEnemyFootCells(FootCell, TrappedCells);
+	if (TrappedCells.Num() == 0)
+	{
+		return false;
+	}
+
+	const FVoxelGrid& Grid = VoxelWorld->GetGrid();
+
+	// ⚠️ **위험 셀은 통과하지 않는다** — Attack 과 같은 통행 규칙이다. 갇힌 사람 주변은 방금
+	// 물줄기가 지나간 자리라 위험 구역과 겹치기 쉽다. 확정 킬을 노리겠다고 폭발에 걸어
+	// 들어가는 봇은 멍청해 보이는 정도가 아니라 그냥 자살이다 (위험 회피가 최우선인 이유).
+	auto IsPassable = [this, &Grid, &DangerCells](const FIntVector& Each)
+	{
+		return IsStandable(Grid, Each) && !DangerCells.Contains(Each);
+	};
+
+	// 상대마다 BFS 를 돌리지 않는다 — 목표 **집합**을 한 번의 BFS 로 찾으면 그 결과가 곧
+	// "걸음 수가 가장 적은 상대" 다 (Attack 과 같은 방식).
+	//
+	// **결정론**: BFS 확장 순서는 VoxelMove::PlanarDirs 고정 순서 + 노드 삽입 순서뿐이고,
+	// TrappedCells 는 멤버십 조회로만 쓰인다. 즉 고르는 대상은 "그리드 + 출발 셀"만으로 결정되고
+	// 액터 이터레이션 순서가 개입할 자리가 없다 — 갇힌 적이 둘이어도 매번 같은 하나를 고른다.
+	auto IsGoal = [&TrappedCells](const FIntVector& Each) { return TrappedCells.Contains(Each); };
+
+	TArray<FIntVector> Path;
+	if (!RunBFS(FootCell, IsPassable, IsGoal, Path) || Path.Num() <= 1)
+	{
+		return false; // 도달 불가 — 호출부(Replan)가 곧바로 원래 목표로 내려간다
+	}
+
+	// 상한은 **실제 걸음 수**로 잰다 (Path 는 출발 칸을 포함하므로 -1). 벽을 빙 도는 상대는
+	// 직선으로는 가까워도 도착 전에 갇힘이 끝나므로 애초에 노리지 않는다.
+	const int32 Steps = Path.Num() - 1;
+	if (Steps > FMath::Max(Rules->BotPopTrappedMaxCells, 1))
+	{
+		return false;
+	}
+
+	// 어느 상대를 노리게 됐는지 기록 — 오직 "탈출·사망을 매 틱 감지해 즉시 목표를 버리기"
+	// 위한 것이다. 경로는 이미 위에서 확정됐으므로 이 조회 순서가 계획을 바꾸지 않는다
+	// (같은 칸에 갇힌 사람이 둘일 수도 없다 — 캡슐끼리 Block 이다).
+	const FIntVector GoalCell = Path.Last();
+	for (ACA3DCharacter* Other : TActorRange<ACA3DCharacter>(GetWorld()))
+	{
+		if (!IsValid(Other) || Other == GetPawn())
+		{
+			continue;
+		}
+		const UStatusComponent* OtherStatus = Other->GetStatus();
+		if (OtherStatus && OtherStatus->LifeState == ELifeState::Trapped && Other->GetFootCell() == GoalCell)
+		{
+			PopTarget = Other;
+			break;
+		}
+	}
+
+	State = EBotState::PopTrapped;
+	PathCells = MoveTemp(Path);
+	PathIndex = 1; // 0 은 현재 서 있는 칸
+
+	UE_LOG(LogCA3D, Verbose,
+		TEXT("ABotController %s: 갇힌 상대 노림 — (%d,%d,%d) → (%d,%d,%d) %d걸음 (상한 %d)"),
+		*GetName(), FootCell.X, FootCell.Y, FootCell.Z, GoalCell.X, GoalCell.Y, GoalCell.Z,
+		Steps, Rules->BotPopTrappedMaxCells);
+	return true;
 }
 
 void ABotController::PlanEscape(const FIntVector& FootCell, const TArray<FIntVector>& DangerCells)

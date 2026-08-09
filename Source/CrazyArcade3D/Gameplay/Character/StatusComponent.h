@@ -19,12 +19,19 @@ enum class ELifeState : uint8
 };
 
 // 사망 원인 — 통계·킬 피드(후속 Task)용.
+//
+// ⚠️ 원인은 **섞지 않는다.** 새 사인이 생기면 기존 값을 재활용하지 말고 항목을 추가한다 —
+// 한 번 섞으면 집계에서 "익사" 와 "밀려서 터짐" 을 나중에 다시 가를 방법이 없다.
+// (숫자에 의존하는 곳은 없다: 복제·직렬화 대상이 아니고 switch 도 없다. 유일한 소비처는
+//  UEnum::GetValueAsString 로그와 UStatusComponent::LastDeathCause 다 — 2026-08-10 확인.)
 UENUM()
 enum class EDeathCause : uint8
 {
+	None,        // 아직 죽지 않았다 — LastDeathCause 의 초기값 전용. ServerKill 의 인자로 쓰지 않는다
 	Water,       // 물방울 갇힘 시간 만료 (익사)
 	Fall,        // 맵 밖 추락 (KillZ)
 	SuddenDeath, // 서든데스 블록 낙하
+	Popped,      // 갇힌(Trapped) 상태에서 갇히지 않은 상대에게 몸으로 밀려 터짐 (2026-08-10 확정)
 };
 
 // 캐릭터에 부착되는 상태 컴포넌트 — 스탯·생존 상태의 단일 출처 (Task 12).
@@ -68,6 +75,12 @@ public:
 	// 현재 설치되어 살아 있는 폭탄 수 — 서버 전용, 복제 불필요.
 	// 설치 +1 / 폭발 -1 (Task 16 설치 검증이 MaxBombCount 와 비교).
 	int32 ActiveBombCount = 0;
+
+	// 마지막 사망 원인 — **서버 전용, 비복제** (ActiveBombCount 와 같은 근거: 판정에만 쓰이고
+	// 클라가 볼 이유가 없다). `LifeState == Dead` 이후에만 의미가 있다.
+	// 사인이 어딘가에 남지 않으면 EDeathCause 를 나눠 둔 의미가 없다 — 통계·킬 피드(후속)와
+	// 자동화 테스트가 "무엇에 죽었는가" 를 확인하는 유일한 출처다.
+	EDeathCause LastDeathCause = EDeathCause::None;
 
 	// ─── 서버 전용 진입점 (모두 최상단 권한 가드 — 불변식 5) ───
 
@@ -130,4 +143,5 @@ private:
 	friend class FDeathHandlingTest;   // 갇힘 타이머 잔존 여부 검증을 위한 접근 (Task 27)
 	friend class FItemPickupTest;      // 니들 탈출 시 타이머 해제 검증을 위한 접근 (Task 23)
 	friend class FFeedbackTest;        // 클라 경로(OnRep_Life) 재진입 시 큐 중복 여부 검증을 위한 접근
+	friend class FTrappedPopTest;      // 터뜨려 죽인 뒤 갇힘 타이머 잔존 여부 검증을 위한 접근 (2026-08-10)
 };

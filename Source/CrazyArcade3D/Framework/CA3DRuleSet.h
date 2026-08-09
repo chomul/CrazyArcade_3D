@@ -128,6 +128,19 @@ public:
 	UPROPERTY(EditAnywhere, Category="Life")
 	float SpawnInvulnTime = 0.f;
 
+	// ─── Life — 갇힌 상대 터뜨리기 (2026-08-10 사용자 확정: 원작 크레이지 아케이드 규칙) ───
+	//
+	// 물방울에 갇힌(ELifeState::Trapped) 캐릭터에 **갇히지 않은 살아 있는(Alive)** 캐릭터가
+	// 몸으로 닿으면 즉시 사망한다(EDeathCause::Popped). 유예·경고 없음.
+	// 팀이 없으므로(라스트맨 스탠딩) 자기 자신만 아니면 누구든 터뜨릴 수 있고,
+	// 갇힌 사람끼리·시체는 서로 못 터뜨린다.
+	//
+	// **접촉 여유 값은 새로 만들지 않았다** — 위 BombKickReachToleranceCells 를 그대로 쓴다.
+	// 두 판정이 같은 물리적 원인(CMC 가 남기는 미세한 접촉 간격)을 보정하는 같은 값이라,
+	// 나눠 두면 "차지는 거리" 와 "터지는 거리" 가 조용히 갈라진다. 값을 늘리는 것도 비용이다.
+	UPROPERTY(EditAnywhere, Category="Life")
+	bool bPopTrappedOnContact = true;
+
 	// ── Character (Task 10) ───────────────────────────────
 	// 이동·점프 파생 값은 전부 "셀 단위 계수 × AVoxelWorld::CellSize" 로 계산한다 —
 	// 셀 크기를 바꿔도 게임 감각이 유지된다 (하드코딩 금지).
@@ -416,6 +429,23 @@ public:
 	// 두 배로 늘려도 한 자릿수 마이크로초다. (⚠️ 잠정 — stat unit 실측으로 확정)
 	UPROPERTY(EditAnywhere, Category="Bot", meta=(ClampMin="16"))
 	int32 BotMaxPathNodes = 1024;
+
+	// ─── Bot — 갇힌 상대 노리기 (2026-08-10 사용자 확정) ───
+	//
+	// 봇이 갇힌 상대(ELifeState::Trapped)를 터뜨리러 가는 최대 거리(칸).
+	// **실제로 걸어야 하는 걸음 수**로 잰다 — 직선 거리가 아니다. 벽을 빙 돌아야 하는 상대는
+	// 가까워 보여도 도착 전에 갇힘이 끝난다.
+	//
+	// 무제한이면 21×21 맵에서 살아 있는 봇 전원이 갇힌 한 명에게 수렴한다 — 갇히는 순간이
+	// 사실상 사형 선고가 된다(사용자에게 이 우려를 전했고, 그래도 넣는 것으로 확정됐다).
+	// 그래서 노브를 둔다.
+	//
+	// **기본 16 의 근거**: TrappedDuration(4초) × MoveSpeedCellsPerSec(4칸/초) = 16칸 —
+	// 그보다 먼 목표는 **도착하기 전에 물방울이 스스로 끝난다**(익사하거나 니들로 탈출한다).
+	// 즉 기본값은 "물리적으로 닿을 수 있는 최대치"이고, 이 노브는 실제로 플레이해 보고
+	// **줄이기 위한** 손잡이다 (몰려드는 게 과하면 8 → 5 순으로 내린다). 기능을 죽이는 값이 아니다.
+	UPROPERTY(EditAnywhere, Category="Bot", meta=(ClampMin="1"))
+	int32 BotPopTrappedMaxCells = 16;
 
 	// ── SuddenDeath ───────────────────────────────────────
 

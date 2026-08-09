@@ -153,6 +153,7 @@ void UStatusComponent::ServerKill(EDeathCause Cause)
 	}
 
 	LifeState = ELifeState::Dead;
+	LastDeathCause = Cause; // 사인은 여기서 딱 한 번 굳는다 (위 Dead 가드가 덮어쓰기를 막는다)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(TrappedTimer); // 갇힌 채 죽어도 타이머 잔존 금지

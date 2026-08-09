@@ -190,6 +190,31 @@ private:
 	// CMC 를 돌리지 않고도 같은 규칙을 검증할 수 있다.
 	void ServerTryKickBomb(const FVector& WorldInputDirection);
 
+public:
+	// ─── 접촉 판정의 단일 출처 (2026-08-06 킥 / 2026-08-10 갇힌 상대 터뜨리기) ───
+	//
+	// 사거리 = **내 형상 + 상대 형상 + 룰셋 여유**(BombKickReachToleranceCells × CellSize).
+	// 이 프로젝트에서 "걸어 들어가면 닿았다" 는 전부 이 한 공식이다 — 공식이 두 벌이 되면
+	// "차지는 거리" 와 "터지는 거리" 가 조용히 갈라진다.
+	//   · 킥       : GetContactReach(캡슐 반지름, 폭탄 막힘 박스 반경)
+	//   · 터뜨리기 : GetContactReach(캡슐 반지름, 상대 캡슐 반지름)   ← 수평
+	//                GetContactReach(캡슐 반높이, 상대 캡슐 반높이)   ← 수직
+	// 형상을 인자로 받는 이유: 상대가 폭탄(박스)일 수도, 캐릭터(캡슐)일 수도 있고,
+	// 같은 상대라도 수평·수직에서 재는 치수가 다르기 때문이다.
+	float GetContactReach(float SelfExtent, float TargetExtent) const;
+
+private:
+	// ─── 갇힌 상대 터뜨리기 (2026-08-10 사용자 확정 — 원작 크레이지 아케이드 규칙) ───
+	//
+	// **검사 주체가 "갇힌 쪽" 인 것이 이 함수의 요점이다.** 터뜨리는 쪽에 두면 살아 있는
+	// 모두가 매 틱 "갇힌 사람 있나" 를 뒤져야 하지만(8인 × 매 틱 전수 비교), 갇힌 쪽에 두면
+	// 최상단의 `LifeState != Trapped` 한 줄에서 되돌아간다 — **갇힌 사람이 없으면 이 기능의
+	// 총비용은 캐릭터당 enum 비교 한 번**이고, 그것이 기본 상태다.
+	//
+	// 판정은 순수 거리다(입력 방향을 보지 않는다): 봇이 지나가다 닿아도 사람이 밀어도 같은
+	// 결과여야 하고, 캐릭터끼리는 캡슐이 서로 Block 이라 "닿았다" 가 곧 접촉 사거리 안이다.
+	void ServerTryPopIfTouched();
+
 	// ─── 관전 카메라 각 (2026-08-09) ───
 
 	// 지금 이 폰을 보고 있는 **로컬** 플레이어 컨트롤러 (없으면 nullptr).
@@ -214,4 +239,6 @@ private:
 	friend class FItemPickupTest;       // 아이템 획득·니들 사용 검증의 튜닝 수동 적용을 위한 접근 (Task 23)
 	friend class FBombKickTest;         // 킥 발동 조건 검증을 위한 접근 (방향키 밀기)
 	friend class FSpectateTest;         // 관전 카메라 각 보간을 Tick 부작용 없이 돌리기 위한 접근
+	friend class FTrappedPopTest;       // 갇힌 상대 터뜨리기 판정을 Tick 부작용 없이 돌리기 위한 접근
+	friend class FBotPopTrappedTest;    // 봇이 갇힌 적을 노리는 경로 검증의 튜닝 수동 적용을 위한 접근
 };

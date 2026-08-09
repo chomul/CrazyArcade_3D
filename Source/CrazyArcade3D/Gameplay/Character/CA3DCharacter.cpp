@@ -259,6 +259,11 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 		Status->ServerKill(bSuddenDeath ? EDeathCause::SuddenDeath : EDeathCause::Fall);
 	}
 
+	// 갇힌 상대 터뜨리기 (2026-08-10 확정) — 내가 갇혀 있을 때만 실제로 무언가를 한다.
+	// 낙사 판정 **뒤**에 두는 이유: 같은 틱에 둘 다 성립하면 이미 KillZ 아래로 떨어진 쪽이
+	// 사실이고, 그 경우 여기는 ServerKill 의 Dead 가드로 조용히 no-op 이 된다.
+	ServerTryPopIfTouched();
+
 	// 폭탄 킥 (2026-08-06 확정) — 방향키로 민다. 전용 키가 없으므로 "지금 어느 쪽으로 밀고
 	// 있는가" 를 매 틱 본다.
 	//
@@ -388,11 +393,10 @@ void ACA3DCharacter::ServerTryKickBomb(const FVector& WorldInputDirection)
 
 	// 접촉 판정 — "걸어 들어가면" 이므로 실제로 닿아야 한다. 옆 칸에 들어서자마자 차이면
 	// 폭탄이 손도 대기 전에 한 칸(CellSize) 앞서 도망가는 것처럼 보인다.
-	// 사거리는 실제 형상에서 파생한다: 캡슐 반지름 + 폭탄 막힘 박스 반경 + 룰셋 여유.
-	const UCA3DRuleSet* Rules = CachedRules ? CachedRules.Get() : GetDefault<UCA3DRuleSet>();
-	const float Reach = GetCapsuleComponent()->GetScaledCapsuleRadius()
-		+ Bomb->GetBlockingExtent()
-		+ Rules->BombKickReachToleranceCells * VoxelWorld->CellSize;
+	// 사거리는 실제 형상에서 파생한다 — 공식은 GetContactReach 한 곳뿐이다 (갇힌 상대
+	// 터뜨리기도 같은 함수를 쓴다. 두 벌이 되면 "차지는 거리"와 "터지는 거리"가 갈라진다).
+	const float Reach = GetContactReach(
+		GetCapsuleComponent()->GetScaledCapsuleRadius(), Bomb->GetBlockingExtent());
 
 	// 미는 축의 거리만 본다 — 수직 정렬은 위의 "발밑 셀 + 방향 == 폭탄 셀" 이 이미 보장한다.
 	const FVector Delta = Bomb->GetActorLocation() - GetActorLocation();
@@ -405,6 +409,103 @@ void ACA3DCharacter::ServerTryKickBomb(const FVector& WorldInputDirection)
 	// 시작 조건(이미 미끄러지는 중·폭발 예약·앞이 막힘)은 폭탄이 단독으로 판단한다 —
 	// 규칙을 두 곳에 적으면 언젠가 한쪽만 바뀐다 (ServerUseNeedle → ServerEscape 와 같은 관례).
 	Bomb->ServerStartKick(Direction);
+}
+
+// ─── 접촉 판정의 단일 출처 ───────────────────────────────────────────────────
+
+float ACA3DCharacter::GetContactReach(float SelfExtent, float TargetExtent) const
+{
+	// 튜닝 미도착 시 CDO 폴백 (RefreshMoveSpeed·TryApplyMovementTuning 관례).
+	const UCA3DRuleSet* Rules = CachedRules ? CachedRules.Get() : GetDefault<UCA3DRuleSet>();
+
+	// 여유는 **셀 단위 계수 × CellSize** — 셀 크기를 바꿔도 접촉 감각이 유지된다.
+	// VoxelWorld 가 없으면(BeginPlay 이전·없는 맵) 여유 0 — 두 형상이 실제로 겹칠 때만 인정한다.
+	const float CellSize = VoxelWorld ? VoxelWorld->CellSize : 0.f;
+	return SelfExtent + TargetExtent + Rules->BombKickReachToleranceCells * CellSize;
+}
+
+// ─── 갇힌 상대 터뜨리기 (2026-08-10 사용자 확정) ──────────────────────────────
+
+void ACA3DCharacter::ServerTryPopIfTouched()
+{
+	if (!HasAuthority()) return; // 불변식 5 — 사망은 상태 변경이다 (데디에서도 반드시 돈다)
+
+	// ⚠️ **여기가 이 기능의 비용 전부다.** 갇힌 사람이 아니면 한 줄에서 되돌아간다 —
+	//    아무도 갇혀 있지 않은 평상시에는 캐릭터당 enum 비교 하나가 전체 비용이다.
+	//    캐시한 플래그가 아니라 LifeState 를 매번 읽는 것이 중요하다: 같은 프레임에 니들
+	//    탈출이 먼저 돌았으면 여기서 곧바로 Alive 로 보이고, 그래서 "탈출한 뒤에 죽는" 일이 없다.
+	if (!Status || Status->LifeState != ELifeState::Trapped)
+	{
+		return;
+	}
+
+	const UCA3DRuleSet* Rules = CachedRules ? CachedRules.Get() : GetDefault<UCA3DRuleSet>();
+	if (!Rules->bPopTrappedOnContact)
+	{
+		return; // 룰셋에서 끈 상태 — 갇힘은 오직 익사 타이머로만 끝난다
+	}
+
+	UWorld* World = GetWorld();
+	const UCapsuleComponent* SelfCapsule = GetCapsuleComponent();
+	if (!World || !SelfCapsule)
+	{
+		return;
+	}
+	const float SelfRadius     = SelfCapsule->GetScaledCapsuleRadius();
+	const float SelfHalfHeight = SelfCapsule->GetScaledCapsuleHalfHeight();
+	const FVector SelfLocation = GetActorLocation();
+
+	// 후보는 캐릭터뿐이다. ABomb::CanKickInto 가 "폭탄을 막는 플레이어" 를 찾는 것과 **같은
+	// 순회 방식**을 쓴다 — 컬리전 오버랩 이벤트를 쓸 수 없기 때문이다: 캐릭터 캡슐은 엔진
+	// 기본 `Pawn` 프로파일이고 그 프로파일은 Visibility 만 Ignore 로 덮으므로 **Pawn↔Pawn 이
+	// Block** 이다(2026-08-10 코드 확인: Character.cpp 의 SetCollisionProfileName(Pawn_ProfileName)
+	// + BaseEngine.ini 의 Pawn 프로파일). Block 인 쌍은 오버랩 이벤트를 아예 만들지 않는다.
+	for (ACA3DCharacter* Other : TActorRange<ACA3DCharacter>(World))
+	{
+		if (!IsValid(Other) || Other == this)
+		{
+			continue; // 자기 자신은 무관 — 혼자 갇혀 있는 것만으로 죽지 않는다
+		}
+
+		// 터뜨리는 쪽은 **Alive 여야 한다**: 갇힌 사람끼리는 서로 못 터뜨리고(둘 다 Trapped),
+		// 시체도 못 터뜨린다(Dead — GDD "유령 방해 없음" 과 같은 정신).
+		const UStatusComponent* OtherStatus = Other->GetStatus();
+		if (!OtherStatus || OtherStatus->LifeState != ELifeState::Alive)
+		{
+			continue;
+		}
+
+		const UCapsuleComponent* OtherCapsule = Other->GetCapsuleComponent();
+		if (!OtherCapsule)
+		{
+			continue;
+		}
+
+		// 수직 먼저 — 아래층·위층 사람이 평면상 겹쳐 있다고 터뜨리면 안 된다.
+		// 두 캡슐의 반높이 합을 넘어서면 애초에 몸이 닿을 수 없다.
+		const FVector Delta = Other->GetActorLocation() - SelfLocation;
+		if (FMath::Abs(Delta.Z) > GetContactReach(SelfHalfHeight, OtherCapsule->GetScaledCapsuleHalfHeight()))
+		{
+			continue;
+		}
+
+		// 수평은 **평면 거리**로 본다. 킥이 한 축만 보는 것은 폭탄이 그리드 축을 따라 미끄러져
+		// 나머지 축 정렬이 셀 비교로 이미 보장되기 때문이고, 사람은 어느 방향에서든 닿을 수
+		// 있으므로 그 특수화가 성립하지 않는다 — 사거리 공식 자체는 같다.
+		if (FVector2D(Delta.X, Delta.Y).SizeSquared()
+			> FMath::Square(GetContactReach(SelfRadius, OtherCapsule->GetScaledCapsuleRadius())))
+		{
+			continue;
+		}
+
+		UE_LOG(LogCA3D, Log, TEXT("ACA3DCharacter %s: 갇힌 채로 %s 에게 접촉 — 즉시 터짐"),
+			*GetName(), *Other->GetName());
+
+		// **단일 진입점**을 통과한다 — 순위·생존자 수 판정은 ACA3DGameMode 단독이라는
+		// 기존 구조를 그대로 탄다 (ServerKill → NotifyPlayerDeath → 다음 틱 PendingDeaths 해소).
+		Status->ServerKill(EDeathCause::Popped);
+		return; // 이미 죽었다 — 두 명이 동시에 밀어도 사망은 한 번이다
+	}
 }
 
 void ACA3DCharacter::RefreshMoveSpeed()

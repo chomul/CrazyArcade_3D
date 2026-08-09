@@ -11,14 +11,17 @@ class UCA3DRuleSet;
 class UStatusComponent;
 struct FVoxelGrid;
 
-// 봇 FSM 상태 (Task 20 · 구조 결정 12 — BT 미사용). 전이 우선순위는 **Evade > Attack > Wander**:
+// 봇 FSM 상태 (Task 20 · 구조 결정 12 — BT 미사용).
+// 전이 우선순위는 **Evade > PopTrapped > (설치) > Attack > Wander**:
 // 위험은 다른 어떤 판단보다 먼저다. 발밑이 물줄기 범위면 상대가 코앞이어도 먼저 빠져나간다.
+// 갇힌 상대(PopTrapped)가 그 다음인 근거는 ABotController::Replan 의 해당 절 주석에.
 UENUM()
 enum class EBotState : uint8
 {
 	Wander,     // 도달 가능한 셀 하나를 골라 이동 (계단·점프 포함)
 	Attack,     // 도달 가능한 상대 쪽으로 접근 — 놓을 만한 자리에 오면 설치 후 Evade
 	Evade,      // 발밑 셀이 위험 → 위험하지 않은 가장 가까운 셀로 탈출
+	PopTrapped, // 물방울에 갇힌 상대에게 걸어 들어가 터뜨린다 — 확정 킬 (2026-08-10)
 };
 
 // 서버 전용 FSM 봇 (Task 20).
@@ -75,6 +78,12 @@ private:
 	FRandomStream RandomStream;
 	bool bRandomSeeded = false;
 
+	// PopTrapped 가 노리고 있는 대상 (2026-08-10). **약참조**인 이유: 대상은 익사·탈출·폭발로
+	// 언제든 사라지고 봇이 그것을 붙들고 있을 이유가 전혀 없다 (UPROPERTY 로 잡으면 오히려
+	// 시체를 GC 에서 붙잡는다). 경로 계획 자체는 이 포인터를 쓰지 않는다 — 오직 "목표를 언제
+	// 버릴까"만 판단한다. 그래서 이 값이 흔들려도 계획의 결정론은 영향을 받지 않는다.
+	TWeakObjectPtr<ACA3DCharacter> PopTarget;
+
 	// ─── 판정 (전부 Propagate 재사용 — 봇 전용 계산 없음) ───
 
 	// 위험 판정: 활성 폭탄 전부에 대해 Propagate 를 호출해 WaterCells 에 Cell 이 들어가는지 본다.
@@ -103,6 +112,12 @@ private:
 	// 액터 이터레이션 순서는 실행마다 다를 수 있어 정렬로 고정한다 (불변식 4 준용).
 	void GatherEnemyFootCells(TArray<FIntVector>& OutCells) const;
 
+	// 지금 노릴 수 있는 **갇힌** 상대들의 발밑 셀 — 좌표 사전순 정렬 (위와 같은 규칙).
+	// FromCell 기준 수평 맨해튼 거리로 미리 거른다: `VoxelMove` 한 걸음은 |ΔX|+|ΔY| 를 정확히
+	// 1 바꾸므로 그 값은 **실제 경로 길이의 하한**이라 갈 수 있는 목표를 잘못 버리지 않는다.
+	// (Z 를 세지 않는 이유: 낙하는 한 걸음에 여러 칸을 내려간다 — 세면 코앞의 상대를 버린다.)
+	void GatherTrappedEnemyFootCells(const FIntVector& FromCell, TArray<FIntVector>& OutCells) const;
+
 	// 그 칸에 서 있을 수 있는가 — `VoxelMove::IsStandable` + 머리 공간.
 	// 머리 공간을 보는 이유는 캡슐 높이(176)가 셀(100)보다 커서 1칸 높이 틈에는 못 들어가기 때문 —
 	// 안 보면 봇이 영원히 못 들어가는 칸을 목적지로 잡고 벽에 붙어 비빈다.
@@ -121,6 +136,19 @@ private:
 
 	// 재계획 — 상태 전이와 경로 교체를 한 곳에서 한다 (전이 조건이 흩어지면 우선순위가 깨진다).
 	void Replan(const FIntVector& FootCell, const TArray<FIntVector>& DangerCells);
+
+	// 갇힌 상대에게 **접촉하러** 가는 경로를 잡는다 (PopTrapped). 잡았으면 true.
+	//
+	// 목표 셀은 "옆 칸"이 아니라 **상대의 발밑 셀 그 자체**다. 옆 칸 중심에 서면 두 캐릭터의
+	// 중심 거리가 정확히 CellSize(100) 라서 접촉 사거리(캡슐 34 + 34 + 여유 10 = 78)에 못
+	// 미친다 — 봇이 도착만 하고 영원히 안 터뜨리게 된다. 상대 칸을 목표로 두면 캡슐끼리
+	// Block 이라 실제로는 68cm 앞에서 막히고, 그 순간 접촉 판정이 성립한다.
+	// (도착 자체는 영원히 못 하지만 그래도 된다 — 목표는 도착이 아니라 접촉이다.)
+	bool PlanPopTrapped(const FIntVector& FootCell, const TArray<FIntVector>& DangerCells);
+
+	// PopTrapped 목표가 아직 유효한가 — 대상이 살아 있고 **여전히 갇혀 있는가**.
+	// 갇힘 수명이 TrappedDuration(4초)뿐이라 재계획 주기(0.4초)를 기다리지 않고 매 틱 본다.
+	bool IsPopTargetValid() const;
 
 	// 위험하지 않은 가장 가까운 셀로의 경로를 잡는다 (Evade).
 	void PlanEscape(const FIntVector& FootCell, const TArray<FIntVector>& DangerCells);
@@ -144,5 +172,6 @@ private:
 	UPROPERTY()
 	mutable TObjectPtr<AVoxelWorld> CachedVoxelWorld;
 
-	friend class FBotControllerTest; // 자동화 테스트가 FSM 판정·BFS 를 직접 호출하기 위한 접근
+	friend class FBotControllerTest;  // 자동화 테스트가 FSM 판정·BFS 를 직접 호출하기 위한 접근
+	friend class FBotPopTrappedTest;  // 〃 (갇힌 적 노리기 — 목표 선택·경로·파기 검증)
 };

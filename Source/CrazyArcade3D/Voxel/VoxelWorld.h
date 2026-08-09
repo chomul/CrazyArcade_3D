@@ -170,4 +170,6 @@ private:
 	friend class FItemPickupTest; // 자동화 테스트가 손그리드·아이템 배치 주입을 위한 접근 (Task 23)
 	friend class FSuddenDeathTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (Task 24)
 	friend class FBombKickTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (폭탄 킥)
+	friend class FTrappedPopTest;    // 자동화 테스트가 손그리드 구성을 위한 접근 (갇힌 상대 터뜨리기)
+	friend class FBotPopTrappedTest; // 자동화 테스트가 손그리드 구성을 위한 접근 (봇이 갇힌 적 노리기)
 };
