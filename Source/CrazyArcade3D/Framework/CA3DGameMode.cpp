@@ -86,6 +86,10 @@ void ACA3DGameMode::BeginPlay()
 	if (!VoxelWorld)
 	{
 		UE_LOG(LogCA3D, Error, TEXT("ACA3DGameMode: 레벨에 AVoxelWorld 없음 — 맵 생성·스폰 배정 불가"));
+		// 진짜 비정상이다 — 여기서도 게이트는 열어야 한다. 안 열면 보류된 컨트롤러가 폰을
+		// 영영 못 받는다. 열어 두면 StartPlay 의 해소가 ChoosePlayerStart 의 엔진 기본 폴백으로
+		// 내보낸다 (= 이 결함 수정 전과 같은 동작이지만, "진짜 비정상" 일 때만 그렇다).
+		bMatchStartResolved = true;
 		return;
 	}
 
@@ -128,6 +132,24 @@ void ACA3DGameMode::BeginPlay()
 	GetWorldTimerManager().SetTimer(SuddenDeathTimer,
 		FTimerDelegate::CreateUObject(this, &ACA3DGameMode::StartSuddenDeath),
 		FMath::Max(Rules->SuddenDeathStart, KINDA_SMALL_NUMBER), false);
+
+	// ── 7. 스폰 게이트 열기 ──────────────────────────────────────
+	// 여기서부터 SpawnCells 가 확정이다. 실제 스폰(보류분 해소)은 StartPlay 가 한다.
+	bMatchStartResolved = true;
+}
+
+void ACA3DGameMode::StartPlay()
+{
+	// Super 안에서 액터 BeginPlay 가 일괄 실행된다 (GameState->HandleBeginPlay →
+	// AWorldSettings::NotifyBeginPlay). 우리 BeginPlay 도 그 안에서 돌아 게이트가 열린다.
+	Super::StartPlay();
+
+	// 해소를 **BeginPlay 안이 아니라 여기서** 하는 이유: NotifyBeginPlay 는 액터 목록을
+	// 순회하는 중이고 `World->SetBegunPlay(true)` 는 순회가 끝난 뒤에 세워진다. 그 안에서
+	// 폰을 스폰하면 AActor::PostActorConstruction 이 "월드가 아직 BeginPlay 전"으로 보고
+	// BeginPlay 를 미루는데, 순회는 이미 그 액터를 지나쳤을 수 있다 — 폰의 BeginPlay 가
+	// 통째로 누락될 수 있는 자리다. Super 가 끝난 뒤면 월드가 이미 BegunPlay 라 안전하다.
+	FlushPendingSpawns();
 }
 
 void ACA3DGameMode::PostLogin(APlayerController* NewPlayer)
@@ -144,11 +166,149 @@ void ACA3DGameMode::PostLogin(APlayerController* NewPlayer)
 	// 인지 규칙부터 확정해야 한다. 확정 전에 구현하면 승패 판정이 조용히 어긋난다.
 }
 
+void ACA3DGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
+{
+	// ⚠️ **PostLogin 은 BeginPlay 보다 먼저 돌 수 있다.** 엔진의 두 진입 경로가 모두
+	// `LocalPlayer->SpawnPlayActor`(→ Login → PostLogin) 를 `World->BeginPlay()` **앞에서**
+	// 부른다: `UEngine::LoadMap`(스탠드얼론·패키징·리슨 호스트)과
+	// `UGameInstance::StartPlayInEditorGameInstance`(PIE) 둘 다 그렇다.
+	//
+	// 그 시점에는 VoxelWorld 도 SpawnCells 도 비어 있어 ChoosePlayerStart 가 엔진 기본 탐색으로
+	// 폴백하는데, 이 레벨에는 PlayerStart 가 없다(맵을 시드로 생성하므로). 그러면
+	// `AGameModeBase::FindPlayerStart_Implementation` 이 **WorldSettings(원점)** 를 돌려주고
+	// 폰은 지형 밖에 스폰돼 낙사한다 (2026-08-09 -game 실측: 입장 32ms 뒤 시드 로그,
+	// 그 2.7초 뒤 KillZ 낙사).
+	//
+	// **PIE 에서는 이 결함이 드러나지 않는다** — 에디터가 PIE 월드에 `APlayerStartPIE` 를
+	// 뷰포트 카메라 위치에 미리 스폰해 두고(`UGameInstance::InitializeForPlayInEditor` →
+	// `SpawnPlayFromHereStart`, 기본 설정 `PlayLocation_CurrentCameraLocation`),
+	// 엔진 폴백이 그것을 **최우선으로** 고르기 때문이다. 카메라는 보통 아레나 위쪽이라
+	// 30ms 뒤 완성되는 지형 위로 떨어져 살아남는다. 즉 순서는 PIE 와 -game 이 **같고**,
+	// PIE 만 우연히 그물이 하나 더 있다 — HISM·데디 가드와 같은 계열의 "PIE 로는 안 잡히는" 함정.
+	//
+	// 그래서 폴백에 기대지 않고 **대기**로 푼다: 지형이 판가름 나기 전에는 폰을 만들지 않는다.
+	// 참가 등록(RegisterParticipant)은 PostLogin 에서 이미 끝났으므로 ColorIndex·AliveCount·
+	// MatchParticipantCount·GetNumPlayers()(컨트롤러를 센다)는 대기 여부와 무관하게 정확하다.
+	if (!bMatchStartResolved)
+	{
+		PendingSpawnControllers.AddUnique(NewPlayer);
+		UE_LOG(LogCA3D, Log,
+			TEXT("ACA3DGameMode: 지형 준비 전 입장 — 폰 스폰 보류 (대기 %d명)"),
+			PendingSpawnControllers.Num());
+		return;
+	}
+
+	Super::HandleStartingNewPlayer_Implementation(NewPlayer);
+}
+
+// ─── 스폰 위치의 단일 출처 ───────────────────────────────────────────────────
+//
+// ⚠️ 게이트(위)만으로는 부족했다 — **로그인 단계가 이미 원점을 굳혀 놓기 때문**이다
+// (2026-08-09 -game 실측: 게이트가 정상 동작해 "보류 → 해소" 로그까지 찍혔는데도 낙사).
+//
+// 엔진 흐름:
+//   AGameModeBase::InitNewPlayer (Login, PostLogin 보다 **앞**)
+//     └─ UpdatePlayerStartSpot                     (GameModeBase.cpp:787)
+//          └─ FindPlayerStart → ChoosePlayerStart  → (맵이 아직 없으니) 엔진 폴백 = WorldSettings(원점)
+//          └─ **Player->StartSpot = 그 액터**       (GameModeBase.cpp:848)
+//   … 나중에 …
+//   RestartPlayer → FindPlayerStart_Implementation (GameModeBase.cpp:1149)
+//     └─ ShouldSpawnAtStartSpot(Player)            (GameModeBase.cpp:1142)
+//          == (Player->StartSpot != nullptr) == true
+//     └─ return Player->StartSpot                  ← ChoosePlayerStart 를 **쳐다보지도 않는다**
+//
+// 그래서 두 곳을 다 막는다. 하나만 막으면 안 되는 이유는 각 함수 주석에.
+
+bool ACA3DGameMode::UpdatePlayerStartSpot(AController* /*Player*/, const FString& /*Portal*/, FString& OutErrorMessage)
+{
+	// 로그인 시점의 "미리 골라 둔 자리" 는 이 게임에서 **정의상 무의미**하다 — 맵은 시드로
+	// 생성되고, 첫 사람의 로그인은 생성(BeginPlay)보다 먼저 돌 수 있다. 그때 고른 자리는
+	// 항상 지형 밖이다.
+	//
+	// ShouldSpawnAtStartSpot 만 false 로 막아도 낙사는 사라지지만, 이 함수를 그대로 두면
+	// **지형이 이미 준비된 뒤에 접속한 사람(= 데디 서버의 모든 사람)이 스폰 셀을 한 칸씩
+	// 헛돌린다.** 로그인에서 ChoosePlayerStart 가 한 번(NextSpawnIndex++), 실제 스폰에서 또
+	// 한 번 도니 1인당 2칸을 먹는다 — 셀 8개에 사람이 5명 이상이면 인덱스가 되감겨 **두 명이
+	// 같은 칸에 겹쳐 스폰**된다(SpawnStartActors 캐시가 같은 액터를 돌려주므로 완전히 같은 좌표).
+	// 스폰 배정은 폰을 만드는 그 순간에 딱 한 번만 돌아야 한다.
+	//
+	// true 를 돌려주는 이유: false 면 InitNewPlayer 가 "Could not find a starting spot" 경고를
+	// 남긴다(GameModeBase.cpp:789). 자리를 못 찾은 게 아니라 **아직 고를 때가 아닌 것**이다.
+	OutErrorMessage.Reset();
+	return true;
+}
+
+bool ACA3DGameMode::ShouldSpawnAtStartSpot(AController* /*Player*/)
+{
+	// 스폰 위치는 **항상** ChoosePlayerStart(= 생성기가 준 스폰 셀)가 정한다.
+	//
+	// UE 5.8 에서 Player->StartSpot 에 값을 넣는 곳은 UpdatePlayerStartSpot 한 곳뿐이고
+	// (GameModeBase.cpp:848 — 스폰 성공 후 불리는 InitStartSpot_Implementation 은 :1388 에서
+	// **비어 있다**), 위에서 그 한 곳을 막았다. 그러니 지금 당장은 이 오버라이드 없이도 동작한다.
+	// 그래도 두는 이유는 그 사실이 **우리가 통제하지 못하는 전제**이기 때문이다:
+	//   · InitStartSpot 은 "start spawn actor 를 초기화하라" 는 용도로 열려 있는
+	//     BlueprintNativeEvent 훅이다 — BP 나 후속 Task 가 채우면 그때부터 배정이 우회된다.
+	//   · RestartPlayer 는 FindPlayerStart 가 실패하면 StartSpot 을 폴백으로 읽는다(:1256).
+	//   · 엔진 갱신으로 :1388 이 채워지면 아무 경고 없이 되살아난다.
+	// 그때 증상은 "부활할 때마다 처음 배정받은 칸(또는 원점)에 영구히 못 박힘" 이고, 이번처럼
+	// 로그는 정상인데 위치만 틀린 형태로 나온다. 배정 규칙 진입점을 하나로 못 박아 둔다.
+	return false;
+}
+
+void ACA3DGameMode::FlushPendingSpawns()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	// 게이트가 아직 안 열렸으면 아무것도 하지 않는다 — 여기서 스폰하면 결함 그대로다.
+	if (!bMatchStartResolved || PendingSpawnControllers.Num() == 0)
+	{
+		return;
+	}
+
+	// 목록을 **먼저** 옮겨 비운다. 두 번 스폰되면 폰이 둘 남거나 AliveCount 가 어긋나
+	// 승패 판정이 조용히 깨진다 — 재진입·중복 호출 어느 쪽으로도 두 번 돌 수 없게 만든다.
+	TArray<TObjectPtr<APlayerController>> Waiting = MoveTemp(PendingSpawnControllers);
+	PendingSpawnControllers.Reset();
+
+	int32 SpawnedCount = 0;
+	for (const TObjectPtr<APlayerController>& Each : Waiting)
+	{
+		APlayerController* PC = Each.Get();
+		if (!IsValid(PC) || PC->GetPawn())
+		{
+			continue; // 대기 중 이탈했거나 다른 경로로 이미 폰을 받았다
+		}
+
+		// 사람이 정상 순서로 들어왔을 때와 **같은 경로**로 스폰한다 (게이트는 이미 열렸으므로
+		// 위 오버라이드는 그대로 Super 로 내려간다). 관전 전용·재시작 불가 판정도 엔진 그대로.
+		HandleStartingNewPlayer(PC);
+		++SpawnedCount;
+	}
+
+	UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 보류 폰 스폰 해소 — 대기 %d명 중 %d명 스폰"),
+		Waiting.Num(), SpawnedCount);
+}
+
 AActor* ACA3DGameMode::ChoosePlayerStart_Implementation(AController* Player)
 {
 	if (!VoxelWorld || SpawnCells.Num() == 0)
 	{
-		// VoxelWorld 미배치 등 비정상 — 엔진 기본 탐색(레벨의 PlayerStart)으로 폴백.
+		// ⚠️ 이 폴백은 **진짜 비정상 전용**이다 (레벨에 AVoxelWorld 미배치, 맵 생성 실패).
+		// 이 경고가 뜨면 파야 한다 — 정상 흐름에서는 한 번도 뜨지 않는다.
+		//
+		// 한때 로그인 단계(AGameModeBase::InitNewPlayer → UpdatePlayerStartSpot)가 매 접속마다
+		// 여기를 두드려 "정상인데도 뜨는 경고" 였다. 그건 경고가 아니라 **결함의 증상**이었고
+		// (굳은 원점 StartSpot → 낙사), 지금은 UpdatePlayerStartSpot 오버라이드가 그 호출 자체를
+		// 없앴다. 그러니 이 경고를 "원래 뜨는 것" 으로 넘기지 말 것.
+		//
+		// 그리고 "아직 BeginPlay 가 안 돌아서 비어 있는" 정상적인 순서 문제도 여기로 오지 않는다 —
+		// 그건 HandleStartingNewPlayer_Implementation 의 대기 게이트가 막는다.
+		// 이 레벨에는 PlayerStart 가 없으므로(맵을 시드로 생성) 엔진 폴백은 결국
+		// WorldSettings(원점)로 떨어진다 = 지형 밖.
+		UE_LOG(LogCA3D, Warning,
+			TEXT("ACA3DGameMode::ChoosePlayerStart: 스폰 셀 없음(VoxelWorld %s) — 엔진 기본 탐색으로 폴백. "
+			     "이 레벨에는 PlayerStart 가 없어 원점 스폰이 된다"),
+			VoxelWorld ? TEXT("있음") : TEXT("없음"));
 		return Super::ChoosePlayerStart_Implementation(Player);
 	}
 

@@ -25,8 +25,15 @@ public:
 	// 매치 시작: 시드 결정 → GameState에 Rules·시작 시각 세팅 → VoxelWorld 초기화 → 스폰 셀 보관.
 	virtual void BeginPlay() override;
 
+	// 액터 BeginPlay 일괄 실행(Super) **직후** 보류된 폰 스폰을 해소한다.
+	// BeginPlay 안이 아니라 여기여야 하는 이유는 .cpp 주석 참조.
+	virtual void StartPlay() override;
+
 	// 참가 등록: 접속 순서로 ColorIndex 배정 + 참가 인원·AliveCount 증가 (Task 18).
 	virtual void PostLogin(APlayerController* NewPlayer) override;
+
+	// 폰 스폰 시점의 게이트 — 지형이 판가름 나기 전에는 스폰하지 않고 보류한다 (아래 .cpp 주석).
+	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 
 	// 생성기가 반환한 스폰 셀에 플레이어를 순서대로 배정한다.
 	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
@@ -36,6 +43,16 @@ public:
 	void NotifyPlayerDeath(ACA3DPlayerState* DeadState);
 
 protected:
+	// ─── 스폰 위치의 단일 출처를 지키는 두 오버라이드 ───
+	// 엔진은 "로그인 때 고른 자리(StartSpot)를 기억했다가 나중에 그대로 쓴다" 는 전제로 만들어져
+	// 있다. 이 게임은 로그인 시점에 맵이 없을 수 있어 그 전제가 성립하지 않는다 (.cpp 주석).
+
+	// 로그인 단계에서 StartSpot 을 미리 정하지 않는다.
+	virtual bool UpdatePlayerStartSpot(AController* Player, const FString& Portal, FString& OutErrorMessage) override;
+
+	// 굳어 있는 StartSpot 을 재사용하지 않는다 — 스폰 위치는 **항상** ChoosePlayerStart 가 정한다.
+	virtual bool ShouldSpawnAtStartSpot(AController* Player) override;
+
 	// 룰셋 프리셋 — BP 서브클래스(BP_CA3DGameMode)에서 DA_Rules_Default 지정 (BP에 로직 금지).
 	UPROPERTY(EditDefaultsOnly, Category="CA3D")
 	TObjectPtr<UCA3DRuleSet> Rules;
@@ -90,6 +107,20 @@ private:
 	UPROPERTY()
 	TArray<TObjectPtr<APlayerStart>> SpawnStartActors;
 
+	// ─── 스폰 게이트 (PostLogin ↔ BeginPlay 순서 무관화) ───
+
+	// BeginPlay 가 "지형이 됐는지 안 됐는지"를 판가름 냈는가. 성공·실패 **둘 다** true 다 —
+	// 실패(레벨에 AVoxelWorld 없음)는 진짜 비정상이라 엔진 기본 폴백으로 내보내야 하고,
+	// 여기서 계속 붙잡아 두면 폰이 영영 안 생긴다.
+	bool bMatchStartResolved = false;
+
+	// 지형이 판가름 나기 전에 입장해 폰 스폰을 보류한 컨트롤러들. FlushPendingSpawns 가 비운다.
+	UPROPERTY()
+	TArray<TObjectPtr<APlayerController>> PendingSpawnControllers;
+
+	// 보류된 컨트롤러를 **정확히 한 번씩** 스폰한다.
+	void FlushPendingSpawns();
+
 	// ─── 승패 판정 (Task 18, 서버 전용) ───
 
 	// 이번 프레임에 들어온 사망 통지 버퍼. 다음 틱에 통째로 해소된다.
@@ -117,6 +148,7 @@ private:
 	FTimerHandle SuddenDeathTimer;
 
 	friend class FCA3DGameModeTest;    // 자동화 테스트가 Rules·고정 시드 주입과 스폰 배정 검증을 위한 접근
+	friend class FCA3DSpawnGateTest;   // 자동화 테스트가 "지형 준비 전 입장"을 헤드리스로 재현하기 위한 접근
 	friend class FCA3DPlayerStateTest; // 자동화 테스트가 참가 인원·사망 버퍼를 직접 구성하기 위한 접근
 	friend class FBotControllerTest;   // 자동화 테스트가 봇 채우기·참가 등록을 직접 호출하기 위한 접근 (Task 20)
 	friend class FSuddenDeathTest;     // 자동화 테스트가 서든데스 시작·정지 배선을 직접 호출하기 위한 접근 (Task 24)
