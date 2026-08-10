@@ -44,6 +44,24 @@
   안전망이 진짜 이상을 덮음
 
 ## 멀티 처리
+
+```mermaid
+flowchart LR
+    subgraph SV["서버 — 폭탄의 전체 수명"]
+        A["ServerArm<br>Cell·Range 확정·퓨즈"] --> B["킥/낙하 틱<br>ServerUpdateKick/Fall"]
+        B --> C["ServerForceDetonate<br>→ 폭발 시스템"]
+    end
+    subgraph CL["클라 — 받은 값으로 그림"]
+        D["BeginPlay<br>예측 회수 + 데칼"]
+        E["OnRep_Cell<br>데칼 이동"]
+        F["bReplicateMovement<br>메시 이동"]
+    end
+    A -->|"첫 복제 (Deferred 덕분에 값 포함)"| D
+    B -->|"Cell 복제"| E
+    B -->|"위치 복제"| F
+    style A fill:#1F7ACC,color:#fff
+```
+
 **판정은 100% 서버.** 클라로 가는 것은 셋뿐 — 액터 존재(복제 스폰) · `Cell`·`Range` 값 ·
 `bReplicateMovement` 위치. 타이머·킥 상태·연쇄는 아예 안 보내고, 클라는 받은 값으로
 데칼·프리뷰를 로컬 재구성한다. RPC 없음(폭발 직후 Destroy라 전송 미보장 — 릴레이가 대행)

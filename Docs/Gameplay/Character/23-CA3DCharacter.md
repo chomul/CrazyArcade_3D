@@ -47,6 +47,24 @@
 - **공중 설치 = -Z 스캔** (잠정) → 아래 첫 솔리드 위 셀. 그리드 밖이면 RPC 자체 생략
 
 ## 멀티 처리
+
+```mermaid
+sequenceDiagram
+    participant C as 클라 (설치자)
+    participant S as 서버
+    Note over C: 입력 → TryPlaceBombPredicted
+    C->>C: 로컬 검증 4종 → 예측 비주얼 + 설치음 (즉시)
+    C->>S: ServerPlaceBomb(Cell)
+    alt 권위 검증 실패
+        S->>C: ClientRejectBomb(Cell)
+        C->>C: 비주얼만 제거 (되돌릴 상태 없음)
+    else 성공
+        S->>S: SpawnActorDeferred + ServerArm
+        S-->>C: ABomb 액터 복제
+        Note over C: BeginPlay가 같은 셀 예측 회수 = 확정 신호
+    end
+```
+
 **"입력 → 로컬 예측 → Server RPC → 권위 검증 → 복제"의 표준 예측 패턴.**
 이동은 CMC 기본 복제(엔진), 스탯·생존은 StatusComponent 복제, 폭탄은 예측+RPC.
 상태를 바꾸는 RPC는 3개뿐이고 나머지 판정(킥·터뜨리기·낙사)은 서버 틱이 스스로 돈다.

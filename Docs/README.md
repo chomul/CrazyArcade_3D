@@ -99,7 +99,37 @@
 
 ## 멀티 처리 개요 — 이 프로젝트의 넷코드 한 장 요약
 
-**원칙: 서버가 모든 판정의 진실이고, 클라는 "받은 값으로 로컬 재구성"한다.** 전달 수단은 넷뿐:
+**원칙: 서버가 모든 판정의 진실이고, 클라는 "받은 값으로 로컬 재구성"한다.**
+
+```mermaid
+flowchart LR
+    subgraph SV["🖥 서버 = 진실"]
+        GM["GameMode<br>매치 진행·승패<br>(클라에 없음)"]
+        VW["VoxelWorld<br>그리드 원본·파괴 확정"]
+        BOMB["ABomb<br>퓨즈·킥·낙하"]
+        ST["StatusComponent<br>스탯·생존 전이"]
+        BOT["BotController<br>(클라에 없음)"]
+    end
+    subgraph CL["🖥 클라 = 재구성"]
+        VWC["VoxelWorld 사본<br>시드로 재생성"]
+        PRED["PredictedBombVisual<br>(네트워크에 없음)"]
+        DECAL["위험 데칼<br>Propagate 로컬 실행"]
+        UI["HUD·위젯<br>복제 값 폴링"]
+        CAM["카메라·관전<br>전부 로컬"]
+    end
+    VW -->|"Seed·GridSize 복제"| VWC
+    VW -->|"파괴 Multicast + DestroyedCells 이력"| VWC
+    BOMB -->|"Cell·Range·위치 복제"| DECAL
+    ST -->|"스탯·LifeState 복제"| UI
+    GM -->|"GameState·PlayerState 복제"| UI
+    PRED -.->|"ServerPlaceBomb RPC"| BOMB
+    CAM -.->|"ServerSetCamYawIndex RPC"| GM
+    BOT --> BOMB
+    style GM fill:#C96A1F,color:#fff
+    style VW fill:#1F7ACC,color:#fff
+```
+
+실선 = 서버→클라 (복제·Multicast) / 점선 = 클라→서버 (Server RPC — 프로젝트 전체에 4개뿐). 전달 수단은 넷뿐:
 
 | 수단 | 쓰는 곳 | 왜 |
 |---|---|---|

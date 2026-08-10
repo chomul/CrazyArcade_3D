@@ -47,6 +47,22 @@
 - **왜 여기만 FMath::Rand 허용?** → 결정론이 필요한 건 "시드→맵"이지 시드 생성이 아님
 
 ## 멀티 처리
+
+```mermaid
+flowchart TD
+    subgraph SV["서버 전용 (클라에 없음)"]
+        L["PostLogin<br>RegisterParticipant"] --> G{"지형 준비됨?<br>bMatchStartResolved"}
+        G -->|"아니오"| P["PendingSpawnControllers 대기<br>★ 스폰 게이트"]
+        G -->|"예"| S["정상 스폰<br>(SpawnCells 순서 배정)"]
+        BP["BeginPlay<br>시드 → VoxelWorld 초기화"] --> FL["StartPlay (Super 직후)<br>FlushPendingSpawns"]
+        P --> FL --> S
+        K["NotifyPlayerDeath 수집"] --> RD["다음 틱 ResolvePendingDeaths<br>공동 등수 = Max(2, Alive-K+1)"]
+    end
+    RD -->|"FinalRank·bAlive (PlayerState)<br>bMatchEnded·MatchWinner (GameState) 복제"| CL["클라: 결과 화면·관전"]
+    style G fill:#C96A1F,color:#fff
+    style RD fill:#1F7ACC,color:#fff
+```
+
 **클라에 존재하지 않는 서버 전용 액터.** 그래서 이 안의 로직은 권한 가드조차 대부분
 불필요하고, 클라와의 통신은 오직 "결정 결과를 GameState·PlayerState 복제 값에 쓰는 것"뿐.
 받는 쪽 경로도 없다 — 사망 통지는 서버 안의 StatusComponent가 직접 부른다.

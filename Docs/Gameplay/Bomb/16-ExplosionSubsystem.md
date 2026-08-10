@@ -36,6 +36,22 @@
 - **왜 Multicast를 릴레이에 위임?** → 서브시스템은 액터가 아니라 RPC 불가
 
 ## 멀티 처리
+
+```mermaid
+flowchart TD
+    A["ABomb::ServerForceDetonate (서버)"] --> B["RequestDetonate → PendingChain"]
+    B --> C["ProcessChainStep<br>ChainStepDelay마다 1단계"]
+    C --> D["Propagate — 순수 계산<br>(클라도 프리뷰용으로 같은 함수 실행)"]
+    D --> E["ApplyExplosionCells"]
+    E --> F["② VoxelWorld.ServerDestroyBlocks<br>→ 파괴 Multicast"]
+    E --> G["③ FXRelay.MulticastWaterCells<br>→ 클라 물줄기"]
+    E --> H["④ 발밑 셀 판정 → ServerTrap<br>→ LifeState 복제"]
+    E --> I["⑤ 아이템 소멸→노출<br>(복제 액터 파괴/스폰)"]
+    D -.->|"ChainedCells"| B
+    style D fill:#1F7ACC,color:#fff
+    style E fill:#1F7ACC,color:#fff
+```
+
 서브시스템은 서버·클라 양쪽 월드에 존재하지만 **폭발 확정·적용은 서버에서만** 돈다.
 클라 쪽 인스턴스는 `Propagate`(프리뷰)와 레지스트리 조회에만 쓰인다.
 클라 통지는 직접 하지 않고 파괴는 VoxelWorld Multicast, 물줄기는 FXRelay가 대신 방송한다.

@@ -37,6 +37,24 @@
   "봇은 상한인 줄 아는데 실제로는 오르는" 어긋남
 
 ## 멀티 처리
+
+```mermaid
+flowchart LR
+    subgraph SV["서버 — 상태 전이"]
+        A["Alive"] -->|"ServerTrap<br>(폭발 피격)"| B["Trapped<br>4초 익사 타이머"]
+        B -->|"ServerEscape<br>(니들)"| A
+        B -->|"타이머 만료<br>ServerKill(Water)"| D["Dead"]
+        A -->|"ServerKill<br>(Fall·Popped·Left·SuddenDeath)"| D
+        D --> N["GameMode.NotifyPlayerDeath"]
+    end
+    subgraph CL["클라"]
+        R["OnRep_Life"] --> AD["ApplyDeathState<br>(서버와 같은 함수)"]
+    end
+    D -.->|"LifeState 복제"| R
+    style D fill:#C96A1F,color:#fff
+    style AD fill:#1F7ACC,color:#fff
+```
+
 **상태의 진실은 서버, 클라는 OnRep으로 결과만 받는다.** 클라→서버 방향은 이 컴포넌트에
 없다(캐릭터 RPC가 대신 받아 서버 안에서 이 진입점들을 부름). 복제 6: 스탯 5 +
 `LifeState`(OnRep_Life → ApplyDeathState 공통 경로)
