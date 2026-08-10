@@ -40,11 +40,11 @@
 ```mermaid
 flowchart LR
     subgraph SV["서버"]
-        A["ProcessDrop<br>셀 지금 확정"] --> B["1.5초 후<br>ExecuteWave"]
-        B --> C["ServerApplyExplosionAt<br>(폭탄과 같은 본체)"]
+        A["① ProcessDrop<br>셀 지금 확정"] --> B["③ 1.5초 후<br>ExecuteWave"]
+        B --> C["④ ServerApplyExplosionAt<br>(폭탄과 같은 본체)"]
     end
-    A -->|"MulticastWarnDrop (Reliable)"| M["클라: 예고 마커<br>보고 피한다"]
-    C -->|"VoxelWorld 파괴 복제 경로"| D["클라: 지형 갱신"]
+    A -->|"② MulticastWarnDrop (Reliable)"| M["클라: 예고 마커<br>보고 피한다"]
+    C -->|"⑤ VoxelWorld 파괴 복제 경로"| D["클라: 지형 갱신"]
     style C fill:#1F7ACC,color:#fff
 ```
 

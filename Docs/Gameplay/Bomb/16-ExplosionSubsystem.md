@@ -39,15 +39,15 @@
 
 ```mermaid
 flowchart TD
-    A["ABomb::ServerForceDetonate (서버)"] --> B["RequestDetonate → PendingChain"]
-    B --> C["ProcessChainStep<br>ChainStepDelay마다 1단계"]
-    C --> D["Propagate — 순수 계산<br>(클라도 프리뷰용으로 같은 함수 실행)"]
-    D --> E["ApplyExplosionCells"]
-    E --> F["② VoxelWorld.ServerDestroyBlocks<br>→ 파괴 Multicast"]
-    E --> G["③ FXRelay.MulticastWaterCells<br>→ 클라 물줄기"]
-    E --> H["④ 발밑 셀 판정 → ServerTrap<br>→ LifeState 복제"]
-    E --> I["⑤ 아이템 소멸→노출<br>(복제 액터 파괴/스폰)"]
-    D -.->|"ChainedCells"| B
+    A["① ABomb::ServerForceDetonate (서버)"] --> B["② RequestDetonate → PendingChain"]
+    B --> C["③ ProcessChainStep<br>ChainStepDelay마다 1단계"]
+    C --> D["④ Propagate — 순수 계산<br>(클라도 프리뷰용으로 같은 함수 실행)"]
+    D --> E["⑤ ApplyExplosionCells<br>(아래 넷을 이 순서로)"]
+    E --> F["⑤-1 VoxelWorld.ServerDestroyBlocks<br>→ 파괴 Multicast"]
+    E --> G["⑤-2 FXRelay.MulticastWaterCells<br>→ 클라 물줄기"]
+    E --> H["⑤-3 발밑 셀 판정 → ServerTrap<br>→ LifeState 복제"]
+    E --> I["⑤-4 아이템 소멸→노출<br>(복제 액터 파괴/스폰)"]
+    D -.->|"⑥ ChainedCells → 다음 단계로"| B
     style D fill:#1F7ACC,color:#fff
     style E fill:#1F7ACC,color:#fff
 ```

@@ -50,6 +50,7 @@
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant C as 클라 (설치자)
     participant S as 서버
     Note over C: 입력 → TryPlaceBombPredicted

@@ -49,19 +49,19 @@
 
 ```mermaid
 flowchart TD
-    subgraph SV["서버"]
-        A["ServerDestroyBlocks(Cells)"] --> B["ApplyDestruction<br>(단일 경로)"]
-        A --> C["DestroyedCells 이력 누적<br>(Multicast보다 먼저)"]
-        A --> D["MulticastOnBlocksDestroyed"]
-        SEED["ServerInitFromSeed<br>시드 확정"]
+    subgraph SV["서버 — 파괴 ①→④ / 입장 Ⓐ"]
+        A["① ServerDestroyBlocks(Cells)"] --> B["② ApplyDestruction<br>(단일 경로)"]
+        A --> C["③ DestroyedCells 이력 누적<br>(Multicast보다 먼저)"]
+        A --> D["④ MulticastOnBlocksDestroyed"]
+        SEED["Ⓐ ServerInitFromSeed<br>시드 확정"]
     end
     subgraph CL["클라"]
-        D --> E{"그리드 초기화됨?"}
-        E -->|"예"| F["FilterUnapplied →<br>ApplyDestruction (같은 함수)"]
-        E -->|"아니오"| G["PendingDestroyQueue 큐잉"]
-        SEED -.->|"Seed·GridSize 복제"| H["OnRep → InitGridFromSeed<br>서버와 같은 생성기 실행"]
+        D --> E{"⑤ 그리드 초기화됨?"}
+        E -->|"예"| F["⑥ FilterUnapplied →<br>ApplyDestruction (같은 함수)"]
+        E -->|"아니오"| G["⑥' PendingDestroyQueue 큐잉"]
+        SEED -.->|"Ⓑ Seed·GridSize 복제"| H["Ⓒ OnRep → InitGridFromSeed<br>서버와 같은 생성기 실행"]
         C -.->|"복제"| I["늦은 접속자:<br>OnRep_DestroyedCells 따라잡기"]
-        H --> J["큐 flush"]
+        H --> J["Ⓓ 큐 flush"]
         G --> J
     end
     style B fill:#1F7ACC,color:#fff

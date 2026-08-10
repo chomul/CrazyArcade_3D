@@ -47,18 +47,18 @@
 
 ```mermaid
 flowchart LR
-    subgraph SV["서버 — 폭탄의 전체 수명"]
-        A["ServerArm<br>Cell·Range 확정·퓨즈"] --> B["킥/낙하 틱<br>ServerUpdateKick/Fall"]
-        B --> C["ServerForceDetonate<br>→ 폭발 시스템"]
+    subgraph SV["서버 — 폭탄의 전체 수명 ①→⑤"]
+        A["① ServerArm<br>Cell·Range 확정·퓨즈"] --> B["③ 킥/낙하 틱<br>ServerUpdateKick/Fall<br>(있을 때만)"]
+        B --> C["⑤ ServerForceDetonate<br>→ 폭발 시스템"]
     end
     subgraph CL["클라 — 받은 값으로 그림"]
-        D["BeginPlay<br>예측 회수 + 데칼"]
-        E["OnRep_Cell<br>데칼 이동"]
-        F["bReplicateMovement<br>메시 이동"]
+        D["② BeginPlay<br>예측 회수 + 데칼"]
+        E["④ OnRep_Cell<br>데칼 이동"]
+        F["④' bReplicateMovement<br>메시 이동"]
     end
-    A -->|"첫 복제 (Deferred 덕분에 값 포함)"| D
-    B -->|"Cell 복제"| E
-    B -->|"위치 복제"| F
+    A -->|"② 첫 복제 (Deferred 덕분에 값 포함)"| D
+    B -->|"④ Cell 복제"| E
+    B -->|"④' 위치 복제"| F
     style A fill:#1F7ACC,color:#fff
 ```
 

@@ -117,19 +117,19 @@ flowchart LR
         UI["HUD·위젯<br>복제 값 폴링"]
         CAM["카메라·관전<br>전부 로컬"]
     end
-    VW -->|"Seed·GridSize 복제"| VWC
-    VW -->|"파괴 Multicast + DestroyedCells 이력"| VWC
-    BOMB -->|"Cell·Range·위치 복제"| DECAL
-    ST -->|"스탯·LifeState 복제"| UI
-    GM -->|"GameState·PlayerState 복제"| UI
-    PRED -.->|"ServerPlaceBomb RPC"| BOMB
-    CAM -.->|"ServerSetCamYawIndex RPC"| GM
+    VW -->|"① 입장: Seed·GridSize 복제"| VWC
+    GM -->|"② 상시: GameState·PlayerState 복제"| UI
+    PRED -.->|"③ 설치 요청: ServerPlaceBomb RPC"| BOMB
+    BOMB -->|"④ 폭탄 확정: Cell·Range·위치 복제"| DECAL
+    VW -->|"⑤ 폭발: 파괴 Multicast + 이력"| VWC
+    ST -->|"⑥ 피격 결과: 스탯·LifeState 복제"| UI
+    CAM -.->|"수시: ServerSetCamYawIndex RPC"| GM
     BOT --> BOMB
     style GM fill:#C96A1F,color:#fff
     style VW fill:#1F7ACC,color:#fff
 ```
 
-실선 = 서버→클라 (복제·Multicast) / 점선 = 클라→서버 (Server RPC — 프로젝트 전체에 4개뿐). 전달 수단은 넷뿐:
+번호 = 매치 한 판의 전형적 진행 순서. 실선 = 서버→클라 (복제·Multicast) / 점선 = 클라→서버 (Server RPC — 프로젝트 전체에 4개뿐). 전달 수단은 넷뿐:
 
 | 수단 | 쓰는 곳 | 왜 |
 |---|---|---|

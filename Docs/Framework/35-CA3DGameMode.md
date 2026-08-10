@@ -50,15 +50,15 @@
 
 ```mermaid
 flowchart TD
-    subgraph SV["서버 전용 (클라에 없음)"]
-        L["PostLogin<br>RegisterParticipant"] --> G{"지형 준비됨?<br>bMatchStartResolved"}
-        G -->|"아니오"| P["PendingSpawnControllers 대기<br>★ 스폰 게이트"]
-        G -->|"예"| S["정상 스폰<br>(SpawnCells 순서 배정)"]
-        BP["BeginPlay<br>시드 → VoxelWorld 초기화"] --> FL["StartPlay (Super 직후)<br>FlushPendingSpawns"]
+    subgraph SV["서버 전용 (클라에 없음) — 시작 ①→⑤ / 사망 Ⓐ→Ⓒ"]
+        L["① PostLogin<br>RegisterParticipant<br>(BeginPlay보다 먼저 올 수 있음!)"] --> G{"② 지형 준비됨?<br>bMatchStartResolved"}
+        G -->|"아니오"| P["③ PendingSpawnControllers 대기<br>★ 스폰 게이트"]
+        G -->|"예"| S["⑤ 정상 스폰<br>(SpawnCells 순서 배정)"]
+        BP["② BeginPlay<br>시드 → VoxelWorld 초기화"] --> FL["④ StartPlay (Super 직후)<br>FlushPendingSpawns"]
         P --> FL --> S
-        K["NotifyPlayerDeath 수집"] --> RD["다음 틱 ResolvePendingDeaths<br>공동 등수 = Max(2, Alive-K+1)"]
+        K["Ⓐ NotifyPlayerDeath 수집"] --> RD["Ⓑ 다음 틱 ResolvePendingDeaths<br>공동 등수 = Max(2, Alive-K+1)"]
     end
-    RD -->|"FinalRank·bAlive (PlayerState)<br>bMatchEnded·MatchWinner (GameState) 복제"| CL["클라: 결과 화면·관전"]
+    RD -->|"Ⓒ FinalRank·bAlive (PlayerState)<br>bMatchEnded·MatchWinner (GameState) 복제"| CL["클라: 결과 화면·관전"]
     style G fill:#C96A1F,color:#fff
     style RD fill:#1F7ACC,color:#fff
 ```

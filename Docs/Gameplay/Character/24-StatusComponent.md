@@ -40,17 +40,17 @@
 
 ```mermaid
 flowchart LR
-    subgraph SV["서버 — 상태 전이"]
-        A["Alive"] -->|"ServerTrap<br>(폭발 피격)"| B["Trapped<br>4초 익사 타이머"]
-        B -->|"ServerEscape<br>(니들)"| A
-        B -->|"타이머 만료<br>ServerKill(Water)"| D["Dead"]
-        A -->|"ServerKill<br>(Fall·Popped·Left·SuddenDeath)"| D
-        D --> N["GameMode.NotifyPlayerDeath"]
+    subgraph SV["서버 — 상태 전이 ①→④"]
+        A["Alive"] -->|"① ServerTrap<br>(폭발 피격)"| B["Trapped<br>4초 익사 타이머"]
+        B -->|"②-a ServerEscape<br>(니들 — 복귀)"| A
+        B -->|"②-b 타이머 만료<br>ServerKill(Water)"| D["Dead"]
+        A -->|"①' 즉사 경로<br>ServerKill(Fall·Popped·Left·SuddenDeath)"| D
+        D --> N["③ GameMode.NotifyPlayerDeath<br>→ 순위 판정"]
     end
     subgraph CL["클라"]
-        R["OnRep_Life"] --> AD["ApplyDeathState<br>(서버와 같은 함수)"]
+        R["⑤ OnRep_Life"] --> AD["⑥ ApplyDeathState<br>(서버와 같은 함수)"]
     end
-    D -.->|"LifeState 복제"| R
+    D -.->|"④ LifeState 복제"| R
     style D fill:#C96A1F,color:#fff
     style AD fill:#1F7ACC,color:#fff
 ```
