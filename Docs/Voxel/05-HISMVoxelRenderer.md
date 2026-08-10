@@ -36,4 +36,10 @@
 계약: [04-VoxelRenderer.md](04-VoxelRenderer.md) · 페이드 출처: [27-OcclusionFadeComponent.md](../Gameplay/Character/27-OcclusionFadeComponent.md)
 
 ## Q&A
-아직 없음
+- **Q. Renderer 클래스들은 클라에서만 동작하나?** → 아니. 역할이 둘이라서:
+  그리기(GPU)는 클라만 의미 있지만(데디는 RHI Null — 자연 생략),
+  **HISM 인스턴스 = 지형의 유일한 컬리전**이라 `BuildFromGrid`/`RemoveBlock`은
+  데디에서도 돌아야 함. 실제로 데디에서 껐다가 캐릭터가 지형을 통과한 사고
+  (지상 판정 3.6%→58%). `SetCellFade`만 사실상 클라 전용(호출자가 카메라 기반).
+  진짜 클라 전용 시각은 WaterSegment·DangerDecal·PredictedBombVisual·DropMarker 쪽.
+  PIE 데디는 에디터 프로세스라 이 버그를 못 잡음 — 진짜 서버 exe로만 검증
