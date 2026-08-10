@@ -7,6 +7,19 @@
 - 셀 API: `Get / Set / IsSolid / BlocksExplosion / IsValid / Index`
 - 안 하는 것: 렌더 · 복제 · 좌표 변환 · "누가 부쉈나"
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `Size` (FIntVector) | 그리드 크기 (기본 21×21×4) |
+| `Blocks` (TArray&lt;uint8&gt;) | 셀 배열 — X→Y→Z 평탄화. 이것이 지형 전부 |
+| `Init(Size)` | 크기 지정 + 전부 Empty로 초기화 |
+| `IsValid(Cell)` | 좌표가 범위 안인가 |
+| `Index(Cell)` | 3D 좌표 → 1D 인덱스 (`X + Y*W + Z*W*H`) |
+| `Get(Cell)` | 셀 타입 조회. **범위 밖 = Empty** |
+| `Set(Cell, Type)` | 셀 쓰기 — 파괴 = `Set(Cell, Empty)` |
+| `IsSolid(Cell)` | Empty가 아닌가 (발판·충돌 판정용) |
+| `BlocksExplosion(Cell)` | 폭발을 막는가 (**Immortal만 true**) |
+
 ## 왜
 - **왜 UObject 아님?** → 값 복사 자유 + 순수 함수 인자(`const FVoxelGrid&`) 가능.
   GC·복제·월드가 붙으면 둘 다 불가. 엔진 결합은 소유자 `AVoxelWorld` 담당

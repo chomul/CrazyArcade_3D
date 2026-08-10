@@ -6,6 +6,18 @@
 - 맵의 플레이 가능성 판정 — 리롤 루프의 관문. 실패 사유를 문자열로 보고
 - 검증 5종: ①스폰 연결 ②최소 거리 ③탈출로 ④고립 구역 없음 ⑤아이템 사분면 균등
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `FThresholds` | 임계값 묶음 — 스폰 최소 거리(8)·탈출로 수(2)·아이템 편차 |
+| `Validate(...)` | 5종 일괄 실행(비용순) + 실패 사유 문자열 |
+| `AreAllSpawnsConnected` | ① 스폰 전원이 서로 도달 가능한가 (flood fill) |
+| `HaveSpawnsMinDistance` | ② 스폰 간 맨해튼 거리 최소값 |
+| `HaveSpawnsEscapeRoutes` | ③ 스폰마다 이동 가능 방향 ≥ 2 |
+| `HasNoIsolatedRegion` | ④ 도달 불가 구역 없음 (**최외곽 링 제외**) |
+| `AreItemsBalanced` | ⑤ 사분면별 아이템 수 편차 |
+| `FloodFillStandable` (내부) | TArray 큐 flood fill — 결정론 유지 |
+
 ## 왜
 - **왜 순수 함수?** → 리롤 루프에서 수십 번 호출. 상태가 있으면 결정론 붕괴
 - **이동 정의는 `VoxelMove`** → 자체 규칙을 들면 봇과 갈라짐 (실제로 그랬음)

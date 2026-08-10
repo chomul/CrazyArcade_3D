@@ -7,6 +7,19 @@
 - 페이드 값을 인스턴스 커스텀 데이터로 전달
 - **치명적 부업**: 이 인스턴스들이 지형의 유일한 물리 컬리전
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `BlockMeshes` (TMap) | 블록 타입 → 스태틱 메시 (BP에서 지정) |
+| `HISMs` (TMap) | 타입별 HISM 컴포넌트 (lazy 생성) |
+| `CellToInstance` / `InstanceToCell` | 타입별 양방향 셀↔인덱스 맵 — 스왑 보정의 근거 |
+| `BuildFromGrid` | Clear 후 표면 셀만 인스턴스 생성 + 비율 로그 |
+| `RemoveBlock` | 인스턴스 제거 + **스왑 보정** + 주변 6칸 표면 재검사 |
+| `SetCellFade / GetCellFade` | 인스턴스 커스텀 데이터 float 쓰기/되읽기 |
+| `AddInstanceForCell` (내부) | 중복 방지 + 트랜스폼 계산 + 맵 등록 |
+| `IsSurface` (내부) | 6이웃 중 하나라도 Empty인가 (경계는 자동 표면) |
+| `GetOrCreateHISM` (내부) | 타입별 HISM lazy 생성 — CustomData는 등록 전 설정 |
+
 ## 왜
 - **왜 HISM?** → 같은 메시 수백 개를 타입당 1 드로우콜로
 - **왜 표면 추출?** → 내부 블록은 안 보임. 전체의 20~40%만 인스턴스 생성.

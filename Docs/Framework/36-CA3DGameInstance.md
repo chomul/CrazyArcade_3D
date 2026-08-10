@@ -6,6 +6,16 @@
 - EOS 세션 수명: Device ID 로그인 → 방 생성/검색/참가 → 로비 복귀. 실패는 델리게이트 통지
 - 세션·접속 배관 전용. 게임플레이 로직 금지
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `bEnableEOS = false` | 전체 스위치 — 현재 꺼짐 |
+| `LoginDeviceId()` / `IsLoggedIn()` | 익명 로그인 (⛔ 엔진 블로커) |
+| `HostSession / FindSessions / JoinFoundSession` | 방 생성·검색·참가 |
+| `LeaveToLobby()` | 세션 파기 + 로비 맵 복귀 |
+| `GetLastFoundSessions()` | 마지막 검색 결과 |
+| 델리게이트 5종 | 로그인·생성·검색·참가·실패 통지 (UI 연결용) |
+
 ## 왜
 - **왜 GameInstance?** → 세션은 맵 전환을 넘어 살아야 함. GameMode/State는 맵마다 재생성
 - **왜 보류?** → "게임 빨리 완성" 우선 + 배포 미정. 접속은 IP 직접(데디 검증 완료)

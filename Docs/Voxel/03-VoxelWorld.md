@@ -7,6 +7,27 @@
 - 서버: `ServerInitFromSeed` · `ServerDestroyBlocks` / 클라: OnRep으로 재생성·따라잡기
 - 좌표 변환(`WorldToCell`/`CellToWorld`) · 스폰 셀·아이템 배치 보관 · `OnGridChanged` 알림
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `Grid` (FVoxelGrid) | 소유한 지형 데이터 (비복제 — 시드로 재생성) |
+| `Seed` / `GridSize` (복제·OnRep) | 클라 재생성의 입력 두 개 |
+| `DestroyedCells` (복제 배열) | 파괴 이력 — 중간 접속 따라잡기용 |
+| `SpawnCells` / `ItemPlacements` | 생성기가 낸 스폰 셀·아이템 배치 (서버 로컬) |
+| `PendingDestroyQueue` | 그리드 초기화 전 도착한 파괴 대기열 |
+| `CellSize` (=100) | 셀 한 변 cm — 좌표 변환의 기준 |
+| `OnGridChanged` (델리게이트) | "이 셀들이 비워졌다" 알림 (파괴음 등이 구독) |
+| `ServerInitFromSeed(Seed, Size)` | 서버: 시드 확정 + 그리드 생성 시작 |
+| `ServerDestroyBlocks(Cells)` | 서버: 파괴 확정 → 적용 + 이력 + Multicast |
+| `ApplyDestruction(Cells)` | **단일 경로** — 그리드 갱신→렌더 제거→델리게이트 |
+| `MulticastOnBlocksDestroyed` | 클라 수신 → 같은 ApplyDestruction |
+| `OnRep_Seed / OnRep_GridSize` | → `InitGridFromSeed()` (재진입 가드) |
+| `OnRep_DestroyedCells` | 이력 따라잡기 (미적용분만) |
+| `FilterUnapplied(Cells)` | 이미 Empty인 셀 제외 — 중복 적용 방지 |
+| `WorldToCell / CellToWorld / CellToWorldFloor` | 월드 좌표 ↔ 셀 변환 |
+| `ConsumeItemPlacement(Cell, OutType)` | 배치 예약 1회 소비 (재파괴 중복 방지) |
+| `SetCellFade / GetCellFade` | 렌더러로 위임 (없으면 false/-1) |
+
 ## 왜
 - **왜 지형을 시드로 보내나?** → 데이터 복제 대신 Seed 하나 + 클라가 같은 순수 함수로
   재생성. 생성기가 결정론이면 "서버와 다른 지형"이 원천 불가

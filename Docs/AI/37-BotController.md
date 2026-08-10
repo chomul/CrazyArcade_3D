@@ -8,6 +8,23 @@
 - 관전용 카메라 각(`CamYawIndex`)을 이동 방향에서 산출
 - 판정 로직 소유 안 함 — 전부 기존 함수 조회
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `State` (EBotState) | Wander·Attack·Evade·PopTrapped·SeekItem |
+| `PathCells` / `PathIndex` | 현재 BFS 경로와 진행 위치 |
+| `DangerCells` (TSet) | 이번 틱의 위험 셀 집합 — 판정·통행 공용 |
+| `bPlanFailed` / `TimeSinceReplan` | 재계획 폭주 차단 · 주기 관리 |
+| `RandomStream` | ColorIndex 시드 — 봇별 독립·재현 가능 |
+| `Tick()` | 인식 → 재계획 조건 5종 검사 → FollowPath |
+| `Replan()` | 우선순위 분기의 전부 (코드 순서 = 우선순위) |
+| `GatherDangerCells()` | 활성 폭탄 전부 Propagate 병합 |
+| `ShouldPlaceBombAt(Cell)` | 이득 판정 + **탈출로 BFS 필수** |
+| `PlanEscape / PlanPopTrapped / PlanSeekItem / PlanWander` | 상태별 목표·경로 수립 |
+| `RunBFS(Start, Goals)` | `VoxelMove` 이웃 확장 · 상한 1024 · 고정 순서 |
+| `FollowPath(FootCell)` | 웨이포인트 소비 · 못 오르면 폐기 · 오를 때만 점프 |
+| `BotMoveCaps()` | `bRequireHeadroom=true` — 봇 전용 이동 옵션 |
+
 ## 왜
 - **왜 BT가 아니라 FSM?** → 3주 일정, 상태 5개 규모. C++의 디버깅·테스트·결정론이 이김
 - **왜 판정 재사용?** → 위험=`Propagate`(폭탄이 든 Range로) · 이동=`VoxelMove`(검증기와

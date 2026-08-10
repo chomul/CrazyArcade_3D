@@ -6,6 +6,15 @@
 - "그리드 데이터 → 화면" 번역 계약: `BuildFromGrid / RemoveBlock / Clear / SetCellFade`
 - 구현 교체 지점 — 게임 코드는 그리는 방법을 모름
 
+## 주요 함수
+| 이름 | 설명 |
+|---|---|
+| `BuildFromGrid(Grid)` (순수가상) | 그리드 전체 → 인스턴스 일괄 생성 |
+| `RemoveBlock(Cell, Grid)` (순수가상) | 이 칸이 비워짐 → 제거 + 주변 표면 노출 |
+| `Clear()` (순수가상) | 전부 제거 |
+| `SetCellFade(Cell, float)` (기본 no-op) | 페이드 값 전달 — 숫자만 받음. 미지원 시 false |
+| `GetCellFade(Cell)` (기본 -1) | 실제 들어간 값 되읽기 (진단용) |
+
 ## 왜
 - **엔진이 자동으로 안 그려주나?** → 엔진은 컴포넌트를 그림. 바이트 배열은 그릴 대상이
   아님 — 누군가 번역해야 함

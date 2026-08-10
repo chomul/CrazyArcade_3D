@@ -6,6 +6,16 @@
 - 참가자 1명의 복제 게시판: `ColorIndex` · `FinalRank` · `bAlive` · `CamYawIndex` · `bLeftMatch`
 - 폰이 죽어도 매치 끝까지 남음 — 결과 화면·관전의 데이터 출처
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `ColorIndex` (복제) | 참가 순서 색 배정 (봇 난수 시드로도 사용) |
+| `FinalRank` (복제) | 최종 순위. **0 = 아직 생존** |
+| `bAlive` (복제) | 판정상 생존 — 관전 후보·승패 필터 |
+| `CamYawIndex` (복제, uint8) | 카메라 스냅 인덱스 — 관전 각의 재료 |
+| `bLeftMatch` (복제) | 중도 이탈 — 결과 화면 "(탈주)" 표시 |
+| `OnDeactivated()` (override) | Super 안 부름 = 접속 종료에도 파괴 안 함 |
+
 ## 왜
 - **왜 폰이 아니라 PlayerState?** → 순위·색·생존은 폰 수명보다 길어야 함
 - **왜 OnDeactivated에서 Super 안 부름?** → 엔진 기본 = 접속 종료 시 파괴.

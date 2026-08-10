@@ -8,6 +8,23 @@
 - 아이템 효과 적용(`ServerApplyItem`) + 판정 짝(`HasRoomForItem`)
 - 사망을 GameMode에 통지. 순위 판정은 안 함
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `MaxBombCount` / `BombRange` / `MoveSpeedMul` (복제·OnRep_Stats) | 스탯 3종 |
+| `bHasNeedle` / `bHasKick` (복제) | 보유 플래그 |
+| `LifeState` (복제·OnRep_Life) | `Alive / Trapped / Dead / Spectating(미사용)` |
+| `ActiveBombCount` (비복제) | 서버 전용 설치 중 개수 |
+| `LastDeathCause` (비복제) | 사인 — `Water·Fall·SuddenDeath·Popped·Left` |
+| `TrappedTimer` | 갇힘 만료 → 익사 예약 |
+| `ServerApplyItem(Type)` | 아이템 효과 적용 (Cap 클램프) + 속도 재계산 |
+| `HasRoomForItem(Type)` | "받으면 오르는가" — ServerApplyItem과 1:1 짝 (봇용) |
+| `ServerTrap()` | Alive → Trapped + 익사 타이머 + 감속 |
+| `ServerEscape()` | Trapped+니들 → Alive 복귀 (니들 소모) |
+| `ServerKill(Cause)` | → Dead + ApplyDeathState + GameMode 통지 |
+| `OnRep_Life()` | 클라: 같은 ApplyDeathState 경로 + 큐 재생 |
+| `RefreshOwnerMoveSpeed()` (내부) | 캐릭터의 속도 재계산 호출 |
+
 ## 왜
 - **왜 컴포넌트?** → 설계 결정 8: 봇·사람 코드 경로 동일. 캐릭터=행동, 컴포넌트=상태
 - **왜 RPC 0개?** → 전부 서버 로컬 진입점 + `HasAuthority()` 가드.

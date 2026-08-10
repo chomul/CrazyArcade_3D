@@ -6,6 +6,20 @@
 - 모든 튜닝 값·에셋 참조의 창고: 수치(퓨즈·속도·확률) · 클래스 참조 · 큐별 사운드+FX 쌍
 - 로직 없음. 읽는 쪽이 해석
 
+## 주요 값 (카테고리별 대표 — 총 99개)
+| 카테고리(개수) | 대표 |
+|---|---|
+| Feedback(21) | 큐별 `~Sound`/`~FX` 쌍 · `FeedbackVolumeMultiplier` |
+| Bomb(15) | `BombFuseTime=3` · `ChainStepDelay` · `BombKickSpeedCellsPerSec=8` · `BombFallSpeedCellsPerSec=12` · `BombBlockExtentCells` |
+| Camera(13) | `CameraDistanceCells=12` · `CameraPitchDeg=-55` · `OcclusionFadeAmount=1.0` |
+| Map(12) | `MapSizeSmall/Large` · `SmallMatchMaxPlayers=4` · `ProcDestructiblePercent=35` · `ProcRerollMaxAttempts` |
+| SuddenDeath(8) | `SuddenDeathStart=150` · `DropInterval=1` · `bSuddenDeathDestroysFloor=true` · `DropExplosionRange=2` |
+| Item(8) | `ItemDropPercent=30` · 가중치 5종(30/30/20/5/15) · `MaxBombCountCap` |
+| Bot(8) | `BotReplanInterval=0.4` · `BotMaxPathNodes=1024` · `BotSeekItemMaxCells=6` |
+| Character(6) | `MoveSpeedCellsPerSec=4` · `JumpApexCellFactor=1.4` · `JumpAirSpeedFactor=0.7` |
+| Life(4) | `TrappedDuration=4` · `bPopTrappedOnContact=true` |
+| 기타 | `RollerSpeedStep` · `MoveSpeedMulCap` · `PickupSpinDegreesPerSecond` · `MinPlayersForMatchEnd=2` |
+
 ## 왜
 - **왜 DataAsset?** → 밸런스 조정 = 에셋 저장 (재빌드 없음). 프리셋 다중화 = 에셋 교체.
   "코드에 매직 넘버 금지"의 실체

@@ -8,6 +8,27 @@
 - 승패: `NotifyPlayerDeath` 수집 → 다음 틱 `ResolvePendingDeaths` → GameState 기록
 - 서든데스 시작/정지 스위치
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `bMatchStartResolved` / `PendingSpawnControllers` | 스폰 게이트 상태 |
+| `MatchParticipantCount` / `NextSpawnIndex` | 참가 수 · 스폰 셀 순번 |
+| `PendingDeaths` / `bDeathResolveScheduled` | 사망 배칭 큐 · 중복 예약 방지 |
+| `SpawnCells` / `SpawnStartActors` | 스폰 셀 목록 · PlayerStart 캐시(누적 방지) |
+| `bUseFixedSeed` / `FixedSeed` | 고정 시드 모드 (디버그) |
+| `BeginPlay()` | Rules→GameState → 시드 → VoxelWorld 초기화 → 봇·서든데스 예약 |
+| `StartPlay()` | Super 직후 `FlushPendingSpawns()` — 게이트 해소 |
+| `PostLogin()` | `RegisterParticipant` (Super보다 먼저) |
+| `HandleStartingNewPlayer` | 게이트 미해소면 대기열로 |
+| `ChoosePlayerStart` | `SpawnCells[NextSpawnIndex++ % N]` 배정 |
+| `UpdatePlayerStartSpot` / `ShouldSpawnAtStartSpot` (override) | 오염된 StartSpot 재사용 차단 |
+| `RegisterParticipant(Controller)` | 사람·봇 공용: 색·bAlive·AliveCount |
+| `SpawnFillBots()` / `GetBotFillTargetPlayers()` | 봇 채우기 (cvar > 커맨드라인 > 룰셋) |
+| `NotifyPlayerDeath(PS)` | 사망 수집 → 다음 틱 판정 예약 |
+| `ResolvePendingDeaths()` | 공동 등수 공식 → 우승/무승부 → GameState 기록 |
+| `HandleParticipantLeft()` (Logout) | 이탈 = 사망 재사용 + bLeftMatch |
+| `StartSuddenDeath / StopSuddenDeath` | 서브시스템 스위치 + GameState 플래그 |
+
 ## 왜
 - **왜 매치 로직이 여기?** → GameMode는 클라에 없음 — 권한 분리가 공짜
 - **왜 스폰 게이트?** → 엔진이 PostLogin을 World::BeginPlay **앞에서** 부름.

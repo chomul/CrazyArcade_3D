@@ -6,6 +6,18 @@
 - **Subsystem**: 서버 낙하 스케줄러 — 주기 추첨 → 예고 방송 → 지연 후 폭발 적용 위임
 - **Relay**(AInfo): 예고 Multicast 스피커 / **DropMarker**: 예고 마커 표시(풀링)
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `bRunning` / `DropTimer` / `Stream` | 실행 플래그 · 주기 타이머 · 서버 난수 |
+| `PendingWaves` (배열) | 예고 중 웨이브들 — `FSuddenDeathWave{Id, Cells, Timer}` |
+| `ServerStart() / ServerStop()` | GameMode가 부르는 스위치 (정지 시 웨이브 전부 해제) |
+| `ProcessDrop()` (주기) | 셀 추첨 → 웨이브 확정 → 예고 방송 → 실행 타이머 |
+| `ExecuteWave(Id)` | 웨이브 셀마다 `ServerApplyExplosionAt(...)` |
+| `PickDropCell(...)` (static) | 낙하 후보 추첨 (외곽 가중치·시도 상한) |
+| `Relay::MulticastWarnDrop(Cells, Delay)` | 예고: 경고 큐 → 마커 풀 획득 + StartWarning |
+| `DropMarker::StartWarning(Seconds)` | 마커 표시 후 자체 반납 |
+
 ## 왜
 - **⭐ Propagate 무수정** → `bFloorDestructible`이 이미 인자(불변식 2의 회수).
   서든데스는 자기 룰셋 값만 넘김 — "낙하만 바닥을 부순다"

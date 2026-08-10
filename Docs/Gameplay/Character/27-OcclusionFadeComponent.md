@@ -6,6 +6,18 @@
 - 카메라↔캐릭터 사이 가림 셀 판정(0.1초 주기, `VoxelRay`) → 페이드 값을 렌더러에 전달
 - 캐릭터의 화면 투영 타원을 머티리얼 파라미터 컬렉션에 기록(화면 마스크)
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `CurrentTargets` (TSet) | 지금 가리고 있는 셀들 |
+| `FadeValues` (TMap) | 셀별 현재 페이드 값 (보간 상태) |
+| `TraceInterval=0.1` / `FadeSpeed` / `FadeAmount` | 판정 주기·보간 속도·목표 페이드 |
+| `SampleCount` / `MaskScale` / `MaskSoftness` | 몸 샘플 수·마스크 타원 크기·경계 부드러움 |
+| `TickComponent` | 주기 도달 시 판정 + 매 프레임 보간 |
+| `RefreshOccluders()` | 카메라→몸 샘플들 DDA로 가림 셀 갱신 |
+| `AdvanceFades(Delta)` | 페이드 값 보간 → `SetCellFade` (실패 셀은 추적 제거) |
+| `UpdateMaskParameters()` | 화면 타원(중심·반지름 uv)을 MPC에 기록 |
+
 ## 왜
 - **왜 여기?(Voxel 아님)** → "카메라·폰을 아는 쪽". 지형은 숫자(`SetCellFade`)만 받음
 - **왜 VoxelRay?** → 답이 "어느 셀"이라 그리드 질문. 물리 상태 의존 없음

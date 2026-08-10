@@ -8,6 +8,26 @@
 - 사망 후 관전: 생존자 자동 추적 · 좌/우 대상 순환 · 시점만 이동
 - 게임 상태는 안 바꿈
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `IA_Move / IA_Jump / IA_PlaceBomb / IA_RotateCam / IA_UseNeedle` | 입력 액션 (BP에서 에셋만 지정) |
+| `CamYawSteps` | Q/E 누적 스텝 (랩 안 함) |
+| `SmoothCamYaw` | 보간 현재각 (시각 전용) |
+| `LastSentCamYawIndex` | 마지막 전송 인덱스 — 변화 감지용 |
+| `SpectateTarget` (PlayerState) | 관전 대상 — 폰이 아니라 PlayerState |
+| `bSpectateAxisLatched` | 좌/우 연속 입력 래치 |
+| `OnMove / OnJump* / OnPlaceBomb / OnUseNeedle / OnRotateCam` | 입력 핸들러 — 전달만 |
+| `GetCamYawIndex()` / `GetSnappedCamYaw()` | 스텝 → 인덱스/스냅각 (CameraYawSnap 공식) |
+| `PushCamYawIndex()` | 인덱스 바뀔 때만 RPC |
+| `ServerSetCamYawIndex(uint8)` (RPC) | PlayerState.CamYawIndex에 기록 |
+| `PlayerTick` | yaw 보간 + 사망 중 `UpdateSpectateView()` |
+| `UpdateSpectateView()` | 대상 없음/사망 시 다음 생존자로 |
+| `CycleSpectateTarget(±1)` / `CollectSpectateCandidates()` | 대상 순환 (PlayerArray 고정 순서·bAlive만) |
+| `SetSpectateTarget()` | 블렌드 이동 + 대상 각을 시작각으로 수신 |
+| `HandleSpectateAxis(X)` | 사망 중 좌/우 재해석 (래치 포함) |
+| `IsLocalPawnDead()` / `IsMatchEnded()` | 관전 조건 / 종료 후 시점 고정 |
+
 ## 왜
 - **왜 전달만?** → 검증을 컨트롤러에 두면 봇(다른 컨트롤러)과 경로가 갈라짐
 - **왜 90도 상수가 여기 없나?** → 단일 출처는 `CameraYawSnap`. 사본 = 관전 각과 갈라짐

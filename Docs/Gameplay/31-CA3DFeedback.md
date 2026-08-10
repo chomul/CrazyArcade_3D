@@ -7,6 +7,16 @@
 - `ServerBroadcast` + `ACA3DCueRelay`: 서버발 큐를 전 클라에 방송(Unreliable)
 - `UCA3DFeedbackSubsystem`: `OnGridChanged` 구독 → 블록 파괴음
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `ECA3DCue` 10종 | BombPlace·Explosion·BlockBreak·ItemPickup·Trapped·Escape·Death·Kick·SuddenDeathWarn·MatchEnd |
+| `Play(World, Cue, Location)` | 단일 재생 경로: 데디 가드 → 에셋 해석 → 사운드+FX |
+| `ResolveCueAssets(Rules, Cue, ...)` | 큐 → 룰셋 필드 매핑 (유일한 매핑 지점) |
+| `ServerBroadcast(World, Cue, Location)` | 서버발 큐 → 릴레이 Multicast (클라면 no-op) |
+| `CueRelay::MulticastCue` (Unreliable) | 수신 → Play 한 줄 |
+| `FeedbackSubsystem::OnGridChanged` | 부서진 칸 무게중심으로 BlockBreak 1회 |
+
 ## 왜
 - **왜 재생 단위가 "사건"?** → 큐 하나 = 사운드+FX 쌍. 따로 놀면 반쪽 사건
 - **왜 데디 가드가 Play 한 곳뿐?** → 호출부에 흩어지면 언젠가 하나 빠짐 —

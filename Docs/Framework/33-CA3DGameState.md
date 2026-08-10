@@ -7,6 +7,16 @@
   `MatchStartServerTime` · `bSuddenDeathActive`
 - 쓰기 GameMode 단독 / 읽기 UI·봇·캐릭터·VoxelWorld
 
+## 주요 변수
+| 이름 | 설명 |
+|---|---|
+| `Rules` (복제) | 룰셋 에셋 포인터 — 클라 프리뷰의 값 출처 |
+| `AliveCount` (복제) | 생존 수 — HUD 표시 |
+| `bMatchEnded` (복제) | 매치 종료 — 결과 화면·각종 가드의 스위치 |
+| `MatchWinner` (복제) | 우승자 PlayerState. **nullptr = 무승부** |
+| `MatchStartServerTime` (복제) | 서버 기준 시작 시각 — 경과 타이머 |
+| `bSuddenDeathActive` (복제) | 서든데스 중 — HUD 경고 + 낙사 사인 분기 |
+
 ## 왜
 - **왜 로직 0?** → 게시판에 로직을 넣으면 권한 경계가 흐려짐 (누가 바꿨는지 추적 불가)
 - **왜 룰셋을 포인터로?** → 99개 개별 복제 대신 참조 하나. 에셋은 양쪽 디스크에 동일.

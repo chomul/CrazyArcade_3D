@@ -5,6 +5,15 @@
 ## 역할
 - 스냅 각 변환 공식의 단일 출처: 스텝 ↔ 인덱스(0~3) ↔ 각도, 임의 각 → 인덱스(+히스테리시스)
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `NumSteps=4` / `StepDeg=90` | 구조 상수 — 모든 파생값의 뿌리 |
+| `StepsToIndex(int32)` | 누적 스텝 → 0~3 (음수 보정 `((s%N)+N)%N`) |
+| `IndexToYawDeg(uint8)` | 인덱스 → 각도 (`% NumSteps`로 방어적 접기) |
+| `YawDegToIndex(float)` | 임의 각 → 가장 가까운 인덱스 |
+| `YawDegToIndexWithHysteresis(yaw, prev, hys)` | 경계 진동 방지 버전 (봇용, ±180 랩 처리) |
+
 ## 왜
 - **왜 단일 출처?** → 사용처 3곳(Q/E·GetViewRotation·봇). 한쪽만 바뀌면
   **관전에 들어가야만 보이는** 각도 어긋남 — 발견이 가장 늦은 부류의 버그

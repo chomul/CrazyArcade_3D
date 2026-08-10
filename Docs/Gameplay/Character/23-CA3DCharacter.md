@@ -9,6 +9,28 @@
 - 사망 적용(`ApplyDeathState`) · 시점 각 결정(`GetViewRotation`)
 - 스탯 보관 안 함 — `UStatusComponent` 소관
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `PredictedBombVisuals` | 내 예측 비주얼 목록 (클라 로컬) |
+| `GetStatus()` | 스탯 컴포넌트 접근 |
+| `GetFootCell()` | 발밑 셀 — 피격·킥·봇 경로의 판정 기준 |
+| `Move(FVector2D)` / `DoJump()` | 이동·점프 진입점 (Dead 차단 / Alive만 통과) |
+| `RefreshMoveSpeed()` | 속도 재계산 단일 경로 (룰셋×상태) |
+| `ApplyDeathState()` | 사망 적용: 캡슐 off·MOVE_None·액터 숨김(데디 가드) |
+| `TryGetBombPlacementCell(Out)` | 설치 셀 계산 — 발밑 보정 + 공중이면 -Z 스캔 |
+| `TryPlaceBombPredicted()` | 설치 단일 진입점 — 권한이면 직행, 아니면 예측+RPC |
+| `TryAcquirePredictedVisual(Cell)` (내부) | 로컬 검증 4종 → 풀 획득 + 설치음(예측 시점) |
+| `ReleasePredictedVisualAt(Cell)` | 예측 회수 → bool("방금 회수했나") = 설치음 분기 |
+| `ServerPlaceBomb(Cell)` (RPC) | 권위 검증 4종 → Deferred 스폰 + ServerArm |
+| `ClientRejectBomb(Cell)` (RPC) | 거부 → 예측 비주얼만 제거 |
+| `TryUseNeedle()` / `ServerUseNeedle` (RPC) | 니들 수동 사용 → ServerEscape |
+| `ServerTryKickBomb(Dir)` (내부, 매 틱) | 방향 한 축 접기 → FindBombAt → 접촉 검사 → 킥 |
+| `ServerTryPopIfTouched()` (내부) | **갇힌 쪽이** 접촉 검사 → Popped 사망 |
+| `GetContactReach(a, b)` | 킥·터뜨리기 공용 접촉 거리 공식 |
+| `GetViewRotation()` (override) | 보는 로컬 컨트롤러의 각 우선, 없으면 복제 CamYawIndex |
+| `Tick` (서버) | KillZ 낙사 검사(사인 분기) → 킥 시도 → 터뜨리기 검사 |
+
 ## 왜
 - **왜 사람·봇 공용?** → 봇 전용 경로 = 검증 두 벌. 사람이 못 하는 건 봇도 못 함
 - **왜 발밑 셀이 판정 중심?** → "발판만이 안전하다": 층 이동 점프 = 셀 바뀜 = 회피,

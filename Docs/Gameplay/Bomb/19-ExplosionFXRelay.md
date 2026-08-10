@@ -6,6 +6,11 @@
 - 물줄기 셀 목록을 전 클라에 방송(`MulticastWaterCells`, **Reliable**)
 - 수신 시: 풀에서 물줄기 획득 + 폭발 큐 1회. 판정 없음
 
+## 주요 함수
+| 이름 | 설명 |
+|---|---|
+| `MulticastWaterCells(Cells)` (Reliable) | 수신 시: 데디 가드 → 폭발 큐 1회(무게중심) → 셀마다 풀에서 WaterSegment 획득 + StartLinger |
+
 ## 왜
 - **왜 릴레이가 필요?** → RPC는 액터만 가능. 후보 소거:
   서브시스템(액터 아님) · ABomb(직후 Destroy) · VoxelWorld(의존 규칙) → 전용 AInfo

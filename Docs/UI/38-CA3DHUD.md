@@ -7,6 +7,15 @@
 - WBP 없을 때 캔버스 텍스트 폴백 (non-Shipping)
 - 표시 가공은 안 함 — 위젯의 순수 함수 소관
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `MatchWidgetClass` / `MatchWidget` | 위젯 클래스(BP 지정)·인스턴스 |
+| `BeginPlay()` | 데디 가드 → CreateWidget + AddToViewport |
+| `ShowResult()` | 위젯에 위임 |
+| `DrawHUD()` | 캔버스 폴백 — 위젯의 순수 함수로 같은 문자열 |
+| `ShouldDrawDebugFallback()` | cvar `ca3d.DebugHUD` 3모드 판정 |
+
 ## 왜
 - **왜 수명/내용 분리?** → WBP 교체가 자유로우려면 HUD는 "만들고 보여주기"만
 - **왜 폴백?** → WBP(에디터 작업) 전에도 값이 보여야 개발이 안 막힘.

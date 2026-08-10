@@ -6,6 +6,18 @@
 - 절차 지형 생성: 외벽 → 계단식 구조물 → 평지 → 스폰 → 아이템
 - 검증(`FMapValidator`) 불통과 시 파생 시드로 리롤. 서버·클라 양쪽에서 같은 결과
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `LastAttemptCount` | 이번 생성의 리롤 횟수 (진단용) |
+| `Generate(...)` | 리롤 루프: 파생 시드 → GenerateOnce → Validate → 통과까지 |
+| `GenerateOnce(DerivedSeed, ...)` | 1회 생성 — 스트림 하나로 전 단계 실행 |
+| `PmgBuildBaseAndWall` (내부) | 바닥 + 외곽 2층 벽 (난수 미사용) |
+| `PmgBuildStructures` (내부) | 웨딩케이크 계단식 고원들 |
+| `PmgFillFlatArea` (내부) | 평지 기둥 격자 + 파괴 블록 |
+| `PmgScatterOnTops` (내부) | 구조물 꼭대기에 파괴 블록 스캐터 |
+| `PmgPlaceSpawns` (내부) | 최소 거리 만족 스폰 8개 (롤 예산 초과 시 실패) |
+
 ## 왜
 - **왜 리롤 구조?** → "항상 유효한 맵 직접 구성"은 어렵고 "생성+검증+재시도"는 쉽고
   예측 가능. 상한 초과 시 폴백

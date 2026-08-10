@@ -6,6 +6,16 @@
 - 클라 시각 액터의 대여·반납·예열: `Acquire / Release / Prewarm` + 템플릿 `Acquire<T>`
 - 잠든 액터 GC 보호 · 계약 위반(미구현·이중 반납) ensure
 
+## 주요 변수·함수
+| 이름 | 설명 |
+|---|---|
+| `Free` (TMap→FPooledActorArray) | 클래스별 프리 리스트. UPROPERTY 두 겹 = GC 보호 |
+| `Prewarm(Class, Count)` | 미리 스폰 → 즉시 Release 상태로 보관 |
+| `Acquire(Class, Transform)` | 프리 리스트 Pop(없으면 스폰) → 복원(Release 역순) → 콜백 |
+| `Acquire<T>(...)` | 캐스트 래퍼 |
+| `Release(Actor)` | 이중 반납 검사 → 콜백 → 숨김·비활성 → 보관 |
+| `DeactivateAndStore` (내부) | **콜백 먼저** → Hidden/Collision/Tick off → 실제 클래스로 저장 |
+
 ## 왜
 - **왜 풀링?** → 물줄기·데칼이 폭발마다 수십 개 생멸. 스폰/파괴+GC 비용을 재사용으로
 - **왜 클라 시각만?** → 서버 권한 액터(ABomb)는 재사용 시 상태 오염 위험 > 이득

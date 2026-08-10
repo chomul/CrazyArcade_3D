@@ -6,6 +6,12 @@
 - 시각 컴포넌트 제자리 회전: `ResolveDegreesPerSecond`(룰셋) + `ApplyYaw`
 - 폭탄·예측 폭탄·아이템의 회전 규칙 단일 출처
 
+## 주요 함수
+| 이름 | 설명 |
+|---|---|
+| `ResolveDegreesPerSecond(World)` | 룰셋 `PickupSpinDegreesPerSecond` 해석 (기본 45°/s) |
+| `ApplyYaw(Component, Delta, Speed)` | yaw 누적 회전 — 데디·속도0·null이면 no-op |
+
 ## 왜
 - **왜 셋이 공유?** → 속도가 갈리면 예측→진짜 교체가 **각도 점프**로 보임
 - **왜 판정 컴포넌트는 안 돌리나?** → 컬리전이 돌면 판정이 프레임마다 미세 변동
