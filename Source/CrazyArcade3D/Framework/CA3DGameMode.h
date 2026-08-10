@@ -32,6 +32,11 @@ public:
 	// 참가 등록: 접속 순서로 ColorIndex 배정 + 참가 인원·AliveCount 증가 (Task 18).
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 
+	// 중도 이탈 (2026-08-10 사용자 확정): **나간 사람은 그 자리에서 사망 처리해 순위를 부여하고,
+	// 결과 화면에 "탈주" 로 표시한다.** 참가 인원에서 빼지 않는다 — 그 사람은 매치에 참가했고
+	// 자리를 차지했다. 실제 처리는 HandleParticipantLeft 가 한다 (.cpp 주석).
+	virtual void Logout(AController* Exiting) override;
+
 	// 폰 스폰 시점의 게이트 — 지형이 판가름 나기 전에는 스폰하지 않고 보류한다 (아래 .cpp 주석).
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 
@@ -69,6 +74,11 @@ private:
 	// 통과한다. ColorIndex 배정·MatchParticipantCount·AliveCount 가 두 벌로 갈라지면
 	// "봇이 낀 매치에서만 승패 판정이 어긋나는" 진단 최악의 버그가 된다.
 	void RegisterParticipant(AController* NewController);
+
+	// 이탈 처리의 **단일 경로** — Logout 이 Super 를 부르기 전에 여기를 통과한다.
+	// 등록(RegisterParticipant)의 반대편이지만 **대칭이 아니다**: 참가 인원은 되돌리지 않고
+	// 생존 수만 되돌린다. 그 비대칭의 근거는 .cpp 주석에 있다.
+	void HandleParticipantLeft(AController* Exiting);
 
 	// 룰셋(bFillWithBots·BotFillTargetPlayers) 또는 콘솔 변수 `ca3d.BotFill` 이 요구하는
 	// 인원까지 ABotController 를 스폰해 채운다. BeginPlay 가 BotFillDelaySeconds 후로 예약.
@@ -152,4 +162,5 @@ private:
 	friend class FCA3DPlayerStateTest; // 자동화 테스트가 참가 인원·사망 버퍼를 직접 구성하기 위한 접근
 	friend class FBotControllerTest;   // 자동화 테스트가 봇 채우기·참가 등록을 직접 호출하기 위한 접근 (Task 20)
 	friend class FSuddenDeathTest;     // 자동화 테스트가 서든데스 시작·정지 배선을 직접 호출하기 위한 접근 (Task 24)
+	friend class FMatchLeaveTest;      // 자동화 테스트가 중도 이탈 매치를 직접 구성하기 위한 접근 (2026-08-10)
 };

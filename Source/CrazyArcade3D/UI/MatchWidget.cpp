@@ -162,12 +162,16 @@ FText UMatchWidget::FormatResultRow(const FMatchResultRow& Row)
 	// 그 자리를 짚어 준다. 두 정보가 같은 화면에 있어야 "몇 등이고 누구 뒤인지"가 한눈에 보인다.
 	const TCHAR* Marker = Row.bIsLocal ? TEXT("▶ ") : TEXT("   ");
 
+	// 탈주 표시는 **이름 뒤**에 붙인다 (2026-08-10). 등수 자리는 건드리지 않는다 —
+	// 나간 사람도 나간 그 자리에서 등수를 받았고, 그 등수가 결과의 사실이다.
+	const TCHAR* LeftSuffix = Row.bLeft ? TEXT(" (탈주)") : TEXT("");
+
 	if (Row.Rank <= 0)
 	{
-		return FText::FromString(FString::Printf(TEXT("%s-등   %s"), Marker, *Row.PlayerName));
+		return FText::FromString(FString::Printf(TEXT("%s-등   %s%s"), Marker, *Row.PlayerName, LeftSuffix));
 	}
-	return FText::FromString(FString::Printf(TEXT("%s%s%d등   %s"),
-		Marker, Row.bTied ? TEXT("공동 ") : TEXT(""), Row.Rank, *Row.PlayerName));
+	return FText::FromString(FString::Printf(TEXT("%s%s%d등   %s%s"),
+		Marker, Row.bTied ? TEXT("공동 ") : TEXT(""), Row.Rank, *Row.PlayerName, LeftSuffix));
 }
 
 FText UMatchWidget::FormatLocalHeadline(const TArray<FMatchResultRow>& Rows, bool bDraw)
@@ -265,6 +269,9 @@ TArray<FMatchResultRow> UMatchWidget::CollectResultRows(const ACA3DGameState* Ga
 		FMatchResultRow Row;
 		Row.Rank = Player->FinalRank;
 		Row.PlayerName = Player->GetPlayerName();
+		// 중도 이탈 표시 — 나간 사람의 PlayerState 는 ACA3DPlayerState::OnDeactivated 오버라이드
+		// 덕분에 PlayerArray 에 남아 있다. 그 오버라이드가 없으면 이 행 자체가 사라진다.
+		Row.bLeft = Player->bLeftMatch;
 		// 이름이 아니라 **포인터**로 대조한다 — 같은 이름이 둘일 수 있고(봇 기본 이름),
 		// 그러면 엉뚱한 행에 "나" 표식이 붙는다.
 		Row.bIsLocal = (LocalPlayerState != nullptr && Each == LocalPlayerState);

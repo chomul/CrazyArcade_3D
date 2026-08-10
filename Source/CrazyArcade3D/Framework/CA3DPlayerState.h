@@ -49,5 +49,30 @@ public:
 	UPROPERTY(Replicated)
 	uint8 CamYawIndex = 0;
 
+	// 이 참가자가 **매치 도중 접속을 끊었는가** (2026-08-10 사용자 확정 규칙).
+	// 나간 사람은 그 자리에서 사망 처리해 순위를 받고, 결과 화면에는 등수 옆에 "(탈주)" 가 붙는다.
+	// 참가 인원에서 빼지는 않는다 — 그 사람은 매치에 참가했고 자리를 차지했다.
+	//
+	// ⚠️ **엔진의 `bIsInactive` 를 재사용하지 않는 이유**: 그 플래그는 우리가 소유한 값이 아니다.
+	// 엔진의 inactive player 시스템(AGameMode::AddInactivePlayer / 재접속 시 복원)이 세우고
+	// 지우며, 우리가 모르는 시점에 바뀔 수 있다. 결과 화면이 뜻해야 하는 것은 정확히
+	// **"이 매치를 끝까지 안 뛰었다"** 이며, 그 판단의 주인은 ACA3DGameMode::Logout 하나뿐이어야 한다.
+	// (게다가 우리는 AGameModeBase 파생이라 AddInactivePlayer 자체가 없다 — 그 플래그를 세울
+	//  엔진 경로가 애초에 이 프로젝트에 없다.)
+	UPROPERTY(Replicated)
+	bool bLeftMatch = false;
+
+	// 소유 컨트롤러가 사라질 때 엔진이 부르는 훅 — **PlayerState 를 파괴하지 않는다.**
+	//
+	// 기본 구현(APlayerState::OnDeactivated)은 `Destroy()` 한 줄이다. 그대로 두면 나간 사람의
+	// PlayerState 가 GameState->PlayerArray 에서 사라져 **결과 화면에서 그 사람이 통째로
+	// 증발한다** — 등수를 부여해 놓고 그 등수를 보여줄 데이터가 없어지는 셈이다.
+	// (엔진 주석도 "games can override" 라고 명시한다.)
+	//
+	// 대가: 매치가 끝날 때까지 나간 사람의 PlayerState 액터가 남는다. 최대 8인이고 값은
+	// int32 몇 개라 비용은 무시할 수준이며, 레벨 전환에서 월드와 함께 회수된다.
+	// 되살릴 필요도 없다 — GDD 6.3 에 재접속이 없다.
+	virtual void OnDeactivated() override;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

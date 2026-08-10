@@ -6,6 +6,7 @@
 #include "Framework/CA3DRuleSet.h"
 #include "Gameplay/Character/CA3DCharacter.h"        // Framework→Gameplay 허용 (Framework→전부)
 #include "Gameplay/Character/CA3DPlayerController.h"
+#include "Gameplay/Character/StatusComponent.h"      // 이탈자 사망 처리의 기존 단일 경로 (ServerKill)
 #include "Gameplay/SuddenDeath/SuddenDeathSubsystem.h"
 #include "Gameplay/CA3DFeedback.h"                   // 매치 종료 큐 (Framework→Gameplay 허용)
 #include "AI/BotController.h"                        // Framework→AI 허용 (Framework→전부)
@@ -161,9 +162,16 @@ void ACA3DGameMode::PostLogin(APlayerController* NewPlayer)
 
 	Super::PostLogin(NewPlayer);
 
-	// TODO(중도 이탈): Logout 에서 MatchParticipantCount·AliveCount 정리 — 이번 Task 범위 밖.
-	// GDD 6.2 는 재접속이 없으므로 "이탈 = 그 자리에서 탈락(순위 부여)" 인지 "참가 인원에서 제외"
-	// 인지 규칙부터 확정해야 한다. 확정 전에 구현하면 승패 판정이 조용히 어긋난다.
+	// 중도 이탈은 Logout → HandleParticipantLeft 가 처리한다 (2026-08-10 규칙 확정).
+}
+
+void ACA3DGameMode::Logout(AController* Exiting)
+{
+	// 우리 정리를 **Super 보다 먼저** 한다 — Super::Logout 은 GameModeLogoutEvent 브로드캐스트
+	// 한 줄뿐이고(AGameModeBase), 그 리스너가 생기면 이미 갱신된 상태를 보는 편이 맞다.
+	HandleParticipantLeft(Exiting);
+
+	Super::Logout(Exiting);
 }
 
 void ACA3DGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
@@ -377,6 +385,98 @@ void ACA3DGameMode::RegisterParticipant(AController* NewController)
 
 	UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 참가자 입장 — 총 %d명, ColorIndex %d%s"),
 		MatchParticipantCount, NewState->ColorIndex, NewState->IsABot() ? TEXT(" (봇)") : TEXT(""));
+}
+
+// ─── 중도 이탈 (2026-08-10 사용자 확정 규칙, 서버 전용) ──────────────────────
+//
+// 규칙: **나간 사람은 그 자리에서 사망 처리해 순위를 부여하고, 결과 화면에 "탈주" 로 표시한다.**
+// 이 함수는 AController::Destroyed → AGameModeBase::Logout 경로로만 불린다 (Controller.cpp:595).
+// 그 시점에는 아직 UnPossess 전이라 폰도, PlayerState 도 그대로 붙어 있다 — 그래서 여기서
+// 기존 사망 경로를 그대로 태울 수 있다.
+void ACA3DGameMode::HandleParticipantLeft(AController* Exiting)
+{
+	if (!HasAuthority()) return; // 불변식 5 — GameMode 는 서버에만 존재하지만 명시한다
+
+	// ── ① 보류 스폰 목록에서 제거 — PlayerState 유무보다 **먼저** ──
+	// 지형이 준비되기 전에 들어왔다가 폰을 받기 전에 나간 사람이 목록에 남아 있으면,
+	// FlushPendingSpawns 가 파괴 중인 컨트롤러에 폰을 붙이려 든다. AddUnique 로 넣었으므로
+	// 같은 항목은 최대 하나지만, 그 김에 이미 죽은 항목(TObjectPtr 가 null 로 남긴 것)도 걷어낸다.
+	const int32 RemovedPending = PendingSpawnControllers.RemoveAll(
+		[Exiting](const TObjectPtr<APlayerController>& Each)
+		{
+			return !IsValid(Each) || Each.Get() == Exiting;
+		});
+
+	ACA3DPlayerState* LeavingState = Exiting ? Exiting->GetPlayerState<ACA3DPlayerState>() : nullptr;
+	if (!LeavingState)
+	{
+		// PlayerState 가 없는 컨트롤러는 애초에 참가 등록도 되지 않았다(RegisterParticipant 경고).
+		// 순위를 줄 대상이 없으므로 보류 목록 정리까지만 하고 끝낸다.
+		UE_LOG(LogCA3D, Log,
+			TEXT("ACA3DGameMode: ACA3DPlayerState 없는 컨트롤러 %s 이탈 — 순위 부여 없음 (보류 목록 %d건 정리)"),
+			*GetNameSafe(Exiting), RemovedPending);
+		return;
+	}
+
+	ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>();
+
+	// ── ② 매치가 이미 끝난 뒤의 이탈은 **탈주가 아니다** ──
+	// 그 사람은 매치를 끝까지 뛰었고 결과 화면을 닫았을 뿐이다. 여기서 표시를 세우면
+	// 결과 화면이 떠 있는 동안(그리고 레벨 전환에서 컨트롤러가 일괄 파괴될 때) 완주자 전원이
+	// 차례로 "탈주" 로 바뀐다 — bLeftMatch 가 뜻하기로 한 "이 매치를 끝까지 안 뛰었다" 와 정반대다.
+	if (!CA3DGameState || CA3DGameState->bMatchEnded)
+	{
+		UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: %s 이탈 — 매치 종료 후라 탈주 표시·사망 처리 없음"),
+			*LeavingState->GetPlayerName());
+		return;
+	}
+
+	LeavingState->bLeftMatch = true;
+
+	// ── ③ 아직 살아 있었다면 사망 처리 ──
+	// 조건은 ResolvePendingDeaths 의 필터(bAlive && FinalRank == 0)와 **같은 식**이다 —
+	// 이미 탈락한 사람에게 중복 통지를 보내지 않는다. (해소 쪽도 거르지만, 애초에 안 보내는
+	// 편이 로그가 읽히고 "이탈이 등수를 두 번 만졌나" 를 의심할 여지가 없다.)
+	const bool bWasAlive = LeavingState->bAlive && LeavingState->FinalRank == 0;
+	if (bWasAlive)
+	{
+		APawn* LeavingPawn = Exiting->GetPawn();
+		UStatusComponent* Status = LeavingPawn ? LeavingPawn->FindComponentByClass<UStatusComponent>() : nullptr;
+		if (Status)
+		{
+			// **기존 사망 경로를 그대로 탄다.** 폰 숨김·컬리전 off·LifeState·사인 기록·
+			// NotifyPlayerDeath 가 전부 이 한 함수 안에 이미 있다 — 여기서 다시 쓰면 두 벌이 되고,
+			// 나중에 한쪽만 고쳐지는 순간 "이탈로 죽으면 시체가 안 사라진다" 같은 결함이 생긴다.
+			Status->ServerKill(EDeathCause::Left);
+		}
+		else
+		{
+			// 폰이 없는 이탈(지형 준비 전 입장 → 대기 중 이탈, 또는 관전 전용 컨트롤러).
+			// 태울 폰이 없으므로 통지만 직접 넣는다. **이 경로가 이 Task 의 핵심**이다 —
+			// 빠뜨리면 AliveCount 가 안 줄어 남은 사람이 아무리 죽어도 매치가 끝나지 않는다.
+			NotifyPlayerDeath(LeavingState);
+		}
+	}
+
+	// ⚠️ 여기서 `LeavingState->bAlive = false` 를 **미리 세우지 않는다.**
+	// ResolvePendingDeaths 는 `bAlive && FinalRank == 0` 인 항목만 해소하므로, 미리 내리면
+	// 다음 틱에 그 항목이 통째로 걸러져 AliveCount 가 영영 줄지 않는다 — 이 Task 가 없애려던
+	// 바로 그 증상이 다른 얼굴로 되살아난다. bAlive·FinalRank 를 내리는 곳은 해소 한 곳뿐이다.
+	//
+	// ⚠️ 그리고 `MatchParticipantCount` 를 **줄이지 않는다.**
+	// 이 값은 "이번 매치에 몇 명이 들어왔는가" 이고, MinPlayersForMatchEnd 게이트의 입력이다.
+	// 줄이면 그 게이트가 소급 적용돼 "3명이 시작했는데 1명 나가니 승패 판정이 꺼지는" 상태가
+	// 된다 — 남은 두 명이 끝까지 싸워도 매치가 끝나지 않는다. 참가는 되돌릴 수 없는 사실이다.
+
+	UE_LOG(LogCA3D, Log,
+		TEXT("ACA3DGameMode: 참가자 이탈 — %s(ColorIndex %d%s) %s, 생존 %d명(해소는 다음 틱), 참가 %d명 유지%s"),
+		*LeavingState->GetPlayerName(), LeavingState->ColorIndex,
+		LeavingState->IsABot() ? TEXT(", 봇") : TEXT(""),
+		bWasAlive
+			? (Exiting->GetPawn() ? TEXT("→ 사망 처리(폰 경로)") : TEXT("→ 사망 처리(폰 없음 — 통지만)"))
+			: TEXT("→ 이미 탈락, 탈주 표시만"),
+		CA3DGameState->AliveCount, MatchParticipantCount,
+		RemovedPending > 0 ? TEXT(" · 스폰 대기 목록에서 제거") : TEXT(""));
 }
 
 int32 ACA3DGameMode::GetBotFillTargetPlayers(bool& bOutFromCVar) const

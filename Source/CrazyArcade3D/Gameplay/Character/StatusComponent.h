@@ -32,6 +32,9 @@ enum class EDeathCause : uint8
 	Fall,        // 맵 밖 추락 (KillZ)
 	SuddenDeath, // 서든데스 블록 낙하
 	Popped,      // 갇힌(Trapped) 상태에서 갇히지 않은 상대에게 몸으로 밀려 터짐 (2026-08-10 확정)
+	Left,        // 매치 도중 접속 종료 — 나간 그 자리에서 사망 처리해 순위를 준다 (ACA3DGameMode::Logout)
+	// ⚠️ 새 값은 **맨 끝에 append** 한다. 중간에 끼우면 기존 값의 숫자가 밀려
+	//    이미 남은 진단 로그·저장된 집계의 의미가 조용히 어긋난다 (EBotState 와 같은 규약).
 };
 
 // 캐릭터에 부착되는 상태 컴포넌트 — 스탯·생존 상태의 단일 출처 (Task 12).

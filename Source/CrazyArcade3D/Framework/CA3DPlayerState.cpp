@@ -1,6 +1,17 @@
 #include "Framework/CA3DPlayerState.h"
 
+#include "CrazyArcade3D.h"
 #include "Net/UnrealNetwork.h"
+
+void ACA3DPlayerState::OnDeactivated()
+{
+	// **Super 를 부르지 않는다** — 그게 곧 Destroy() 다 (헤더 주석의 근거).
+	// 여기서 파괴하면 나간 사람이 GameState->PlayerArray 에서 빠지고, ACA3DGameMode::Logout 이
+	// 방금 부여한 순위·탈주 표시를 보여줄 데이터가 사라진다. 되살리는(재접속) 경로는 없으므로
+	// 남겨두기만 하면 되고, 액터는 레벨 전환에서 월드와 함께 회수된다.
+	UE_LOG(LogCA3D, Log, TEXT("ACA3DPlayerState %s: 컨트롤러 이탈 — PlayerState 는 결과 화면을 위해 남긴다 (등수 %d%s)"),
+		*GetPlayerName(), FinalRank, bLeftMatch ? TEXT(", 탈주") : TEXT(""));
+}
 
 void ACA3DPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -15,4 +26,8 @@ void ACA3DPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	// 관전 카메라 각도 전원에게 — 누구든 이 참가자를 관전 대상으로 고를 수 있다.
 	// COND_OwnerOnly 로 좁히면 정작 필요한 사람(관전자)에게만 안 간다.
 	DOREPLIFETIME(ACA3DPlayerState, CamYawIndex);
+
+	// 탈주 표시도 전원에게 — 정작 이 값을 화면에 그려야 하는 사람은 **남아 있는 사람들**이다
+	// (나간 본인에게는 보낼 커넥션조차 없다).
+	DOREPLIFETIME(ACA3DPlayerState, bLeftMatch);
 }

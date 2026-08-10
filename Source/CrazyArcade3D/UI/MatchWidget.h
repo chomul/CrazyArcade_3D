@@ -35,6 +35,12 @@ struct FMatchResultRow
 	// CollectResultRows 가 로컬 PlayerState 와 대조해 채운다.
 	UPROPERTY()
 	bool bIsLocal = false;
+
+	// 이 참가자가 매치 도중 나갔는가 (ACA3DPlayerState::bLeftMatch 사본, 2026-08-10).
+	// **표시 속성일 뿐 순위 규칙이 아니다** — 정렬·공동 등수 판정은 이 값을 보지 않는다.
+	// 나간 사람도 나간 그 자리에서 등수를 받았으므로 등수는 그대로 보여준다.
+	UPROPERTY()
+	bool bLeft = false;
 };
 
 // 내 아이템 상태 스냅샷 (GDD 5장 HUD ①). 매 틱 문자열을 다시 만들지 않기 위해

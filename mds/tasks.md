@@ -405,6 +405,38 @@
         (우선순위 배치가 맞았다는 실측 증거) · Error·ensure 0 · 킥·터뜨리기도 무회귀
       · 미검증: 사람과 붙었을 때 후반 봇이 실제로 강해진 게 느껴지는가 · 상한 6 이 적당한가
 
+- [x] **(후속) 중도 이탈(Logout) 처리 — 나간 사람 = 사망 처리 + 순위 탈주 표시** (2026-08-10 사용자 확정)
+      체크리스트 `mds/Checklists/35-MatchLeave.md` · 스위트 `CrazyArcade3D.Framework.MatchLeave`
+      · **진짜 구멍이었다** — 이탈 처리가 없어 3명 중 1명이 나가면 `AliveCount` 가 3으로 남아
+        **남은 둘이 끝까지 싸워도 매치가 영영 안 끝났다.** 데모를 남에게 보여주면 반드시 밟는 경로
+      · 확정 규칙: 나간 자리에서 사망 처리해 기존 공동 등수 규약대로 순위를 받고, 결과 화면에
+        `3등   아무개 (탈주)`. **등수 자리는 그대로**(나간 그 자리에서 받은 등수가 결과의 사실) ·
+        `MatchParticipantCount` 는 **줄이지 않는다**(줄이면 `MinPlayersForMatchEnd` 게이트가
+        소급 적용돼 "3명이 시작했는데 1명 나가니 승패 판정이 꺼진다")
+      · ⭐ **설계의 축은 `ACA3DPlayerState::OnDeactivated()` 오버라이드** — 엔진 기본 구현이
+        `Destroy()` 한 줄(PlayerState.cpp:128, 주석에 "games can override" 명시)이라 그대로 두면
+        나간 사람이 `PlayerArray` 에서 사라져 **결과 화면에서 통째로 증발한다**. `Super` 를 부르지
+        않고 남긴다. `bAlwaysRelevant=true` 라 소유 컨트롤러가 사라져도 복제는 계속된다
+      · **엔진 `bIsInactive` 를 재사용하지 않았다** — 주인이 엔진의 inactive player 시스템이고,
+        우리는 `AGameModeBase` 파생이라 `AddInactivePlayer` 자체가 없다. 신규 `bLeftMatch` 복제
+      · 사망 처리는 **기존 `ServerKill(EDeathCause::Left)` 경로를 그대로 탄다**(폰 숨김·컬리전 off·
+        사인·통지가 전부 거기 있다). 폰이 없는 이탈(스폰 게이트 대기 중)은 `NotifyPlayerDeath` 직접 —
+        **이 경로가 핵심**이다. `EDeathCause::Left` 는 맨 끝 append
+      · ⚠️ **지시가 틀렸고 구현이 맞은 것 2건** (체크리스트 35 "밟은 함정"):
+        ① `bAlive=false` 를 미리 세우면 `ResolvePendingDeaths` 필터(`bAlive && FinalRank==0`)에
+           걸러져 **AliveCount 가 영영 안 준다** — 없애려던 증상이 다른 얼굴로 되살아난다
+        ② `AController::Destroyed`(Controller.cpp:595)가 `Logout` 을 부르는데 `APlayerController` 가
+           아니라 **`AController`** 라 레벨 정리 때 전원이 통과한다 → `bMatchEnded` 게이트가 없으면
+           결과 화면 중에 **우승자까지 "탈주"로 뒤집힌다**
+      · `BuildResultRows` 의 정렬·공동 등수 규칙은 **한 줄도 안 건드렸다** — 탈주는 표시 속성이다
+      · 검증: 두 타깃 빌드 통과 · **전체 30스위트 실패 0** · `LogCA3D` **Error 0**
+        (Warning 83건은 전부 기존 "BP 에셋 미지정" 안내 + 의도적 실패 경로 테스트)
+      · 미검증(넷드라이버 필요 — 헤드리스로는 복제 자체를 못 본다): 실제 접속 끊기로
+        남은 클라 결과 화면의 `(탈주)` 표시 · 나간 사람 폰이 다른 클라에서도 사라지는가
+      · 알아 둘 것: **봇은 이 보호를 못 받는다** — `AController::CleanupPlayerState`(:640)는
+        `PlayerState->Destroy()` 를 직접 부르고 `OnDeactivated` 훅은 `APlayerController` 경로에만 있다.
+        지금은 봇을 매치 중 제거하는 경로가 없어 도달 불가
+
 ## 진행 중 메모
 
 - ⭐ 1번 시점부터 `stat unit` 을 켜고 개발한다 (GDD 7.4). "다 만들고 최적화"는 3주 프로젝트에 없다.
