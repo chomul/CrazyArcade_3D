@@ -9,21 +9,19 @@
 - 사망을 GameMode에 통지. 순위 판정은 안 함
 
 ## 주요 변수·함수
-| 이름 | 설명 |
-|---|---|
-| `MaxBombCount` / `BombRange` / `MoveSpeedMul` (복제·OnRep_Stats) | 스탯 3종 |
-| `bHasNeedle` / `bHasKick` (복제) | 보유 플래그 |
-| `LifeState` (복제·OnRep_Life) | `Alive / Trapped / Dead / Spectating(미사용)` |
-| `ActiveBombCount` (비복제) | 서버 전용 설치 중 개수 |
-| `LastDeathCause` (비복제) | 사인 — `Water·Fall·SuddenDeath·Popped·Left` |
-| `TrappedTimer` | 갇힘 만료 → 익사 예약 |
-| `ServerApplyItem(Type)` | 아이템 효과 적용 (Cap 클램프) + 속도 재계산 |
-| `HasRoomForItem(Type)` | "받으면 오르는가" — ServerApplyItem과 1:1 짝 (봇용) |
-| `ServerTrap()` | Alive → Trapped + 익사 타이머 + 감속 |
-| `ServerEscape()` | Trapped+니들 → Alive 복귀 (니들 소모) |
-| `ServerKill(Cause)` | → Dead + ApplyDeathState + GameMode 통지 |
-| `OnRep_Life()` | 클라: 같은 ApplyDeathState 경로 + 큐 재생 |
-| `RefreshOwnerMoveSpeed()` (내부) | 캐릭터의 속도 재계산 호출 |
+| 이름 | 설명 | 멀티 이유 |
+|---|---|---|
+| `MaxBombCount` / `BombRange` / `MoveSpeedMul` (복제·OnRep_Stats) | 스탯 3종 | HUD 표시 + 클라 로컬 검증(설치 예측)의 재료. OnRep → 속도 재계산 |
+| `bHasNeedle` / `bHasKick` (복제) | 보유 플래그 | HUD 표시 + 니들 사전검사 |
+| `LifeState` (복제·OnRep_Life) | Alive/Trapped/Dead | **사망의 시각 처리를 클라가 같은 함수로** 하기 위한 유일한 신호 |
+| `ActiveBombCount` (비복제) | 설치 중 개수 | **일부러 비복제** — 서버 판정 전용. 복제 지연 값으로 클라가 예측하면 오히려 틀림(예측 비주얼 수로 대체) |
+| `LastDeathCause` (비복제) | 사인 5종 | 서버 로그·집계용 — 클라 표시에 안 쓰여 복제 불필요 |
+| `TrappedTimer` | 익사 예약 | 서버 타이머 — 갇힘 연출은 LifeState 복제로 충분 |
+| `ServerApplyItem(Type)` | 효과 적용 (Cap 클램프) | RPC 아님 — 서버 안(아이템 오버랩)에서만 호출. 서버는 OnRep이 안 불려 속도 재계산 직접 |
+| `HasRoomForItem(Type)` | "받으면 오르는가" (봇용) | |
+| `ServerTrap()` / `ServerEscape()` / `ServerKill(Cause)` | 상태 전이 3종 | **전부 RPC가 아니라 서버 로컬 진입점 + `HasAuthority()` 가드** — 상태 변경 표면을 좁혀 검증 지점 최소화(불변식 5). 클라 요청은 캐릭터 RPC 경유 |
+| `OnRep_Life()` | 클라 수신부 | 서버와 같은 `ApplyDeathState` 통과(불변식 1의 캐릭터판) — 죽은 본인 화면과 남의 화면이 같아짐 |
+| `RefreshOwnerMoveSpeed()` (내부) | 속도 재계산 호출 | 서버·클라 각자 — 결과가 복제 스탯의 함수라 동일 |
 
 ## 왜
 - **왜 컴포넌트?** → 설계 결정 8: 봇·사람 코드 경로 동일. 캐릭터=행동, 컴포넌트=상태
@@ -38,8 +36,10 @@
 - **왜 HasRoomForItem이 여기?** → `ServerApplyItem` 바로 옆. 봇 파일에 있으면
   "봇은 상한인 줄 아는데 실제로는 오르는" 어긋남
 
-## 네트워크
-복제 6: 스탯 5 + `LifeState`(OnRep_Life → ApplyDeathState 공통 경로)
+## 멀티 처리
+**상태의 진실은 서버, 클라는 OnRep으로 결과만 받는다.** 클라→서버 방향은 이 컴포넌트에
+없다(캐릭터 RPC가 대신 받아 서버 안에서 이 진입점들을 부름). 복제 6: 스탯 5 +
+`LifeState`(OnRep_Life → ApplyDeathState 공통 경로)
 
 ## 연결
 [23-CA3DCharacter.md](23-CA3DCharacter.md) · 갇힘 호출: [16-ExplosionSubsystem.md](../Bomb/16-ExplosionSubsystem.md) · 통지: [35-CA3DGameMode.md](../../Framework/35-CA3DGameMode.md)

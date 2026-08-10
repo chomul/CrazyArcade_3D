@@ -7,10 +7,14 @@
 - 폭탄이 킥으로 움직이면 따라감(`OnRep_Cell`이 다시 깖)
 
 ## 주요 함수
-| 이름 | 설명 |
-|---|---|
-| `SetCellSize(float)` | 데칼 크기를 셀 크기에 맞춤 |
-| `OnAcquiredFromPool / OnReleasedToPool` | 풀 계약 구현 |
+| 이름 | 설명 | 멀티 이유 |
+|---|---|---|
+| `SetCellSize(float)` | 데칼 크기를 셀 크기에 맞춤 | 비복제 — 위험 프리뷰는 "전송 없음"이 설계(권한 매트릭스). 복제된 Cell·Range + 자기 그리드로 각 클라가 같은 결과를 계산 |
+| `OnAcquiredFromPool / OnReleasedToPool` | 풀 계약 구현 | |
+
+## 멀티 처리
+**네트워크 없음.** 각 클라가 폭탄의 복제 값(Cell·Range)으로 `Propagate`를 로컬 실행해 깐다.
+전송하지 않아도 어긋나지 않는 이유 = 실폭발과 같은 함수·같은 입력
 
 ## 왜
 - **왜 실제와 절대 안 어긋나나?** → 셀 목록을 실폭발과 같은 `Propagate`로 계산.

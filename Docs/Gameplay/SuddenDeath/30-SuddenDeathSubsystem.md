@@ -7,16 +7,16 @@
 - **Relay**(AInfo): 예고 Multicast 스피커 / **DropMarker**: 예고 마커 표시(풀링)
 
 ## 주요 변수·함수
-| 이름 | 설명 |
-|---|---|
-| `bRunning` / `DropTimer` / `Stream` | 실행 플래그 · 주기 타이머 · 서버 난수 |
-| `PendingWaves` (배열) | 예고 중 웨이브들 — `FSuddenDeathWave{Id, Cells, Timer}` |
-| `ServerStart() / ServerStop()` | GameMode가 부르는 스위치 (정지 시 웨이브 전부 해제) |
-| `ProcessDrop()` (주기) | 셀 추첨 → 웨이브 확정 → 예고 방송 → 실행 타이머 |
-| `ExecuteWave(Id)` | 웨이브 셀마다 `ServerApplyExplosionAt(...)` |
-| `PickDropCell(...)` (static) | 낙하 후보 추첨 (외곽 가중치·시도 상한) |
-| `Relay::MulticastWarnDrop(Cells, Delay)` | 예고: 경고 큐 → 마커 풀 획득 + StartWarning |
-| `DropMarker::StartWarning(Seconds)` | 마커 표시 후 자체 반납 |
+| 이름 | 설명 | 멀티 이유 |
+|---|---|---|
+| `bRunning` / `DropTimer` / `Stream` | 실행 플래그 · 주기 타이머 · 난수 | 전부 서버 전용. `Stream`은 `FMath::Rand()` 시드 — 결과를 Multicast로 알리므로 **클라 재현이 불필요**해 결정론 제약(불변식 4)이 안 걸림 |
+| `PendingWaves` (배열) | 예고 중 웨이브들 | 서버 전용 — 클라는 웨이브 개념을 모르고 "이 셀들 곧 떨어짐"만 받음 |
+| `ServerStart() / ServerStop()` | GameMode 스위치 | 서버 전용 — 클라 표시는 GameState의 `bSuddenDeathActive` 복제로 |
+| `ProcessDrop()` (주기) | 추첨 → 확정 → 예고 방송 → 실행 예약 | 셀을 **예고 시점에 확정** — 예고와 실제가 같은 데이터여야 "보고 피한다"가 성립 |
+| `ExecuteWave(Id)` | 셀마다 `ServerApplyExplosionAt` | 파괴 전달은 VoxelWorld의 기존 복제 경로 재사용 — 새 통신 없음 |
+| `PickDropCell(...)` (static) | 낙하 후보 추첨 | |
+| `Relay::MulticastWarnDrop(Cells, Delay)` (Reliable) | 예고: 경고 큐 + 마커 | **Reliable** — 예고가 빠지면 회피 불가 = 게임 규칙 훼손. 서브시스템은 RPC 불가라 릴레이가 방송 |
+| `DropMarker::StartWarning(Seconds)` | 마커 표시 후 자체 반납 | 비복제 — 각 클라 로컬 스폰 (물줄기와 같은 패턴) |
 
 ## 왜
 - **⭐ Propagate 무수정** → `bFloorDestructible`이 이미 인자(불변식 2의 회수).
@@ -34,6 +34,11 @@
 - **왜 마커 타입 고정?** → 순수 AActor면 풀 Acquire가 ensure로 낙하마다 터짐
 - **낙사 원인은 시각으로 판정** → 그리드에 파괴 원인을 넣으면 Voxel 독립성 붕괴.
   통계에 그 비용을 안 치름
+
+## 멀티 처리
+**낙하 결정은 서버 단독**(난수도 서버 로컬 — 클라 재현 불필요). 클라에는 두 경로로만 전달:
+예고는 `MulticastWarnDrop`(마커), 실제 파괴는 폭탄과 같은 VoxelWorld 복제 경로.
+활성 여부는 GameState `bSuddenDeathActive` 복제로 HUD·사인 분기가 읽는다.
 
 ## 연결
 [16-ExplosionSubsystem.md](../Bomb/16-ExplosionSubsystem.md) · 스위치: [35-CA3DGameMode.md](../../Framework/35-CA3DGameMode.md)

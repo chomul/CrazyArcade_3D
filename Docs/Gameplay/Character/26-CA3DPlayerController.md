@@ -9,24 +9,22 @@
 - 게임 상태는 안 바꿈
 
 ## 주요 변수·함수
-| 이름 | 설명 |
-|---|---|
-| `IA_Move / IA_Jump / IA_PlaceBomb / IA_RotateCam / IA_UseNeedle` | 입력 액션 (BP에서 에셋만 지정) |
-| `CamYawSteps` | Q/E 누적 스텝 (랩 안 함) |
-| `SmoothCamYaw` | 보간 현재각 (시각 전용) |
-| `LastSentCamYawIndex` | 마지막 전송 인덱스 — 변화 감지용 |
-| `SpectateTarget` (PlayerState) | 관전 대상 — 폰이 아니라 PlayerState |
-| `bSpectateAxisLatched` | 좌/우 연속 입력 래치 |
-| `OnMove / OnJump* / OnPlaceBomb / OnUseNeedle / OnRotateCam` | 입력 핸들러 — 전달만 |
-| `GetCamYawIndex()` / `GetSnappedCamYaw()` | 스텝 → 인덱스/스냅각 (CameraYawSnap 공식) |
-| `PushCamYawIndex()` | 인덱스 바뀔 때만 RPC |
-| `ServerSetCamYawIndex(uint8)` (RPC) | PlayerState.CamYawIndex에 기록 |
-| `PlayerTick` | yaw 보간 + 사망 중 `UpdateSpectateView()` |
-| `UpdateSpectateView()` | 대상 없음/사망 시 다음 생존자로 |
-| `CycleSpectateTarget(±1)` / `CollectSpectateCandidates()` | 대상 순환 (PlayerArray 고정 순서·bAlive만) |
-| `SetSpectateTarget()` | 블렌드 이동 + 대상 각을 시작각으로 수신 |
-| `HandleSpectateAxis(X)` | 사망 중 좌/우 재해석 (래치 포함) |
-| `IsLocalPawnDead()` / `IsMatchEnded()` | 관전 조건 / 종료 후 시점 고정 |
+| 이름 | 설명 | 멀티 이유 |
+|---|---|---|
+| `IA_*` 5종 | 입력 액션 (BP는 에셋만 지정) | |
+| `CamYawSteps` / `SmoothCamYaw` | Q/E 누적 스텝 · 보간 현재각 | **로컬 전용** — 내 카메라는 서버가 몰라도 됨 |
+| `LastSentCamYawIndex` | 마지막 전송 인덱스 | 변화 감지 — 기본값(0)이 복제 기본값과 일치해 무회전 시 **RPC 0회** |
+| `SpectateTarget` (PlayerState) | 관전 대상 | 로컬 — "누굴 보는가"는 복제하지 않음(남의 관전 대상 동기화는 순수 낭비) |
+| `bSpectateAxisLatched` | 좌/우 연속 입력 래치 | |
+| `On*` 입력 핸들러 | 전달만 | 검증을 여기 두면 봇(다른 컨트롤러)과 경로가 갈라짐 |
+| `GetCamYawIndex()` / `GetSnappedCamYaw()` | 스텝 → 인덱스/스냅각 | 공식은 `CameraYawSnap` — 복제 값과 같은 좌표계 보장 |
+| `PushCamYawIndex()` | 바뀔 때만 전송 | 매 틱 전송이면 8인 기준 초당 수백 개 무의미 RPC |
+| `ServerSetCamYawIndex(uint8)` (Server RPC) | PlayerState에 기록 | **표현 값 복제용** — 관전자가 내 폰을 볼 때의 각. 내 카메라 자체는 여전히 로컬이 굴림 |
+| `PlayerTick` | 보간 + 사망 중 관전 갱신 | |
+| `UpdateSpectateView()` / `CycleSpectateTarget` / `CollectSpectateCandidates` | 자동 추적·순환·후보 수집 | 전부 로컬 — 필요한 서버 정보는 이미 복제된 `bAlive`·`PlayerArray`뿐. 새 복제·RPC 0개로 구현된 관전 |
+| `SetSpectateTarget()` | 블렌드 이동 + 대상 각 수신 | `SetViewTargetWithBlend` = 로컬 카메라 조작 — 서버 왕복 없음. 시작각만 복제된 `CamYawIndex`에서 |
+| `HandleSpectateAxis(X)` | 사망 중 좌/우 재해석 | |
+| `IsLocalPawnDead()` / `IsMatchEnded()` | 관전 조건 / 종료 후 고정 | 복제된 `LifeState`·`bMatchEnded`를 읽기만 |
 
 ## 왜
 - **왜 전달만?** → 검증을 컨트롤러에 두면 봇(다른 컨트롤러)과 경로가 갈라짐
@@ -43,7 +41,10 @@
 - **왜 좌/우 래치?** → Triggered는 매 프레임 — 래치 없으면 한 번에 전원 통과
 - **왜 대상 각을 시작각으로만?** → "그 사람 시점 그대로" 시작하되 이후엔 관전자 소유(Q/E)
 
-## 네트워크
+## 멀티 처리
+**카메라·관전은 전부 로컬이고, 네트워크로 나가는 것은 표현값 1바이트뿐.**
+`CamYawIndex`(0~3)를 바뀔 때만 서버에 올려 PlayerState로 복제 — 관전자가 나를 볼 때
+쓰는 값이다. 관전 자체는 이미 복제되는 값들(`bAlive` 등)을 읽기만 해서 추가 통신이 0.
 RPC 1: `ServerSetCamYawIndex(uint8)`
 
 ## 연결

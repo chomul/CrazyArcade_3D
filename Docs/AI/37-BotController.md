@@ -9,21 +9,22 @@
 - 판정 로직 소유 안 함 — 전부 기존 함수 조회
 
 ## 주요 변수·함수
-| 이름 | 설명 |
-|---|---|
-| `State` (EBotState) | Wander·Attack·Evade·PopTrapped·SeekItem |
-| `PathCells` / `PathIndex` | 현재 BFS 경로와 진행 위치 |
-| `DangerCells` (TSet) | 이번 틱의 위험 셀 집합 — 판정·통행 공용 |
-| `bPlanFailed` / `TimeSinceReplan` | 재계획 폭주 차단 · 주기 관리 |
-| `RandomStream` | ColorIndex 시드 — 봇별 독립·재현 가능 |
-| `Tick()` | 인식 → 재계획 조건 5종 검사 → FollowPath |
-| `Replan()` | 우선순위 분기의 전부 (코드 순서 = 우선순위) |
-| `GatherDangerCells()` | 활성 폭탄 전부 Propagate 병합 |
-| `ShouldPlaceBombAt(Cell)` | 이득 판정 + **탈출로 BFS 필수** |
-| `PlanEscape / PlanPopTrapped / PlanSeekItem / PlanWander` | 상태별 목표·경로 수립 |
-| `RunBFS(Start, Goals)` | `VoxelMove` 이웃 확장 · 상한 1024 · 고정 순서 |
-| `FollowPath(FootCell)` | 웨이포인트 소비 · 못 오르면 폐기 · 오를 때만 점프 |
-| `BotMoveCaps()` | `bRequireHeadroom=true` — 봇 전용 이동 옵션 |
+| 이름 | 설명 | 멀티 이유 |
+|---|---|---|
+| `State` (EBotState) | Wander·Attack·Evade·PopTrapped·SeekItem | 서버 전용 — 봇 컨트롤러는 클라에 존재하지 않음. 클라는 봇의 "폰"만 일반 복제로 봄 |
+| `PathCells` / `PathIndex` | BFS 경로·진행 위치 | 서버 전용 |
+| `DangerCells` (TSet) | 위험 셀 집합 — 판정·통행 공용 | 서버에서 `Propagate` 재실행 — 폭탄 복제 값이 아니라 서버 원본을 읽음 |
+| `bPlanFailed` / `TimeSinceReplan` | 폭주 차단 · 주기 | |
+| `RandomStream` | ColorIndex 시드 | 봇별 독립·재현 — 서버 로컬이라 결정론 제약은 디버깅 편의 목적 |
+| `Tick()` | 인식 → 재계획 → FollowPath | `HasAuthority()` 가드 — 봇 로직 전체가 서버 틱 |
+| `Replan()` | 우선순위 분기 전부 | |
+| `GatherDangerCells()` | 폭탄 전부 Propagate 병합 | |
+| `ShouldPlaceBombAt(Cell)` | 이득 판정 + 탈출로 BFS | |
+| `Plan*` 4종 | 상태별 목표·경로 | |
+| `RunBFS(Start, Goals)` | VoxelMove 확장 · 상한 1024 | |
+| `FollowPath(FootCell)` | 웨이포인트 소비 → `Move`/`DoJump` | **사람과 같은 진입점** 호출 — 봇의 이동도 CMC를 타서 클라에 사람과 똑같이 복제됨 |
+| `BotMoveCaps()` | 봇 전용 이동 옵션 | |
+| (Tick 안) `CamYawIndex` 기록 | 이동 방향 스냅 | 복제 값 쓰기 — 관전자가 봇을 볼 때의 각. **데디 가드 없음**(시각이 아니라 상태) |
 
 ## 왜
 - **왜 BT가 아니라 FSM?** → 3주 일정, 상태 5개 규모. C++의 디버깅·테스트·결정론이 이김
@@ -40,6 +41,11 @@
 - **왜 FollowPath에 경로 폐기 가드?** → 발판이 폭발로 사라지면 옛 코드는 벽에 붙어 점프
 - **왜 MaxPathNodes 1024?** → 512는 잘림≠실패 구분 불가 — 먼 상대를 도달 불가로 오판
 - **왜 CamYawIndex에 데디 가드 없음?** → 복제 값 = 상태이지 시각이 아님
+
+## 멀티 처리
+**봇은 서버에만 존재하고, 조작 결과만 사람과 같은 복제 경로로 나간다.**
+이동은 CMC 복제, 폭탄은 서버 직행 설치(예측 생략), 상태는 PlayerState·StatusComponent 복제.
+클라 입장에서 봇 폰과 사람 폰은 구분되지 않는다 — 봇 전용 네트워크 코드가 0인 이유.
 
 ## 연결
 [16-ExplosionSubsystem.md](../Gameplay/Bomb/16-ExplosionSubsystem.md) · [06-VoxelMovement.md](../Voxel/06-VoxelMovement.md) · [23-CA3DCharacter.md](../Gameplay/Character/23-CA3DCharacter.md) · [24-StatusComponent.md](../Gameplay/Character/24-StatusComponent.md)
