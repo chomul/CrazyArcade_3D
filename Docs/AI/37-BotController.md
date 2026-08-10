@@ -5,6 +5,13 @@
 순수 C++ FSM 봇. 상태 5개: `Wander · Attack · Evade · PopTrapped · SeekItem`.
 우선순위(= `Replan`의 코드 순서): **Evade > PopTrapped > 설치 > SeekItem > Attack > Wander**.
 
+## 역할
+
+- 매 틱: **상황 인식**(위험 셀 수집·목표 탐색) → **상태 결정**(`Replan` — 우선순위 분기)
+  → **경로 계획**(그리드 BFS) → **캐릭터 조작**(`FollowPath` — 이동·점프·설치).
+- 관전자를 위한 카메라 각(`CamYawIndex`)을 이동 방향에서 산출해 기록.
+- 판정 로직을 소유하지 않는다 — 위험·이동 가능·아이템 가치 전부 기존 함수를 조회만.
+
 ## 왜 이렇게 했는가
 
 - **왜 Behavior Tree가 아니라 C++ FSM인가** — 설계 결정 12번: BT 학습 비용 회피(3주 일정).

@@ -5,6 +5,12 @@
 90도 스냅 카메라 각의 **단일 출처**. `NumSteps=4` · `StepDeg=90` ·
 `StepsToIndex` / `IndexToYawDeg` / `YawDegToIndex` / `YawDegToIndexWithHysteresis`.
 
+## 역할
+
+- 90도 스냅 카메라 각의 **변환 공식을 한 곳에 모은다**: 누적 스텝 ↔ 인덱스(0~3) ↔ 각도,
+  임의 각 → 가장 가까운 인덱스(+히스테리시스 변형).
+- 상태 없음 — 순수 변환 함수와 구조 상수(`NumSteps=4`·`StepDeg=90`)뿐.
+
 ## 왜 이렇게 했는가
 
 - **사용처가 3곳이라 단일 출처가 필수** — ① 컨트롤러 Q/E 누적 스텝 → 인덱스

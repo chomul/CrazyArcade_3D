@@ -6,6 +6,15 @@
 (`TryPlaceBombPredicted`) · 니들(`TryUseNeedle`) · 킥(`ServerTryKickBomb`) ·
 사망 적용(`ApplyDeathState`) · 발밑 셀(`GetFootCell`).
 
+## 역할
+
+- 사람·봇 공용의 **행동 진입점**: 이동(`Move`/`DoJump`) · 폭탄 설치(`TryPlaceBombPredicted`
+  — 예측+RPC) · 니들(`TryUseNeedle`) · 킥 시도(매 틱 `ServerTryKickBomb`) ·
+  갇힌 상대 터뜨리기 검사.
+- 판정의 기준점 제공: `GetFootCell()`(발밑 셀) · `GetContactReach()`(접촉 거리).
+- 사망의 시각·물리 적용(`ApplyDeathState` — 서버·클라 공통) · 시점 각 결정(`GetViewRotation`).
+- 스탯 보관은 하지 않는다 — `UStatusComponent` 소관.
+
 ## 왜 이렇게 했는가
 
 - **왜 사람과 봇이 같은 클래스·같은 진입점인가** — 봇 전용 경로를 만들면 검증이 두 벌이

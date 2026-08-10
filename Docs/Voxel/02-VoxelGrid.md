@@ -5,6 +5,12 @@
 지형의 **유일한 실체**. `FIntVector Size` + `TArray<uint8> Blocks`(X→Y→Z 평탄화)가 전부다.
 블록은 이 게임에서 영원히 객체로 만들어지지 않는다 — 화면의 블록(HISM 인스턴스)은 이 배열을 보고 그린 **투영**이다.
 
+## 역할
+
+- **지형 상태를 보관한다** — 크기(`Size`)와 셀 배열(`Blocks`)이 전부이고, 이것이 매치 내내 지형의 진실이다.
+- 셀 조회·수정 API 제공: `Get / Set / IsSolid / BlocksExplosion / IsValid / Index`.
+- **하지 않는 것**: 렌더링·복제·월드 좌표 변환·"누가 부쉈나" — 전부 소유자(`AVoxelWorld`) 이상의 계층 소관.
+
 ## 왜 이렇게 했는가
 
 ### 왜 UObject가 아니라 평범한 struct인가

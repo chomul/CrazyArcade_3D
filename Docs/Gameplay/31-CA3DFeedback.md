@@ -5,6 +5,15 @@
 사운드·이펙트 재생 경로. `ECA3DCue` 10종(BombPlace·Explosion·BlockBreak·ItemPickup·
 Trapped·Escape·Death·Kick·SuddenDeathWarn·MatchEnd), 재생은 `Play` **단일 경로**.
 
+## 역할
+
+- **`CA3DFeedback::Play`**: 큐(사건) → 룰셋 에셋(사운드+FX) 해석 → 재생의 단일 경로.
+  데디 가드·미지정 no-op·재생까지 전부 여기서.
+- **`ServerBroadcast`**: 서버에서 발생한 큐를 전 클라에 방송하는 진입점.
+- **`ACA3DCueRelay`**: 그 방송의 Multicast 스피커(Unreliable).
+- **`UCA3DFeedbackSubsystem`**: `OnGridChanged` 구독 → 블록 파괴음 — Voxel에 소리를
+  넣지 않기 위한 구독자.
+
 ## 왜 이렇게 했는가
 
 - **재생 단위가 에셋이 아니라 "사건"** — 큐 하나가 사운드+나이아가라를 함께 든다.

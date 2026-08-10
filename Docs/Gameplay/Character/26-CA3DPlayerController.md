@@ -5,6 +5,15 @@
 Enhanced Input 바인딩 + 90도 스냅 카메라 + 사망 후 관전. **클라 로컬 관심사 전용** —
 게임 상태를 바꾸지 않는다(판정·상태 변경은 캐릭터의 서버 RPC 소관).
 
+## 역할
+
+- **입력 바인딩과 전달**: Enhanced Input(IMC/IA)을 등록하고 각 입력을 캐릭터 함수로 넘긴다.
+- **카메라 yaw 스텝 관리**: Q/E 누적 스텝 소유 · 보간(`SmoothCamYaw`) ·
+  바뀐 인덱스만 서버로 올림(`ServerSetCamYawIndex` → PlayerState 복제).
+- **사망 후 관전**: 생존자 자동 추적(`UpdateSpectateView`) · 좌/우로 대상 순환 ·
+  `SetViewTargetWithBlend`로 시점만 이동.
+- 게임 상태는 바꾸지 않는다 — 전부 클라 로컬 관심사.
+
 ## 왜 이렇게 했는가
 
 - **컨트롤러는 "전달"만** — `OnPlaceBomb`/`OnUseNeedle`은 캐릭터 함수를 부를 뿐 검증이 없다.

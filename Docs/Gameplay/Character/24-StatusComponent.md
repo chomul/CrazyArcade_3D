@@ -5,6 +5,14 @@
 스탯(폭탄 수·범위·속도·니들·킥)과 생존 상태(`ELifeState`)의 **단일 출처**.
 `ServerApplyItem / ServerTrap / ServerEscape / ServerKill` 네 진입점.
 
+## 역할
+
+- 캐릭터의 **스탯을 보관·복제**한다: 폭탄 수·범위·속도 배수·니들·킥.
+- **생존 상태 전이를 관리**한다: Alive → Trapped(`ServerTrap`, 4초 익사 타이머) →
+  탈출(`ServerEscape`) 또는 사망(`ServerKill` + 사인 기록) — 전부 서버 진입점.
+- 아이템 효과 적용(`ServerApplyItem`)과 그 판정 짝(`HasRoomForItem`).
+- 사망을 GameMode에 통지한다 — 순위 판정은 하지 않는다.
+
 ## 왜 이렇게 했는가
 
 - **왜 캐릭터가 아니라 컴포넌트인가** — 설계 결정 8번: "플레이어 상태를 컴포넌트로" —

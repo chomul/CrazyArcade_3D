@@ -6,6 +6,13 @@
 서든데스(150초 이후): 서버가 주기적으로 낙하 셀을 뽑아 예고(1.5초) 후 그 자리에 폭발을 일으킨다.
 서든데스 낙하만 바닥을 부순다 — 초반은 발판 보장, 후반부터 구멍이 뚫린다.
 
+## 역할
+
+- **`USuddenDeathSubsystem`**: 서버 낙하 스케줄러 — 주기마다 낙하 셀 추첨 → 예고 방송 →
+  지연 후 폭발 적용(`ServerApplyExplosionAt` 위임). 시작/정지는 GameMode가 지시.
+- **`ASuddenDeathRelay`**: 예고 Multicast 스피커(서브시스템은 RPC 불가).
+- **`ASuddenDeathDropMarker`**: 낙하 예고 마커 표시(풀링) — 플레이어가 보고 피하는 장치.
+
 ## 왜 이렇게 했는가
 
 - **⭐ `Propagate`를 한 줄도 안 고쳤다** — 불변식 2 덕에 `bFloorDestructible`이 이미

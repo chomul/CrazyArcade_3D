@@ -4,6 +4,13 @@
 
 레벨에 1개 배치되는 지형 액터. `FVoxelGrid`를 소유하고 **권한·복제·파괴 단일 경로·좌표 변환**을 맡는다.
 
+## 역할
+
+- `FVoxelGrid`를 **소유**하고 엔진과 잇는다: 시드·크기·파괴 이력 **복제**, 파괴 **단일 경로 적용**(`ApplyDestruction`).
+- 서버: 시드로 그리드 생성(`ServerInitFromSeed`) · 파괴 확정(`ServerDestroyBlocks`).
+- 클라: OnRep으로 같은 그리드 재생성 + 늦게 온 파괴 따라잡기.
+- 월드↔셀 좌표 변환(`WorldToCell / CellToWorld`), 스폰 셀·아이템 배치 데이터 보관, 변경 알림(`OnGridChanged`).
+
 ## 왜 이렇게 했는가
 
 - **왜 그리드를 액터가 소유하나** — 리플리케이션은 액터 단위로만 가능하다.

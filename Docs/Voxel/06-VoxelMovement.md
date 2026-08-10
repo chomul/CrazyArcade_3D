@@ -5,6 +5,13 @@
 그리드 위 이동 규칙의 **단일 출처**. `MaxClimbCells=1`(1칸은 오르고 2칸은 못 오름),
 `IsStandable`, `FindLandingInColumn`, `GatherReachableNeighbors`, `CountEscapeDirections`.
 
+## 역할
+
+- 격자 위 **이동 규칙을 정의**한다: 설 수 있는 칸(`IsStandable`), 한 칸 이동으로 도달
+  가능한 이웃(`GatherReachableNeighbors` — 1칸 오르기·무제한 낙하), 탈출 방향 수
+  (`CountEscapeDirections`).
+- 맵 검증기와 봇 BFS가 공유하는 "도달 가능"의 유일한 정의.
+
 ## 왜 이렇게 했는가
 
 - **탄생 배경이 곧 존재 이유** — 원래 이동 규칙이 맵 검증기(`FMapValidator`)와 봇 BFS에

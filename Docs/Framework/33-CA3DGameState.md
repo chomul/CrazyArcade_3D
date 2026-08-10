@@ -5,6 +5,12 @@
 클라에 복제되는 매치 상태. **로직 0** — 복제 필드 6개와 `GetLifetimeReplicatedProps`뿐.
 `Rules` · `AliveCount` · `bMatchEnded` · `MatchWinner` · `MatchStartServerTime` · `bSuddenDeathActive`.
 
+## 역할
+
+- **매치 전역 상태의 복제 게시판**: 룰셋 포인터 · 생존 수 · 매치 종료/승자 ·
+  시작 시각 · 서든데스 활성.
+- 쓰는 쪽은 GameMode 하나, 읽는 쪽은 UI·봇·캐릭터·VoxelWorld 등 전부. 로직 없음.
+
 ## 왜 이렇게 했는가
 
 - **왜 로직이 0인가** — 이 클래스는 "서버 결정의 게시판"이다. 쓰는 쪽은 GameMode 하나,

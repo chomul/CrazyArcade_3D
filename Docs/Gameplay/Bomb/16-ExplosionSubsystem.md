@@ -5,6 +5,14 @@
 세 가지 역할: ① static 순수 함수 `Propagate`(폭발 전파 계산) ② 서버 연쇄 스케줄링
 (`RequestDetonate`/`ProcessChainStep`/`ServerApplyExplosionAt`) ③ 폭탄·아이템 셀 레지스트리.
 
+## 역할
+
+- **계산**: `Propagate` — 원점·범위·그리드에서 폭발 결과를 부작용 없이 산출
+  (실폭발·프리뷰·봇·서든데스 공용).
+- **스케줄링**: `RequestDetonate`/`ProcessChainStep` — 연쇄 폭발을 단계별 타이머로 분산.
+- **적용**: `ApplyExplosionCells` — 파괴 → FX 방송 → 갇힘 판정 → 아이템 처리의 고정 순서.
+- **레지스트리**: 활성 폭탄·아이템을 셀로 조회(`FindBombAt`/`FindItemAt`).
+
 ## 왜 이렇게 했는가
 
 - **`Propagate`가 static 순수 함수인 것이 불변식 2** — 부작용 없이 그리드를 읽어

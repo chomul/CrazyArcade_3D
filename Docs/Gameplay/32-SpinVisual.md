@@ -5,6 +5,12 @@
 맵 위 물건(폭탄·예측 폭탄·아이템)의 제자리 회전. `ResolveDegreesPerSecond(World)` +
 `ApplyYaw(Component, Delta, Speed)`.
 
+## 역할
+
+- 시각 컴포넌트를 **일정 속도로 제자리 회전**시킨다 — 속도는 룰셋에서 해석
+  (`ResolveDegreesPerSecond`), 적용은 `ApplyYaw` 한 줄.
+- 폭탄·예측 폭탄·아이템 셋이 공유하는 회전 규칙의 단일 출처.
+
 ## 왜 이렇게 했는가
 
 - **세 클래스가 회전 속도 출처를 공유하는 이유** — `ABomb`·`APredictedBombVisual`·

@@ -4,6 +4,12 @@
 
 지형 렌더링 추상화. `BuildFromGrid / RemoveBlock / Clear` (순수가상) + `SetCellFade / GetCellFade` (기본 no-op).
 
+## 역할
+
+- "그리드 데이터 → 화면"의 **번역 계약**을 정의한다: 전체 빌드(`BuildFromGrid`) ·
+  한 칸 제거(`RemoveBlock`) · 초기화(`Clear`) · 페이드 전달(`SetCellFade`).
+- 구현체 교체 지점 — 게임 코드는 이 인터페이스만 알고, 그리는 방법은 모른다.
+
 ## 왜 이렇게 했는가
 
 - **엔진은 "데이터"를 자동으로 그려주지 않는다** — 엔진이 그리는 건 씬 컴포넌트다.
