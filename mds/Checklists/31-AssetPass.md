@@ -10,22 +10,22 @@
 
 ---
 
-## ① `BP_WaterSegment` — 폭발이 보이기 시작한다 (우선순위 1)
-- [ ] 부모 `AWaterSegment` 로 BP 생성 → `MeshComponent` 에 메시 지정
-- [ ] `DA_Rules_Default` 의 `WaterSegmentClass` 에 지정
+## ① `BP_WaterSegment` — 폭발이 보이기 시작한다 (우선순위 1) ✅ 2026-08-09 사용자 완료
+- [x] 부모 `AWaterSegment` 로 BP 생성 → `MeshComponent` 에 메시 지정
+- [x] `DA_Rules_Default` 의 `WaterSegmentClass` 에 지정
 - [ ] (선택) 같은 BP 에 나이아가라 컴포넌트를 붙이면 **C++ 수정 0** 으로 물줄기 이펙트가 붙는다.
       칸마다 하나씩 스폰되므로 파티클 수를 아끼는 편이 좋다 (한 폭발에 최대 4~6칸 × 6방향)
 - [ ] ⚠️ 세그먼트는 **풀링 대상**이다 — BP 에 상태를 들고 있지 말 것 (재사용 시 오염)
 
-## ② `BP_DropMarker` — 서든데스가 성립한다
-- [ ] 부모 `ASuddenDeathDropMarker` 로 BP 생성 → 메시 지정 (바닥에 깔리는 납작한 형태 권장)
-- [ ] `DA_Rules_Default` 의 `DropMarkerClass` 에 지정
+## ② `BP_DropMarker` — 서든데스가 성립한다 ✅ 2026-08-09 사용자 완료
+- [x] 부모 `ASuddenDeathDropMarker` 로 BP 생성 → 메시 지정 (바닥에 깔리는 납작한 형태 권장)
+- [x] `DA_Rules_Default` 의 `DropMarkerClass` 에 지정
 - [ ] 확인: 마커가 뜬 **바로 그 칸**이 `DropWarningTime`(1.5초) 뒤에 파괴되는가.
       마커 ≠ 낙하 칸이면 실패다 (체크리스트 24)
 
-## ③ `WBP_Match` — 디버그 화면을 벗어난다
-- [ ] 부모 `UMatchWidget` 로 UserWidget 생성. **아래 이름 그대로** 배치하면 자동 바인딩된다
-- [ ] `BP_CA3DHUD` 의 `MatchWidgetClass` 에 지정 → 지정하는 순간 캔버스 텍스트 폴백은 물러난다
+## ③ `WBP_Match` — 디버그 화면을 벗어난다 ✅ 2026-08-04 사용자 완료 (미바인딩 경고 0건 = 11개 전부 연결)
+- [x] 부모 `UMatchWidget` 로 UserWidget 생성. **아래 이름 그대로** 배치하면 자동 바인딩된다
+- [x] `BP_CA3DHUD` 의 `MatchWidgetClass` 에 지정 → 지정하는 순간 캔버스 텍스트 폴백은 물러난다
 
 | 위젯 이름 | 타입 | 내용 |
 |---|---|---|
@@ -45,10 +45,10 @@
       `NativeConstruct` 가 한 줄로 경고하니 로그를 보고 맞추면 된다
 - [ ] ⚠️ BP 에 로직 금지 — 값 갱신은 전부 C++ 이 한다. WBP 는 배치·스타일만
 
-## ④ `BP_ItemPickup` 메시 5종
-- [ ] 부모 `AItemPickup` → `ItemMeshes` 맵에 `Balloon`·`Potion`·`Roller`·`Needle`·`Kick`
-- [ ] `DA_Rules_Default` 의 `ItemPickupClass` 에 지정
-- [ ] 5종이 **한눈에 구분**되어야 한다 — 색만 다르면 45도 내려보기에서 못 고른다
+## ④ `BP_ItemPickup` 메시 5종 ✅ 2026-08-09 사용자 완료
+- [x] 부모 `AItemPickup` → `ItemMeshes` 맵에 `Balloon`·`Potion`·`Roller`·`Needle`·`Kick`
+- [x] `DA_Rules_Default` 의 `ItemPickupClass` 에 지정
+- [ ] 5종이 **한눈에 구분**되는가 — 색만 다르면 내려보기 각에서 못 고른다 (플레이하며 확인)
 
 ---
 

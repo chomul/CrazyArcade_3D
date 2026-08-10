@@ -18,4 +18,5 @@
 ## 동작 검증 (PIE 필수 — 미실행 시 미검증)
 - [x] (Listen+클라 1, Task 09 이후) 클라 `GameState->Rules != nullptr` (2026-07-29 · 사용자 PIE 확인)
 - [x] 클라에서 읽은 `BombFuseTime` 등이 `DA_Rules_Default` 값과 일치 (2026-07-29 · 클라 맵 재생성이 복제 룰셋 기반으로 정상 동작)
-- [ ] `AliveCount`·`MatchStartServerTime` 복제 확인 — AliveCount 갱신 로직 자체가 Task 18에서 생기므로 그때 실검증
+- [x] `AliveCount`·`MatchStartServerTime` 복제 확인 — Task 20 데디 봇 매치 완주(2026-08-02)에서 서버 갱신이,
+      Task 25·26 클라 화면(`생존 1  0:00`)에서 복제 도달이 각각 확인됐다
