@@ -1,28 +1,18 @@
 # AWaterSegment
 
-> `Source/CrazyArcade3D/Gameplay/Bomb/WaterSegment.h/.cpp` · AActor, 비복제, IPooledActor
-
-물줄기 1칸의 시각 표현. `StartLinger(Seconds)` 후 스스로 풀에 반납.
+> `Gameplay/Bomb/WaterSegment.h/.cpp` · AActor · 비복제 · IPooledActor
 
 ## 역할
+- 물줄기 1칸 표시. `StartLinger` 후 스스로 풀 반납. 판정 없음
 
-- 물줄기 **1칸을 표시**하고, 표시 시간(`StartLinger`)이 지나면 스스로 풀에 반납한다.
-- 판정 없음 — 갇힘은 서버가 셀로 이미 판정했고, 이 액터는 그 결과의 그림이다.
-
-## 왜 이렇게 했는가
-
-- **왜 판정이 없나** — 갇힘 판정은 서버가 `ApplyExplosionCells`에서 발밑 셀로 이미 끝냈다.
-  물줄기 액터에 오버랩 판정을 넣으면 판정이 두 벌이 된다(셀 판정 vs 물리 판정 —
-  반드시 어긋난다). 이 액터는 "판정 결과를 보여주는 그림"일 뿐이다.
-- **왜 복제하지 않나** — 물줄기 셀 목록이 `MulticastWaterCells`로 가고 각 클라가 로컬
-  스폰한다. 셀당 액터를 복제하면 폭발마다 수십 개 액터 복제 비용 — 목록 하나면 충분하다.
-- **왜 풀링인가** — 폭발마다 범위×방향만큼 생겼다 사라진다. 가장 빈번한 시각 액터라
-  풀링 이득이 가장 큰 곳(설계서의 "물줄기 200개 스트레스" 검증 항목).
-- **스스로 반납하는 이유** — 수명이 "표시 시간 경과" 하나뿐이라 소유자가 따로 관리할
-  이유가 없다. `OnReleasedToPool`에서 타이머 정지(풀 계약).
+## 왜
+- **왜 판정 없음?** → 갇힘은 서버가 셀로 이미 판정. 여기 오버랩을 넣으면 판정 두 벌
+- **왜 비복제?** → 셀 목록 Multicast + 각 클라 로컬 스폰이면 충분. 셀당 액터 복제는 낭비
+- **왜 풀링?** → 가장 빈번한 시각 액터 — 풀링 이득 최대 지점
+- **왜 자체 반납?** → 수명이 "시간 경과" 하나뿐. 소유자 관리 불필요
 
 ## 연결
-- 스폰: [19-ExplosionFXRelay.md](19-ExplosionFXRelay.md) · 풀: [14-PoolSubsystem.md](../../Core/14-PoolSubsystem.md)
+스폰: [19-ExplosionFXRelay.md](19-ExplosionFXRelay.md) · 풀: [14-PoolSubsystem.md](../../Core/14-PoolSubsystem.md)
 
 ## Q&A
-아직 없음 — 질문이 생기면 여기에 쌓는다.
+아직 없음

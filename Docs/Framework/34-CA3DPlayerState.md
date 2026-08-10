@@ -1,37 +1,26 @@
 # ACA3DPlayerState
 
-> `Source/CrazyArcade3D/Framework/CA3DPlayerState.h/.cpp` · APlayerState
-
-참가자 1명의 복제 데이터. **로직 0** — `ColorIndex` · `FinalRank` · `bAlive` ·
-`CamYawIndex` · `bLeftMatch` 5필드.
+> `Framework/CA3DPlayerState.h/.cpp` · APlayerState — 로직 0
 
 ## 역할
+- 참가자 1명의 복제 게시판: `ColorIndex` · `FinalRank` · `bAlive` · `CamYawIndex` · `bLeftMatch`
+- 폰이 죽어도 매치 끝까지 남음 — 결과 화면·관전의 데이터 출처
 
-- **참가자 1명의 복제 게시판**: 색 배정 · 최종 순위 · 생존 여부 · 카메라 스냅 인덱스 ·
-  탈주 표시.
-- 폰이 죽거나 사라져도 매치 끝까지 남아 결과 화면·관전의 데이터 출처가 된다. 로직 없음.
-
-## 왜 이렇게 했는가
-
-- **왜 폰이 아니라 PlayerState인가** — 폰은 죽으면 숨겨지고 언젠가 파괴될 수 있지만,
-  순위·색·생존 여부는 **매치가 끝날 때까지** 남아야 한다(결과 화면이 읽는다).
-  PlayerState는 컨트롤러 수명을 따라가는 엔진 표준 자리다.
-- **`OnDeactivated`를 오버라이드해 Super를 안 부른다** — 엔진 기본은 접속 종료 시
-  PlayerState 파괴. 파괴되면 결과 화면에서 탈주자가 사라진다. 남겨서 `bLeftMatch`로 표시.
-- **봇도 이 클래스를 갖는다(`bWantsPlayerState`)** — 승패 판정(`ResolvePendingDeaths`)이
-  PlayerArray만 보므로 사람과 봇을 구분할 필요가 없어진다.
-- **`FinalRank` 쓰기가 `ResolvePendingDeaths` 한 곳뿐** — 순위는 서버 승패 판정의 출력이다.
-  다른 곳에서 쓰면 공동 등수 공식이 무의미해진다. 0 = 아직 생존(미확정)을 겸한다.
-- **`CamYawIndex`(uint8 0~3)가 여기 있는 이유** — 카메라 yaw는 컨트롤러 로컬 값이라
-  복제되지 않는데, 관전자는 대상의 각을 알아야 한다. 폰이 아니라 PlayerState에 둔 것은
-  폰 리스폰과 무관하게 유지되는 표현 값이기 때문. 4바이트도 아깝다 — 인덱스 1바이트만 복제.
-- **`bAlive`가 `LifeState`와 별도인 이유** — `LifeState`(StatusComponent)는 폰에 붙어 있고
-  Trapped 같은 폰 상태를 담는다. 승패·관전이 필요한 건 "판정상 살아 있나" 하나뿐이라
-  폰 없이도 읽히는 자리에 최소 형태로 둔다.
+## 왜
+- **왜 폰이 아니라 PlayerState?** → 순위·색·생존은 폰 수명보다 길어야 함
+- **왜 OnDeactivated에서 Super 안 부름?** → 엔진 기본 = 접속 종료 시 파괴.
+  파괴되면 결과 화면에서 탈주자가 사라짐 — 남겨서 `bLeftMatch` 표시
+- **왜 봇도 가짐?(`bWantsPlayerState`)** → 승패 판정이 PlayerArray만 보면 됨 —
+  사람·봇 구분 불필요
+- **왜 FinalRank 쓰기가 한 곳?** → 순위는 판정(`ResolvePendingDeaths`)의 출력.
+  0 = 생존(미확정) 겸용
+- **왜 CamYawIndex가 여기?** → 컨트롤러 yaw는 비복제인데 관전자가 대상 각을 알아야 함.
+  폰 리스폰과 무관한 표현 값이라 이 자리. uint8 1바이트만
+- **왜 bAlive가 LifeState와 별도?** → 승패·관전은 "판정상 생존" 하나만 필요 —
+  폰 없이도 읽히는 자리에 최소 형태
 
 ## 연결
-- 쓰기: [35-CA3DGameMode.md](35-CA3DGameMode.md)(판정) · [26-CA3DPlayerController.md](../Gameplay/Character/26-CA3DPlayerController.md)(CamYaw RPC) ·
-  읽기: [39-MatchWidget.md](../UI/39-MatchWidget.md)(순위) · 관전 대상 선정([26-CA3DPlayerController.md](../Gameplay/Character/26-CA3DPlayerController.md))
+쓰기: [35-CA3DGameMode.md](35-CA3DGameMode.md) · [26-CA3DPlayerController.md](../Gameplay/Character/26-CA3DPlayerController.md) · 읽기: [39-MatchWidget.md](../UI/39-MatchWidget.md)
 
 ## Q&A
-아직 없음 — 질문이 생기면 여기에 쌓는다.
+아직 없음

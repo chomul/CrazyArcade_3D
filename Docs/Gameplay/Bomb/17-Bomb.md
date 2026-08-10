@@ -1,52 +1,34 @@
 # ABomb
 
-> `Source/CrazyArcade3D/Gameplay/Bomb/Bomb.h/.cpp` · AActor (서버 권한)
-
-서버 권한 폭탄. 퓨즈 타이머·킥 이동·낙하·컬리전 승격 전부 서버 소유.
-클라는 액터 복제(`Cell`·`Range`)와 위험 데칼만 본다.
+> `Gameplay/Bomb/Bomb.h/.cpp` · AActor (서버 권한)
 
 ## 역할
+- 폭탄 한 발의 수명: 장전(`ServerArm`) → 킥/낙하 이동 → 기폭 → 슬롯 반환. 전부 서버
+- 플레이어 막기(BlockingBox, Overlap→Block 승격)
+- 클라는 `Cell`·`Range` 복제 + 데칼 표시만
 
-- 폭탄 한 발의 **수명 전체를 서버에서 관리**한다: 장전(`ServerArm` — 셀·범위 확정,
-  슬롯 차지, 퓨즈 시작) → 킥/낙하 이동 → 기폭(`ServerForceDetonate` → 서브시스템 위임)
-  → 슬롯 반환.
-- 플레이어를 **막는 물리**(BlockingBox, Overlap→Block 승격)를 제공한다.
-- 클라에는 `Cell`·`Range` 복제 + 위험 데칼 표시만 — 판정은 전부 서버.
+## 왜
+- **왜 per 액터?** → 최대 ~40개. 킥(비정수 위치)·개별 퓨즈·복제가 자연스러움 (sparse=액터)
+- **왜 풀링 안 함?** → 서버 권한 상태 재사용 = 오염 위험 > 이득
+- **왜 RPC 없음?** → 폭발 직후 Destroy라 전송 미보장. FX·큐는 릴레이가 대신
+- **왜 SpawnActorDeferred+ServerArm?** → Cell·Range가 첫 복제에 실려야 클라 프리뷰가 맞음
+- **왜 Overlap→Block 승격?** → 처음부터 Block이면 설치자가 자기 폭탄에 갇힘 (원작 규칙).
+  초기 겹침은 `GetOverlappingActors`로 직접 수집. **데디에서도 유지** (막힘은 물리)
+- **왜 킥에 클라 예측 없음?** → 예측 어긋남이 폭발 원점→프리뷰까지 무너뜨림
+- **왜 정지 판정이 그리드?** → "멈추는 칸"과 "터지는 칸"이 같은 데이터.
+  플레이어만 `GetFootCell()` 비교 (시체 제외)
+- **왜 낙하 판정이 정지보다 먼저?** → 뒤집으면 "마지막 칸이 절벽이면 공중에 섬"
+- **왜 낙하 시 수평 절단?** → 포물선 = 칸 정렬 붕괴 = 폭발 원점 영구 어긋남
+- **⚠️ bReplicateMovement 명시적 켬** → AActor 기본 false. 안 켜면 데칼만 움직이고
+  메시 제자리 (실제 사고 — 플래그 자체를 검사하는 회귀 테스트 있음)
+- **왜 맵 밖 소멸 시 슬롯 직접 반환?** → EndPlay 안전망 의존 금지 —
+  안전망이 진짜 이상을 덮음
 
-## 왜 이렇게 했는가
-
-- **왜 폭탄 per 액터인가** — 최대 40개 수준이라 액터 비용이 문제가 아니고,
-  킥(비정수 위치 이동)·개별 퓨즈·복제가 자연스럽다. 지형(dense=배열)과 대비되는
-  sparse=액터의 대표 사례.
-- **왜 풀링하지 않나** — 서버 권한 상태(퓨즈·킥·슬롯)를 가진 액터는 재사용 시 상태 오염
-  위험이 이득보다 크다. 풀링은 클라 시각 요소만(프로젝트 규칙).
-- **RPC가 없는 이유** — 폭발 직후 `Destroy()`되므로 자기 액터의 RPC 전송이 보장되지 않는다.
-  FX는 `AExplosionFXRelay`, 큐는 `ACA3DCueRelay`가 대신 쏜다.
-- **`SpawnActorDeferred` + `ServerArm` + `FinishSpawning` 순서** — `Cell`·`Range`가
-  **첫 복제에 실려야** 클라 BeginPlay의 위험 프리뷰가 맞는다. 스폰 후 세팅하면
-  기본값이 먼저 복제되는 프레임이 생긴다.
-- **컬리전: Overlap → Block 승격 (원작 규칙)** — 폭탄은 설치자 발밑에 생기므로 처음부터
-  Block이면 설치자가 자기 폭탄에 갇힌다. 겹친 폰이 **전부** 빠져나가면 Block 승격.
-  초기 겹침은 `GetOverlappingActors`로 직접 수집(등록 전 겹침은 델리게이트로 안 옴).
-  **데디에서도 살아 있어야 한다** — 막힘은 물리이고 CMC는 서버에서도 돈다(HISM 함정과 동형).
-- **킥 이동은 100% 서버 권한, 클라 예측 없음** — 예측을 넣으면 "내 화면에서만 다른 칸까지
-  굴러간 폭탄"이 생기고, 그 어긋남이 폭발 원점→위험 프리뷰까지 무너뜨린다.
-- **정지 판정은 그리드로(물리 스윕 아님)** — "멈추는 칸"과 "터지는 칸"이 같은 데이터를
-  본다. 플레이어만 그리드에 없어 `GetFootCell()` 비교(시체는 제외 — 길을 막지 않는다).
-- **낙하 판정이 정지 판정보다 먼저** — 순서를 뒤집으면 "마지막 칸이 절벽이면 공중에 선다".
-  낙하 시 수평은 즉시 절단(포물선 금지) — 칸 정렬이 깨지면 폭발 원점이 영구히 어긋난다.
-- **`bReplicateMovement` 명시적으로 켬** — `AActor` 기본값이 false다. 안 켜면 클라에
-  스폰 위치만 가서 "위험 데칼만 움직이고 메시는 제자리"가 된다(실제 사고).
-  서버 단독 테스트로는 영영 안 잡혀서 플래그 자체를 검사하는 회귀 테스트를 뒀다.
-- **맵 밖 소멸은 `ServerReleaseSlot()`을 직접 부른다** — `EndPlay` 안전망에 맡기면
-  정상 경로가 안전망에 의존하게 되고, 안전망이 진짜 이상을 덮는 순간을 알 수 없다.
-
-## 네트워크 표면
-복제: `Cell`(`OnRep_Cell` — 데칼이 따라옴) · `Range`. RPC 없음.
+## 네트워크
+복제: `Cell`(OnRep — 데칼 추종) · `Range`. RPC 없음
 
 ## 연결
-- 폭발 위임: [16-ExplosionSubsystem.md](16-ExplosionSubsystem.md) · 예측 짝: [18-PredictedBombVisual.md](18-PredictedBombVisual.md) ·
-  설치 진입점: [23-CA3DCharacter.md](../Character/23-CA3DCharacter.md)
+[16-ExplosionSubsystem.md](16-ExplosionSubsystem.md) · [18-PredictedBombVisual.md](18-PredictedBombVisual.md) · 설치: [23-CA3DCharacter.md](../Character/23-CA3DCharacter.md)
 
 ## Q&A
-아직 없음 — 질문이 생기면 여기에 쌓는다.
+아직 없음
