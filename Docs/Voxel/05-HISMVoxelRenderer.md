@@ -36,6 +36,12 @@
 계약: [04-VoxelRenderer.md](04-VoxelRenderer.md) · 페이드 출처: [27-OcclusionFadeComponent.md](../Gameplay/Character/27-OcclusionFadeComponent.md)
 
 ## Q&A
+- **Q. 렌더링은 엔진이 하고, 메시를 컴포넌트로 붙여주는 게 Renderer 역할?** → 거의 정답.
+  단위만 정밀하게: 붙이는 건 컴포넌트가 아니라 **인스턴스**. 컴포넌트(HISM)는 타입당
+  1개·총 3개뿐이고(`GetOrCreateHISM`), 표면 셀마다 붙는 건 그 그릇 안의 트랜스폼 항목
+  (`AddInstanceForCell`). 블록마다 컴포넌트면 드로우콜 수백 개 — HISM은 타입당 1콜.
+  그래서 렌더러의 일상 업무 = "인스턴스 목록을 그리드와 일치하게 유지"(추가·제거·스왑
+  보정·표면 노출)이고, 그 목록의 컬링·드로우는 엔진 몫
 - **Q. Renderer 클래스들은 클라에서만 동작하나?** → 아니. 역할이 둘이라서:
   그리기(GPU)는 클라만 의미 있지만(데디는 RHI Null — 자연 생략),
   **HISM 인스턴스 = 지형의 유일한 컬리전**이라 `BuildFromGrid`/`RemoveBlock`은
