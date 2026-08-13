@@ -51,4 +51,13 @@
 [16-ExplosionSubsystem.md](../Gameplay/Bomb/16-ExplosionSubsystem.md) · [06-VoxelMovement.md](../Voxel/06-VoxelMovement.md) · [23-CA3DCharacter.md](../Gameplay/Character/23-CA3DCharacter.md) · [24-StatusComponent.md](../Gameplay/Character/24-StatusComponent.md)
 
 ## Q&A
-아직 없음
+- **Q. BFS면 따로 AI 안 쓰고 BFS로 이동하는 형식?** → 아니. AI(FSM)가 따로 있고
+  BFS는 그 AI가 쓰는 **길찾기 도구**일 뿐. 봇의 한 틱은 3단:
+  ① **결정 = FSM** — `Replan()`이 우선순위로 "뭘 할까"·목표 셀을 정함(지능의 본체)
+  ② **경로 = BFS** — 목표가 정해진 다음에야 `RunBFS`가 길만 냄(판단 없음)
+  ③ **실행 = 물리** — `FollowPath`가 사람과 같은 `Move`/`DoJump` → CMC.
+  한 줄: "무엇을 = FSM / 어디로 = BFS / 실제 이동 = CMC".
+  엔진 AI를 안 쓴 것도 의도: BT 대신 FSM(상태 5개 규모 + 디버깅·결정론),
+  NavMesh 대신 그리드 BFS(지형이 실시간 변형 + 답의 단위가 셀 +
+  `VoxelMove` 규칙 재사용) — VoxelRay의 "LineTrace 대신 DDA"와 같은 결:
+  격자 질문엔 격자 도구
