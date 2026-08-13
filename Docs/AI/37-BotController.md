@@ -61,3 +61,16 @@
   NavMesh 대신 그리드 BFS(지형이 실시간 변형 + 답의 단위가 셀 +
   `VoxelMove` 규칙 재사용) — VoxelRay의 "LineTrace 대신 DDA"와 같은 결:
   격자 질문엔 격자 도구
+- **Q. 비헤이비어 트리 이런 거 하나도 안 쓰잖아?** → 맞음. 엔진 AI 스택에서 쓰는 건
+  `AAIController` 껍데기뿐(빙의 + 서버 틱 자격) — 뇌는 전부 자작.
+  | 엔진 도구 | 사용 | 대신 |
+  |---|---|---|
+  | Behavior Tree | ✗ | `Replan()` if-else 우선순위 (FSM) |
+  | Blackboard | ✗ | 멤버 변수 (`State`·`PathCells`·`DangerCells`) |
+  | NavMesh/MoveTo | ✗ | 그리드 BFS + `FollowPath` |
+  | AIPerception | ✗ | 서버 원본 직접 조회 (폰 이터레이션 + `Propagate`) |
+  | EQS | ✗ | `ShouldPlaceBombAt` 순수 함수 |
+
+  이유: BT는 에셋 편집이라 "BP에 로직 금지" 규칙과 충돌 + 상태 5개엔 과함 /
+  Perception은 감각 흉내인데 봇은 서버라 진실을 그냥 읽으면 됨 /
+  NavMesh는 실시간 변형 격자에 부적합. 한 줄: "조종할 자격만 빌리고 뇌는 자작"
