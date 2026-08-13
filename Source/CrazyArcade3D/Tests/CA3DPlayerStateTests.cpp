@@ -290,6 +290,7 @@ bool FCA3DPlayerStateTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("⑦ FinalRank 가 Replicated"), PsIsNetProperty(TEXT("FinalRank")));
 	TestTrue(TEXT("⑦ bAlive 가 Replicated"), PsIsNetProperty(TEXT("bAlive")));
 	TestTrue(TEXT("⑦ bLeftMatch 가 Replicated"), PsIsNetProperty(TEXT("bLeftMatch")));
+	TestTrue(TEXT("⑦ CharacterIndex 가 Replicated"), PsIsNetProperty(TEXT("CharacterIndex")));
 
 	if (Players.Num() > 0 && IsValid(Players[0]))
 	{
@@ -300,22 +301,25 @@ bool FCA3DPlayerStateTest::RunTest(const FString& Parameters)
 		// (부모 클래스까지 재귀로 세팅되므로 아래 부모 호출도 함께 안전해진다).
 		ACA3DPlayerState::StaticClass()->SetUpRuntimeReplicationData();
 
-		// 부모(APlayerState) 등록분과의 개수 차이가 정확히 5 여야
-		// DOREPLIFETIME 5줄이 실제로 실행된 것이다.
+		// 부모(APlayerState) 등록분과의 개수 차이가 정확히 6 이어야
+		// DOREPLIFETIME 6줄이 실제로 실행된 것이다.
 		// 2026-08-09: CamYawIndex(관전 카메라 각) 추가로 3 → 4. 이 숫자를 올릴 때는
 		// **왜 새 값이 복제돼야 하는지**를 먼저 답할 것 — 복제 대상이 늘어나는 것은
 		// 대역폭이 아니라 "누가 이 값의 주인인가" 가 늘어나는 것이다.
 		// 2026-08-10: bLeftMatch(중도 이탈 표시) 추가로 4 → 5. 답: **주인은 서버의
 		// ACA3DGameMode::Logout 하나뿐**이고, 정작 이 값을 화면에 그려야 하는 사람은 나간
 		// 본인이 아니라 **남아 있는 사람들**이다 — 서버만 아는 사실이라 복제 외에 전달 수단이 없다.
+		// 2026-08-14: CharacterIndex(캐릭터 선택, Task 36) 추가로 5 → 6. 답: 주인은 서버의
+		// ACA3DGameMode::TryAssignCharacter 하나뿐이고, 선택 화면이 "남이 고른 캐릭터" 를
+		// 잠금 표시해야 하며(선착순의 화면 표현) 외형(Task 37)은 모든 클라가 그린다.
 		TArray<FLifetimeProperty> ChildProps;
 		Players[0]->GetLifetimeReplicatedProps(ChildProps);
 
 		TArray<FLifetimeProperty> ParentProps;
 		Players[0]->APlayerState::GetLifetimeReplicatedProps(ParentProps);
 
-		TestEqual(TEXT("⑦ GetLifetimeReplicatedProps 가 부모 대비 5개 추가 등록"),
-			ChildProps.Num() - ParentProps.Num(), 5);
+		TestEqual(TEXT("⑦ GetLifetimeReplicatedProps 가 부모 대비 6개 추가 등록"),
+			ChildProps.Num() - ParentProps.Num(), 6);
 	}
 
 	// GameState 의 종료 플래그도 복제 대상인지 (결과 화면 Task 26 의 트리거).

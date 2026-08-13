@@ -23,6 +23,13 @@ public:
 	UPROPERTY(Replicated)
 	int32 ColorIndex = 0;
 
+	// 선택한 캐릭터 (Task 36) — UCA3DRuleSet::Characters 배열 인덱스. INDEX_NONE = 미선택.
+	// 로직 없음(이 클래스의 원칙) — 검증·배정은 전부 서버의 단일 경로
+	// ACA3DGameMode::TryAssignCharacter 가 한다. 외형 적용(메시·애님 교체)은 Task 37 이
+	// 이 값을 읽어 수행한다. 매치 도중 캐릭터가 파괴·리스폰돼도 선택은 남아야 하므로 여기다.
+	UPROPERTY(Replicated)
+	int32 CharacterIndex = INDEX_NONE;
+
 	// 탈락 순위 (0 = 아직 생존, 1 = 우승, N = N등). 매치 종료 판정·결과 화면용.
 	// 동시 사망자는 같은 값을 공유한다 (공동 등수 — GameMode::ResolvePendingDeaths 참조).
 	UPROPERTY(Replicated)

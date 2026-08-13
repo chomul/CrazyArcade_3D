@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "Engine/TimerHandle.h"
+#include "Math/RandomStream.h" // 캐릭터 자동 배정 스트림 (Task 36) — 멤버라 전방 선언 불가
 #include "CA3DGameMode.generated.h"
 
 class UCA3DRuleSet;
@@ -46,6 +47,14 @@ public:
 	// 사망 통지 수신 (Task 18) — UStatusComponent::ServerKill 의 서버 경로에서만 불린다.
 	// 즉시 순위를 매기지 않고 다음 틱에 한 번에 해소한다 (동시 사망 묶기 — .cpp 주석 참조).
 	void NotifyPlayerDeath(ACA3DPlayerState* DeadState);
+
+	// 캐릭터 배정의 **단일 경로** (Task 36) — 사람 RPC(ServerSelectCharacter)·페이즈 종료 자동
+	// 배정·봇 배정이 전부 여기를 통과한다 (RegisterParticipant 관례와 같은 근거 — 경로가 두 벌로
+	// 갈라지면 "봇이 낀 매치에서만 캐릭터가 겹치는" 진단 최악의 버그가 된다).
+	// 검증: 서버 권한 / 인덱스 범위 / 다른 참가자의 선점(선착순 — 점유 조회는 별도 상태 없이
+	// PlayerArray 의 CharacterIndex 순회 = 단일 출처) / 페이즈 종료 후 변경 거부.
+	// 재선택은 자기 값 덮어쓰기라 이전 선택이 자연 해제된다. 거부 시 false — 되돌릴 것이 없다.
+	bool TryAssignCharacter(ACA3DPlayerState* PS, int32 Index);
 
 protected:
 	// ─── 스폰 위치의 단일 출처를 지키는 두 오버라이드 ───
@@ -157,10 +166,34 @@ private:
 
 	FTimerHandle SuddenDeathTimer;
 
+	// ─── 캐릭터 선택 페이즈 (Task 36, 서버 전용) ───
+	// GameState 의 페이즈 플래그를 **여기서만** 쓴다 (서든데스와 같은 관례 — 갱신 주체 단일화).
+
+	// 페이즈 종료: ① 미선택자 자동 배정 → ② 봇 즉시 투입·배정 → ③ 매치 시작 시각 확정 →
+	// ④ 플래그 해제 → ⑤ 보류 스폰 해소 → ⑥ 서든데스 예약. BeginPlay 가 Duration 초 뒤로 예약.
+	void EndCharacterSelect();
+
+	// PlayerArray 를 **고정 순서로** 훑어 미배정(INDEX_NONE) 참가자에게 남은 풀에서 랜덤 배정.
+	// 페이즈 종료의 사람·봇 배정과 종료 후 늦은 입장(RegisterParticipant)이 전부 이 한 함수를
+	// 쓴다 — 배정도 TryAssignCharacter 를 경유하므로 검증 규칙이 한 벌이다.
+	void AutoAssignUnassignedCharacters();
+
+	// 이번 매치가 선택 페이즈를 돌리는가 (BeginPlay 판정: Duration > 0 && Characters 있음).
+	// false 면 TryAssignCharacter 자체가 거부한다 — 페이즈 없는 매치는 배정도 없어야
+	// 기존 흐름(복제 값 포함)이 한 줄도 달라지지 않는다 (무회귀).
+	bool bCharacterSelectPhaseUsed = false;
+
+	// 자동 배정 난수 — 맵 시드 파생(Seed*7919+1). FMath::Rand() 가 아닌 이유: 고정 시드
+	// 모드(버그 재현)에서 "누가 어떤 캐릭터를 받았는가"까지 재현돼야 한다 (불변식 4 계열).
+	FRandomStream CharacterAssignStream;
+
+	FTimerHandle CharacterSelectTimer;
+
 	friend class FCA3DGameModeTest;    // 자동화 테스트가 Rules·고정 시드 주입과 스폰 배정 검증을 위한 접근
 	friend class FCA3DSpawnGateTest;   // 자동화 테스트가 "지형 준비 전 입장"을 헤드리스로 재현하기 위한 접근
 	friend class FCA3DPlayerStateTest; // 자동화 테스트가 참가 인원·사망 버퍼를 직접 구성하기 위한 접근
 	friend class FBotControllerTest;   // 자동화 테스트가 봇 채우기·참가 등록을 직접 호출하기 위한 접근 (Task 20)
 	friend class FSuddenDeathTest;     // 자동화 테스트가 서든데스 시작·정지 배선을 직접 호출하기 위한 접근 (Task 24)
 	friend class FMatchLeaveTest;      // 자동화 테스트가 중도 이탈 매치를 직접 구성하기 위한 접근 (2026-08-10)
+	friend class FCA3DCharacterSelectTest; // 자동화 테스트가 선택 페이즈 종료·배정을 직접 호출하기 위한 접근 (Task 36)
 };

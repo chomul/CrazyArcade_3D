@@ -215,6 +215,19 @@ private:
 	// 결과여야 하고, 캐릭터끼리는 캡슐이 서로 Block 이라 "닿았다" 가 곧 접촉 사거리 안이다.
 	void ServerTryPopIfTouched();
 
+	// ─── 선택 캐릭터 외형 (Task 37) ───
+
+	// GameState->Rules->Characters 를 PlayerState->CharacterIndex 로 인덱싱해 GetMesh() 에
+	// 메시·AnimClass·트랜스폼 보정을 적용한다. **순수 시각** — 컬리전은 캡슐 담당, 메시는
+	// 어떤 판정에도 쓰이지 않는다 (최상단 데디 가드, 함수 본문 주석 참조).
+	// Tick 이 매 틱 부르되 아래 스냅샷 비교로 실제 적용은 인덱스가 바뀔 때 1회다.
+	void ApplyCharacterAppearance();
+
+	// 적용 완료 스냅샷 — "같은 인덱스 재적용" 을 거르는 기준 (HUD 의 스냅샷 비교 관례).
+	// 범위 밖·Mesh 미지정으로 스킵한 인덱스도 기록한다 — 룰셋 에셋은 매치 중 안 바뀌므로
+	// 재시도해도 결과가 같고, 기록해야 Verbose 로그가 1회로 끝난다.
+	int32 AppliedCharacterIndex = INDEX_NONE;
+
 	// ─── 관전 카메라 각 (2026-08-09) ───
 
 	// 지금 이 폰을 보고 있는 **로컬** 플레이어 컨트롤러 (없으면 nullptr).
@@ -242,4 +255,5 @@ private:
 	friend class FTrappedPopTest;       // 갇힌 상대 터뜨리기 판정을 Tick 부작용 없이 돌리기 위한 접근
 	friend class FBotPopTrappedTest;    // 봇이 갇힌 적을 노리는 경로 검증의 튜닝 수동 적용을 위한 접근
 	friend class FBotSeekItemTest;      // 봇이 아이템을 노리는 경로 검증의 튜닝 수동 적용을 위한 접근
+	friend class FCharacterAppearanceTest; // 외형 적용·스냅샷 비교 검증을 위한 접근 (Task 37)
 };

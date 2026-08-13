@@ -6,6 +6,7 @@
 #include "Framework/CA3DRuleSet.h"   // Gameplay→Framework 는 .cpp 에서만 include (폴더 의존 규칙)
 #include "Framework/CA3DGameState.h" // 룰셋 출처(복제된 에셋 포인터) — .cpp 에서만
 #include "Framework/CA3DPlayerState.h" // 관전 대상 목록(bAlive)·복제 카메라 각의 출처 — .cpp 에서만
+#include "Framework/CA3DGameMode.h"    // 캐릭터 배정 단일 경로(TryAssignCharacter, 서버 전용) — .cpp 에서만
 #include "Core/CameraYawSnap.h"        // 90도 스냅 공식의 단일 출처 (Gameplay→Core 는 허용)
 #include "Camera/PlayerCameraManager.h" // EViewTargetBlendFunction (SetViewTargetWithBlend 인자)
 #include "EnhancedInputComponent.h"
@@ -86,6 +87,22 @@ void ACA3DPlayerController::ServerSetCamYawIndex_Implementation(uint8 NewIndex)
 	{
 		// 들어온 값은 신뢰하지 않는다 — StepsToIndex 가 0~3 으로 접는다 (클라가 200 을 보내도 안전).
 		CA3DPlayerState->CamYawIndex = CameraYawSnap::StepsToIndex(NewIndex);
+	}
+}
+
+void ACA3DPlayerController::ServerSelectCharacter_Implementation(int32 Index)
+{
+	if (!HasAuthority()) return; // 불변식 5 (Server RPC 라 실도달 없음 — 명시 가드)
+
+	// 데디 가드는 걸지 않는다 — 시각이 아니라 복제 상태(CharacterIndex)를 바꾸는 서버 경로다
+	// (ServerSetCamYawIndex 와 같은 계열). GameMode 는 서버에만 존재한다.
+	ACA3DGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<ACA3DGameMode>() : nullptr;
+	ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
+	if (GameMode && CA3DPlayerState)
+	{
+		// 검증(범위·선착순·페이즈 종료 후 거부)은 전부 단일 경로 안 — 여기서 미리 거르면
+		// 검증이 두 벌이 된다. 거부되면 아무 일도 없다 (복제 값 불변이 곧 거부 응답).
+		GameMode->TryAssignCharacter(CA3DPlayerState, Index);
 	}
 }
 
@@ -180,8 +197,40 @@ void ACA3DPlayerController::PlayerTick(float DeltaTime)
 	// 다른 클라가 나를 관전할 때 그 값으로 카메라 각을 만든다.
 	PushCamYawIndex();
 
+	// 캐릭터 선택 페이즈 — 커서/입력 모드 전이 (Task 36, 전이 시에만 적용. 위 가드 안쪽).
+	UpdateCharacterSelectInputMode();
+
 	// 관전 시점 유지 — 대상이 죽었으면 다음 생존자로 넘긴다 (시각 전용, 위 가드 안쪽).
 	UpdateSpectateView();
+}
+
+void ACA3DPlayerController::UpdateCharacterSelectInputMode()
+{
+	if (IsRunningDedicatedServer()) return; // 불변식 5 — 커서·입력 모드는 로컬 시각 전용
+	if (!IsLocalPlayerController()) return;
+
+	const ACA3DGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ACA3DGameState>() : nullptr;
+	const bool bSelectActive = GameState && GameState->bCharacterSelectActive;
+	if (bSelectActive == bCharSelectInputApplied)
+	{
+		return; // 전이 없음 — 아무것도 만지지 않는다 (매 틱 SetInputMode 는 위젯 포커스를 리셋한다)
+	}
+	bCharSelectInputApplied = bSelectActive;
+
+	if (bSelectActive)
+	{
+		// 선택 위젯(후속 UI Task)을 마우스로 눌러야 한다. GameOnly 가 아니라 GameAndUI 인 이유:
+		// 페이즈 중에도 Q/E 카메라 회전 같은 게임 입력은 살아 있어야 한다 (폰은 아직 없지만
+		// 입력 바인딩은 컨트롤러 소유라 유효하다).
+		bShowMouseCursor = true;
+		SetInputMode(FInputModeGameAndUI());
+	}
+	else
+	{
+		// 페이즈 종료 — 전투 조작으로 원복. 커서가 남아 있으면 클릭이 이동 입력을 먹는다.
+		bShowMouseCursor = false;
+		SetInputMode(FInputModeGameOnly());
+	}
 }
 
 void ACA3DPlayerController::OnMove(const FInputActionValue& V)

@@ -437,6 +437,33 @@
         `PlayerState->Destroy()` 를 직접 부르고 `OnDeactivated` 훅은 `APlayerController` 경로에만 있다.
         지금은 봇을 매치 중 제거하는 경로가 없어 도달 불가
 
+- [x] **36. 게임 시작 전 캐릭터 선택 페이즈** (2026-08-14 사용자 확정: 약 10초 · 중복 불가 선착순 ·
+      미선택 랜덤 배정 · 봇도 남은 풀 · 아트는 MonsterForSurvivalGame Polyart 8종)
+      체크리스트 `mds/Checklists/36-CharacterSelect.md` · 스위트 `Framework.CharacterSelect` · `UI.CharacterSelect`
+      · **단일 출처 = `ACA3DPlayerState::CharacterIndex`(복제)** — 점유 현황은 별도 상태 없이
+        PlayerArray 순회로 유도. **배정 단일 경로 = `ACA3DGameMode::TryAssignCharacter`**
+        (사람 RPC·자동 배정·봇 배정·늦은 접속이 전부 통과 — RegisterParticipant 관례)
+      · GameState 복제 2필드(`bCharacterSelectActive`·`CharacterSelectEndServerTime`) + 스폰 게이트
+        연장(페이즈 중 `PendingSpawnControllers` 보류) + 봇 채우기·서든데스·MatchStartServerTime 을
+        페이즈 종료 시점으로 이동. **`CharacterSelectDuration` C++ 기본 0(=스킵)** — 기존 흐름·기존
+        테스트 무회귀가 근거, 실제 10초는 DA_Rules_Default 에서 지정
+      · 자동 배정 랜덤은 시드 파생 `FRandomStream`(Seed×7919+1) — 고정 시드에서 재현(테스트 고정)
+      · UI: `UCharacterSelectWidget`(BindWidgetOptional·폴링·static 순수 함수) + HUD 수명 관리 +
+        캔버스 폴백 + `ca3d.SelectCharacter <1~8>` — **WBP 없이도 선택·검증 가능**
+      · 검증: 두 타깃 빌드 통과 · **전체 33스위트 실패 0** (신규 3 포함, 오케스트레이터 직접 재실행)
+      · 잔여: `-game`/멀티 실전(경합 선착순·중간 접속) · 에디터 작업(아래 37과 공동 — DA_Rules_Default
+        `CharacterSelectDuration=10`·`Characters` 8종·`WBP_CharacterSelect`·`BP_CA3DHUD` 지정)
+- [x] **37. 선택 캐릭터 외형 적용 + `UCA3DAnimInstance`** (2026-08-14 — 애님 범위 "기본 상태 전부")
+      체크리스트 `mds/Checklists/37-CharacterAnim.md` · 스위트 `Gameplay.CharacterAppearance`
+      · `UCA3DAnimInstance`(신규): AnimBP 노출 값 5개(`Speed`·`bMoving`·`bInAir`·`bTrapped`·`bDead`)
+        — 판정은 전부 C++, AnimBP 는 상태 머신만(BP 로직 금지). 가공은 static 순수 함수로 테스트
+      · `ACA3DCharacter::ApplyCharacterAppearance`: **틱 폴링 + 스냅샷 비교** (폰·PlayerState·GameState
+        3액터 복제 도착 순서 비보장이라 OnRep 체인 대신) · 데디 가드(진짜 시각 전용 — 컬리전은 캡슐,
+        HISM 함정과 다른 이유 주석) · 메시 트랜스폼 대체(비가산 — 재선택 멱등)
+      · 검증: 프로젝트 파일 재생성 + 두 타깃 빌드 통과 · 전체 33스위트 실패 0
+      · 잔여: 데디 exe 에서 메시 미적용 확인(에디터 프로세스로는 검증 불가) · PIE 8종 체감 ·
+        에디터 작업(AnimBP 8종 — Parent=`CA3DAnimInstance`, Idle/WalkFWD/Run/Dizzy/Die 매핑)
+
 ## 진행 중 메모
 
 - ⭐ 1번 시점부터 `stat unit` 을 켜고 개발한다 (GDD 7.4). "다 만들고 최적화"는 3주 프로젝트에 없다.

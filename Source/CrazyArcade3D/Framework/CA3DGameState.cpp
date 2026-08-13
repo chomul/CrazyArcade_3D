@@ -12,4 +12,6 @@ void ACA3DGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(ACA3DGameState, bMatchEnded);
 	DOREPLIFETIME(ACA3DGameState, MatchWinner); // bMatchEnded 와 같은 액터 = 같은 번들로 원자 도착 (헤더 주석)
 	DOREPLIFETIME(ACA3DGameState, bSuddenDeathActive);
+	DOREPLIFETIME(ACA3DGameState, bCharacterSelectActive);
+	DOREPLIFETIME(ACA3DGameState, CharacterSelectEndServerTime); // 플래그와 같은 액터 = 같은 번들로 원자 도착
 }

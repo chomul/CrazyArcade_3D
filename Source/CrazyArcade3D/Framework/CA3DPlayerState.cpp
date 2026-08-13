@@ -30,4 +30,8 @@ void ACA3DPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	// 탈주 표시도 전원에게 — 정작 이 값을 화면에 그려야 하는 사람은 **남아 있는 사람들**이다
 	// (나간 본인에게는 보낼 커넥션조차 없다).
 	DOREPLIFETIME(ACA3DPlayerState, bLeftMatch);
+
+	// 캐릭터 인덱스도 전원에게 — 선택 화면이 "남이 이미 고른 캐릭터"를 잠금 표시해야 하고
+	// (선착순 규칙의 화면 표현), 외형(Task 37)은 모든 클라가 그린다.
+	DOREPLIFETIME(ACA3DPlayerState, CharacterIndex);
 }

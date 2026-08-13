@@ -16,6 +16,7 @@
 #include "GameFramework/PlayerController.h"  // 로컬 플레이어 판정 (GetViewRotation 분기)
 #include "Camera/PlayerCameraManager.h"      // PendingViewTarget — 블렌드 중 새 대상 판정
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"   // 외형 적용(Task 37) — 메시·애님 클래스 교체
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
@@ -236,6 +237,11 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	// 선택 캐릭터 외형 폴링 (Task 37) — **아래 권한 가드보다 앞**이다: 외형은 클라에서도
+	// 적용돼야 한다 (원격 폰 포함). 데디만 함수 내부 최상단에서 걸러진다 —
+	// 리슨 서버·스탠드얼론은 서버이면서 화면도 있으므로 IsRunningDedicatedServer 만 거른다.
+	ApplyCharacterAppearance();
+
 	if (!HasAuthority()) return; // 불변식 5 — 낙사 판정은 상태 변경으로 이어지므로 서버 전용
 
 	// 낙사 → ServerKill. Dead 면 스킵 (중복 호출 방지). 갇힌 채 추락하는 상황은
@@ -275,6 +281,75 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 	{
 		ServerTryKickBomb(Movement->GetCurrentAcceleration());
 	}
+}
+
+// ─── 선택 캐릭터 외형 (Task 37) ──────────────────────────────────────────────
+
+void ACA3DCharacter::ApplyCharacterAppearance()
+{
+	// ⚠️ HISM 함정(CLAUDE.md — "시각 전용인 줄 알았던 것이 유일한 컬리전")과 달리 이건
+	// **진짜 시각 전용**이다: 캐릭터의 물리 형상은 캡슐이 담당하고, 스켈레탈 메시는 어떤
+	// 판정에도 쓰이지 않는다 (피격은 셀 단위, 접촉은 GetContactReach 의 캡슐 치수) —
+	// 데디에서 통째로 건너뛰어도 서버 판정이 달라질 수 없다.
+	if (IsRunningDedicatedServer()) return; // 불변식 5 — 시각 전용
+
+	// **OnRep 체인을 잡지 않고 틱 폴링 + 스냅샷 비교** (HUD/MatchWidget 관례).
+	// 재료가 폰·PlayerState·GameState(Rules) 세 액터에 흩어져 있고 클라에서 복제 도착 순서
+	// 보장이 없다 — 어느 하나의 OnRep 에 걸면 "나머지 둘이 아직" 인 조합을 전부 다시 얽어야
+	// 한다. 폴링은 셋 다 도착했고 값이 바뀐 틱에만 일하고, 그 전에는 비교 몇 번이 전부다.
+	const ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
+	const ACA3DGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ACA3DGameState>() : nullptr;
+	const UCA3DRuleSet* Rules = GameState ? GameState->Rules.Get() : nullptr;
+	if (!CA3DPlayerState || !Rules)
+	{
+		return; // 복제 미도착 — 다음 틱에 다시 본다 (TryApplyMovementTuning 과 같은 사정)
+	}
+
+	const int32 Index = CA3DPlayerState->CharacterIndex;
+	if (Index == AppliedCharacterIndex || Index == INDEX_NONE)
+	{
+		return; // 미확정이거나 이미 처리한 인덱스 — 재적용 금지 (스냅샷 비교)
+	}
+
+	// 범위 밖·Mesh 미지정·메시 컴포넌트 없음은 조용히 스킵하되 **스냅샷은 기록한다** —
+	// 룰셋 에셋은 매치 중 바뀌지 않으므로 재시도해도 결과가 같고, 기록해야 로그가 1회로
+	// 끝난다 (Verbose 1회 관례). 기본 외형(BP 서브클래스의 메시)이 그대로 남는다.
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!Rules->Characters.IsValidIndex(Index) || !Rules->Characters[Index].Mesh || !MeshComp)
+	{
+		UE_LOG(LogCA3D, Verbose,
+			TEXT("ACA3DCharacter %s: 캐릭터 정의 미비 — 인덱스 %d (목록 %d개) 외형 적용 스킵"),
+			*GetName(), Index, Rules->Characters.Num());
+		AppliedCharacterIndex = Index;
+		return;
+	}
+
+	const FCA3DCharacterDef& Def = Rules->Characters[Index];
+
+	// 메시 먼저, 애님은 그 다음 — SetSkeletalMesh 가 AnimInstance 를 재초기화하므로
+	// 순서를 바꾸면 새 애님이 이전 메시 기준으로 한 번 초기화됐다 버려진다.
+	MeshComp->SetSkeletalMesh(Def.Mesh);
+	if (Def.AnimClass)
+	{
+		MeshComp->SetAnimInstanceClass(Def.AnimClass);
+	}
+
+	// 상대 트랜스폼은 **대체**한다 (기존 값에 더하지 않는다). 기존 C++ 생성자는 메시 상대
+	// 위치를 건드리지 않지만 BP 서브클래스가 기본 메시용 값을 갖고 있을 수 있다 — 더하기로
+	// 하면 "이전에 어떤 메시가 있었나" 에 결과가 좌우되고 재선택 시 누적되어 멱등이 깨진다.
+	// 정의 데이터가 트랜스폼을 통째로 소유해야 8종을 한 벌의 코드로 붙인다 (FCA3DCharacterDef 주석).
+	// 기준은 캡슐 바닥(-반높이): 언리얼 스켈레탈 메시 관례(발 = 원점)에서 MeshOffset 기본값
+	// ZeroVector 가 곧 "발이 바닥에 닿는" 표준 배치다. MeshOffset 은 원점이 표준과 다른
+	// 외부 에셋의 보정값, MeshYawOffset 기본 -90 은 "메시 Y+ 정면 → 캡슐 X+ 정면" 관례 보정.
+	const float HalfHeight = GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+	MeshComp->SetRelativeLocationAndRotation(
+		FVector(0.f, 0.f, -HalfHeight) + Def.MeshOffset,
+		FRotator(0.f, Def.MeshYawOffset, 0.f));
+	MeshComp->SetRelativeScale3D(FVector(Def.MeshScale));
+
+	AppliedCharacterIndex = Index;
+	UE_LOG(LogCA3D, Log, TEXT("ACA3DCharacter %s: 캐릭터 외형 적용 — 인덱스 %d (%s)"),
+		*GetName(), Index, *Def.DisplayName.ToString());
 }
 
 // ─── 관전 카메라 각 (2026-08-09) ─────────────────────────────────────────────

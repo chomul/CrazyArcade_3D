@@ -63,5 +63,22 @@ public:
 	UPROPERTY(Replicated)
 	bool bSuddenDeathActive = false;
 
+	// ─── 캐릭터 선택 페이즈 (Task 36) ───
+	// 갱신 주체는 **GameMode 단독** — bSuddenDeathActive 와 같은 관례 (이 클래스는 로직이 없다.
+	// 갱신 주체가 둘이 되면 "페이즈 종료 처리 중인데 플래그는 true" 같은 모순이 표현 가능해진다).
+	// 소비처는 전부 읽기 전용:
+	//   · ACA3DPlayerController — 커서/입력 모드 전이 (틱 폴링 + 전이 시에만 적용)
+	//   · 선택 위젯(후속 UI Task) — 목록 표시·카운트다운
+
+	// 선택 페이즈 진행 여부.
+	UPROPERTY(Replicated)
+	bool bCharacterSelectActive = false;
+
+	// 페이즈 종료 서버 시각 — 클라 카운트다운은
+	// CharacterSelectEndServerTime - GetServerWorldTimeSeconds() 로 남은 시간을 구한다
+	// (MatchStartServerTime 과 같은 방식 — 시각을 복제하면 매 초 갱신 복제가 필요 없다).
+	UPROPERTY(Replicated)
+	float CharacterSelectEndServerTime = 0.f;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

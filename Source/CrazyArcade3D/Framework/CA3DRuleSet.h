@@ -13,6 +13,42 @@ class ASuddenDeathDropMarker;
 class UMaterialParameterCollection;
 class USoundBase;      // 아래 Feedback 카테고리 — 전방 선언으로 충분 (헤더 최소화)
 class UNiagaraSystem;  // 〃 (Niagara 는 Private 의존 — 공개 헤더에 나이아가라 헤더를 끌어오지 않는다)
+class USkeletalMesh;   // 아래 CharacterSelect 카테고리 — 전방 선언으로 충분
+class UAnimInstance;   // 〃
+
+// 선택 가능한 캐릭터 1종의 정의 (Task 36). **이번 Task 는 데이터 정의까지만** —
+// 실제 외형 적용(폰 메시·애님 교체)은 Task 37 이 ACA3DPlayerState::CharacterIndex 로
+// 이 배열을 인덱싱해 수행한다.
+//
+// 오프셋·yaw·스케일이 코드가 아니라 **캐릭터 정의 데이터**에 있는 이유: 외부 에셋
+// (마켓플레이스) 캐릭터마다 원점·정면 축·크기가 제각각이라, 보정값을 데이터로 들고
+// 있어야 8종을 한 벌의 코드로 붙일 수 있다 (종별 분기 코드 금지).
+USTRUCT(BlueprintType)
+struct FCA3DCharacterDef
+{
+	GENERATED_BODY()
+
+	// 선택 UI·결과 화면에 표시할 이름 (화면 표시용이므로 FText — 코딩 규칙).
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	TObjectPtr<USkeletalMesh> Mesh;
+
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	TSubclassOf<UAnimInstance> AnimClass;
+
+	// 캡슐 기준 메시 위치 보정.
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	FVector MeshOffset = FVector::ZeroVector;
+
+	// 정면 축 보정(도). 언리얼 스켈레탈 메시 관례가 -90 (메시 Y+ 정면 → 캡슐 X+ 정면).
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	float MeshYawOffset = -90.f;
+
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	float MeshScale = 1.f;
+};
 
 // 매치 규칙·튜닝 값의 단일 출처. 로직 없음 — 순수 데이터.
 // 인스턴스를 여러 개 만들어 룰셋 프리셋(기본전/스피드전 등)으로 쓴다.
@@ -519,6 +555,24 @@ public:
 	// 이동속도 배율 상한 (롤러 스택 상한 역할). (값 미확정 — 임시)
 	UPROPERTY(EditAnywhere, Category="Status")
 	float MoveSpeedMulCap = 1.6f;
+
+	// ── CharacterSelect (Task 36, 2026-08-14 사용자 확정) ──────────
+	// 매치 시작 전 캐릭터 선택 페이즈. 8종 중 택1, **중복 불가(선착순)**, 페이즈 중 재선택 허용.
+	// 미선택자·봇·페이즈 종료 후 입장자는 남은 풀에서 자동 배정 (ACA3DGameMode 가 구동).
+
+	// 선택 가능한 캐릭터 목록 — 배열 인덱스가 곧 ACA3DPlayerState::CharacterIndex 다.
+	// **비어 있으면 Duration 이 있어도 페이즈를 스킵한다** (GameMode 가 경고 로그 1회) —
+	// 에셋(8종 메시·애님)을 에디터에서 연결하기 전에도 기존 흐름이 그대로 돌아야 한다.
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	TArray<FCA3DCharacterDef> Characters;
+
+	// 선택 페이즈 길이(초). 0 = 페이즈 스킵(기존 흐름 그대로 즉시 시작).
+	// ⚠️ **C++ 기본값이 0 인 것은 무회귀가 목적이다** — 룰셋을 주입만 하는 기존 자동화
+	// 테스트와 기존 실행 흐름(BeginPlay → 즉시 스폰·봇/서든데스 타이머 예약)이 이 Task 뒤에도
+	// 한 줄도 달라지면 안 된다 (bFillWithBots 기본 false 와 같은 근거 — 조용히 켜져 있으면
+	// 원인 찾기 어려운 차이를 만든다). 실제 10초는 에디터의 DA_Rules_Default 에서 지정한다.
+	UPROPERTY(EditAnywhere, Category="CharacterSelect", meta=(ClampMin="0.0"))
+	float CharacterSelectDuration = 0.f;
 
 	// ── Feedback (사운드·이펙트 슬롯) ─────────────────────────────
 	//

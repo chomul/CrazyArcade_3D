@@ -119,22 +119,68 @@ void ACA3DGameMode::BeginPlay()
 		UE_LOG(LogCA3D, Error, TEXT("ACA3DGameMode: 스폰 셀 0개 — 맵 생성 실패 여부를 확인할 것"));
 	}
 
-	// ── 5. 봇 채우기 예약 (Task 20) ──────────────────────────
-	// 지금 세지 않고 미루는 이유 두 가지: (a) 사람이 들어와야 "부족분"이 정해진다,
-	// (b) -ExecCmds 의 ca3d.BotFill 이 반영된 뒤에 판단해야 한다.
-	// 지형 초기화가 끝난 뒤에 예약한다 — 그리드가 없으면 봇은 경로도 위험도 계산할 수 없다.
-	GetWorldTimerManager().SetTimer(BotFillTimer,
-		FTimerDelegate::CreateUObject(this, &ACA3DGameMode::SpawnFillBots),
-		FMath::Max(Rules->BotFillDelaySeconds, KINDA_SMALL_NUMBER), false);
+	// ── 5. 캐릭터 선택 페이즈 판가름 (Task 36) ────────────────
+	// Duration > 0 && Characters 있음 → 페이즈를 돌리고, 봇 채우기·서든데스 예약은 페이즈
+	// 종료(EndCharacterSelect)로 미룬다. 그 외에는 **아래 else 의 기존 경로 그대로** —
+	// C++ 기본값(Duration 0)이 곧 기존 흐름이라, 룰셋을 안 만진 실행·기존 자동화 테스트는
+	// 한 줄도 달라지지 않는다 (룰셋 CharacterSelectDuration 주석의 무회귀 근거).
+	const bool bRunCharacterSelect =
+		Rules->CharacterSelectDuration > 0.f && Rules->Characters.Num() > 0;
+	if (Rules->CharacterSelectDuration > 0.f && Rules->Characters.Num() == 0)
+	{
+		// Duration 은 있는데 캐릭터 목록이 비었다 — 에셋 연결 누락. 페이즈를 스킵하고 진행한다
+		// (매치당 1회 경고 — BeginPlay 는 매치당 한 번만 돈다).
+		UE_LOG(LogCA3D, Warning,
+			TEXT("ACA3DGameMode: CharacterSelectDuration %.1f초인데 Characters 가 비어 있음 — 선택 페이즈 스킵 (DA_Rules_Default 의 Characters 를 채울 것)"),
+			Rules->CharacterSelectDuration);
+	}
 
-	// ── 6. 서든데스 예약 (Task 24) ───────────────────────────
-	// 매치 시작 시각 기준 SuddenDeathStart 초 뒤. 지형 초기화 이후에 예약하는 이유는 봇과 같다 —
-	// 그리드가 없으면 낙하 지점을 고를 수 없다.
-	GetWorldTimerManager().SetTimer(SuddenDeathTimer,
-		FTimerDelegate::CreateUObject(this, &ACA3DGameMode::StartSuddenDeath),
-		FMath::Max(Rules->SuddenDeathStart, KINDA_SMALL_NUMBER), false);
+	// 자동 배정 스트림 — 맵 시드 파생 (헤더 주석: 고정 시드 모드에서 배정까지 재현).
+	CharacterAssignStream.Initialize(static_cast<int32>(Seed * 7919u + 1u));
 
-	// ── 7. 스폰 게이트 열기 ──────────────────────────────────────
+	if (bRunCharacterSelect)
+	{
+		bCharacterSelectPhaseUsed = true;
+
+		// 페이즈 플래그·종료 시각 — 갱신 주체는 GameMode 단독 (bSuddenDeathActive 와 같은 관례).
+		const float Now = CA3DGameState->GetServerWorldTimeSeconds();
+		CA3DGameState->bCharacterSelectActive = true;
+		CA3DGameState->CharacterSelectEndServerTime = Now + Rules->CharacterSelectDuration;
+
+		// 매치 시작 시각은 일단 **예상 시작 시각**(지금 + 페이즈 길이) — 페이즈 동안 클라 HUD
+		// 타이머가 음수 경과를 그리지 않게 한다. EndCharacterSelect ③ 이 실제 시각으로 재기록.
+		CA3DGameState->MatchStartServerTime = Now + Rules->CharacterSelectDuration;
+
+		GetWorldTimerManager().SetTimer(CharacterSelectTimer,
+			FTimerDelegate::CreateUObject(this, &ACA3DGameMode::EndCharacterSelect),
+			Rules->CharacterSelectDuration, false);
+
+		UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 캐릭터 선택 페이즈 시작 — %d종, %.1f초"),
+			Rules->Characters.Num(), Rules->CharacterSelectDuration);
+
+		// ⚠️ 봇 채우기·서든데스 타이머는 여기서 예약하지 않는다 — 봇은 사람의 선택이 끝나
+		// "남은 풀"이 확정된 뒤에 투입해야 같은 풀 규칙을 타고, SuddenDeathStart 는
+		// "매치 시작 후 N초"라 시작이 미뤄지면 함께 미뤄져야 한다 (EndCharacterSelect ②·⑥).
+	}
+	else
+	{
+		// ── 5-a. 봇 채우기 예약 (Task 20 — 기존 경로 그대로) ──
+		// 지금 세지 않고 미루는 이유 두 가지: (a) 사람이 들어와야 "부족분"이 정해진다,
+		// (b) -ExecCmds 의 ca3d.BotFill 이 반영된 뒤에 판단해야 한다.
+		// 지형 초기화가 끝난 뒤에 예약한다 — 그리드가 없으면 봇은 경로도 위험도 계산할 수 없다.
+		GetWorldTimerManager().SetTimer(BotFillTimer,
+			FTimerDelegate::CreateUObject(this, &ACA3DGameMode::SpawnFillBots),
+			FMath::Max(Rules->BotFillDelaySeconds, KINDA_SMALL_NUMBER), false);
+
+		// ── 5-b. 서든데스 예약 (Task 24 — 기존 경로 그대로) ──
+		// 매치 시작 시각 기준 SuddenDeathStart 초 뒤. 지형 초기화 이후에 예약하는 이유는 봇과
+		// 같다 — 그리드가 없으면 낙하 지점을 고를 수 없다.
+		GetWorldTimerManager().SetTimer(SuddenDeathTimer,
+			FTimerDelegate::CreateUObject(this, &ACA3DGameMode::StartSuddenDeath),
+			FMath::Max(Rules->SuddenDeathStart, KINDA_SMALL_NUMBER), false);
+	}
+
+	// ── 6. 스폰 게이트 열기 ──────────────────────────────────────
 	// 여기서부터 SpawnCells 가 확정이다. 실제 스폰(보류분 해소)은 StartPlay 가 한다.
 	bMatchStartResolved = true;
 }
@@ -197,11 +243,18 @@ void ACA3DGameMode::HandleStartingNewPlayer_Implementation(APlayerController* Ne
 	// 그래서 폴백에 기대지 않고 **대기**로 푼다: 지형이 판가름 나기 전에는 폰을 만들지 않는다.
 	// 참가 등록(RegisterParticipant)은 PostLogin 에서 이미 끝났으므로 ColorIndex·AliveCount·
 	// MatchParticipantCount·GetNumPlayers()(컨트롤러를 센다)는 대기 여부와 무관하게 정확하다.
-	if (!bMatchStartResolved)
+	// 캐릭터 선택 페이즈 중 입장도 **같은 게이트**로 보류한다 (Task 36) — 페이즈 중에는 아무도
+	// 폰을 받지 않으므로, 늦게 들어온 사람도 먼저 온 사람과 같은 순간(EndCharacterSelect ⑤)에
+	// 함께 스폰된다. 별도 대기 목록을 만들지 않는다 — 목록이 두 개면 해소도 두 벌이 된다.
+	const ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>();
+	const bool bHoldForCharacterSelect = CA3DGameState && CA3DGameState->bCharacterSelectActive;
+
+	if (!bMatchStartResolved || bHoldForCharacterSelect)
 	{
 		PendingSpawnControllers.AddUnique(NewPlayer);
 		UE_LOG(LogCA3D, Log,
-			TEXT("ACA3DGameMode: 지형 준비 전 입장 — 폰 스폰 보류 (대기 %d명)"),
+			TEXT("ACA3DGameMode: %s — 폰 스폰 보류 (대기 %d명)"),
+			bMatchStartResolved ? TEXT("캐릭터 선택 페이즈 중 입장") : TEXT("지형 준비 전 입장"),
 			PendingSpawnControllers.Num());
 		return;
 	}
@@ -269,6 +322,14 @@ void ACA3DGameMode::FlushPendingSpawns()
 
 	// 게이트가 아직 안 열렸으면 아무것도 하지 않는다 — 여기서 스폰하면 결함 그대로다.
 	if (!bMatchStartResolved || PendingSpawnControllers.Num() == 0)
+	{
+		return;
+	}
+
+	// 캐릭터 선택 페이즈 중에도 해소하지 않는다 (Task 36) — StartPlay 의 호출이 여기로 들어와도
+	// 보류가 유지되고, 페이즈 종료(EndCharacterSelect ④ 플래그 해제 → ⑤ 재호출)가 해소한다.
+	if (const ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>();
+		CA3DGameState && CA3DGameState->bCharacterSelectActive)
 	{
 		return;
 	}
@@ -381,6 +442,20 @@ void ACA3DGameMode::RegisterParticipant(AController* NewController)
 	if (ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>())
 	{
 		++CA3DGameState->AliveCount;
+	}
+
+	// 페이즈 종료 후 늦은 입장 (Task 36): 미배정이면 남은 풀에서 즉시 자동 배정 — 종료 시
+	// 자동 배정과 **같은 함수**를 쓴다 (경로 두 벌 금지). 페이즈 진행 중이면 본인이 고르므로
+	// 여기서는 건드리지 않고, 페이즈 없는 매치(bCharacterSelectPhaseUsed false)는 배정 자체가
+	// 없다 (기존 흐름 무회귀). 봇(EndCharacterSelect 의 SpawnFillBots 경유)은 그 시점에 아직
+	// 페이즈 플래그가 서 있어 여기를 지나가고, EndCharacterSelect ② 가 배정한다.
+	if (bCharacterSelectPhaseUsed && NewState->CharacterIndex == INDEX_NONE)
+	{
+		if (const ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>();
+			CA3DGameState && !CA3DGameState->bCharacterSelectActive)
+		{
+			AutoAssignUnassignedCharacters();
+		}
 	}
 
 	UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 참가자 입장 — 총 %d명, ColorIndex %d%s"),
@@ -576,6 +651,172 @@ void ACA3DGameMode::SpawnFillBots()
 	UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 봇 %d대 투입 — 목표 %d명 / 총 참가 %d명%s"),
 		SpawnedCount, TargetPlayers, MatchParticipantCount,
 		bFromCVar ? TEXT(" (ca3d.BotFill)") : TEXT(""));
+}
+
+// ─── 캐릭터 선택 페이즈 (Task 36, 서버 전용) ─────────────────────────────────
+
+bool ACA3DGameMode::TryAssignCharacter(ACA3DPlayerState* PS, int32 Index)
+{
+	if (!HasAuthority()) return false; // 불변식 5 — GameMode 는 서버에만 존재하지만 명시한다
+
+	if (!PS)
+	{
+		return false;
+	}
+
+	// 페이즈 없는 매치(Duration 0 또는 Characters 비었음)는 배정 자체가 없다 — 클라가 임의로
+	// RPC 를 보내도 복제 값이 바뀌지 않아 기존 흐름이 그대로다 (무회귀. 헤더 주석 참조).
+	if (!bCharacterSelectPhaseUsed)
+	{
+		return false;
+	}
+
+	const UCA3DRuleSet* EffectiveRules = Rules ? Rules : GetDefault<UCA3DRuleSet>();
+	if (!EffectiveRules->Characters.IsValidIndex(Index))
+	{
+		return false; // 인덱스 범위 — 클라 입력은 신뢰하지 않는다 (ServerSetCamYawIndex 와 같은 원칙)
+	}
+
+	const ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>();
+	if (!CA3DGameState)
+	{
+		return false;
+	}
+
+	// 페이즈 종료 후에는 **변경만** 거부한다 — 이미 값을 가진 사람의 요청(재선택)은 여기서
+	// 걸리고, 미배정(INDEX_NONE)을 채우는 것은 늦은 입장자 자동 배정이라 허용된다.
+	if (!CA3DGameState->bCharacterSelectActive && PS->CharacterIndex != INDEX_NONE)
+	{
+		return false;
+	}
+
+	// 선착순 점유 — 별도 점유 테이블 없이 PlayerArray 의 CharacterIndex 가 **단일 출처**다.
+	// (테이블을 두면 이탈·파괴 때마다 두 곳을 맞춰야 하고, 어긋난 순간 유령 점유가 생긴다.)
+	for (APlayerState* Each : CA3DGameState->PlayerArray)
+	{
+		const ACA3DPlayerState* Other = Cast<ACA3DPlayerState>(Each);
+		if (Other && Other != PS && Other->CharacterIndex == Index)
+		{
+			return false; // 다른 참가자가 이미 점유 — 선착순
+		}
+	}
+
+	// 재선택은 자기 값 덮어쓰기 — 이전 선택은 이 대입으로 자연 해제된다 (해제 코드 없음:
+	// "해제 후 배정" 두 단계로 나누면 그 사이 상태가 존재하게 되고, 실패 시 되돌릴 것이 생긴다).
+	PS->CharacterIndex = Index;
+	return true;
+}
+
+void ACA3DGameMode::AutoAssignUnassignedCharacters()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>();
+	const UCA3DRuleSet* EffectiveRules = Rules ? Rules : GetDefault<UCA3DRuleSet>();
+	if (!CA3DGameState || EffectiveRules->Characters.Num() == 0)
+	{
+		return;
+	}
+
+	// PlayerArray **고정 순서** 순회 — 순서가 실행마다 다르면(TMap 순회·액터 이터레이션 등)
+	// 같은 시드에서도 배정 결과가 달라져 고정 시드 재현이 깨진다 (불변식 4 와 같은 근거).
+	for (APlayerState* Each : CA3DGameState->PlayerArray)
+	{
+		ACA3DPlayerState* Target = Cast<ACA3DPlayerState>(Each);
+		if (!Target || Target->CharacterIndex != INDEX_NONE)
+		{
+			continue; // 이미 본인이 골랐다(또는 앞 순회에서 배정됐다) — 수동 선택을 덮지 않는다
+		}
+
+		// 남은 풀 수집 — 점유 조회는 TryAssignCharacter 와 같은 단일 출처(PlayerArray)를 훑는다.
+		TArray<int32> Remaining;
+		Remaining.Reserve(EffectiveRules->Characters.Num());
+		for (int32 Index = 0; Index < EffectiveRules->Characters.Num(); ++Index)
+		{
+			bool bTaken = false;
+			for (APlayerState* Other : CA3DGameState->PlayerArray)
+			{
+				const ACA3DPlayerState* OtherState = Cast<ACA3DPlayerState>(Other);
+				if (OtherState && OtherState->CharacterIndex == Index)
+				{
+					bTaken = true;
+					break;
+				}
+			}
+			if (!bTaken)
+			{
+				Remaining.Add(Index);
+			}
+		}
+
+		if (Remaining.Num() == 0)
+		{
+			// 참가자가 캐릭터 종수보다 많다 — 8종·최대 8인이라 정상 흐름에서는 없지만,
+			// 정원 초과 접속(스폰 셀 재순환과 같은 상황)에서 크래시 없이 미배정으로 남긴다.
+			UE_LOG(LogCA3D, Warning,
+				TEXT("ACA3DGameMode: 남은 캐릭터 풀 없음 — %s 미배정 (Characters %d종 < 참가자 수)"),
+				*Target->GetPlayerName(), EffectiveRules->Characters.Num());
+			continue;
+		}
+
+		const int32 Pick = Remaining[CharacterAssignStream.RandRange(0, Remaining.Num() - 1)];
+		if (TryAssignCharacter(Target, Pick)) // 자동 배정도 같은 단일 경로를 통과한다 (헤더 주석)
+		{
+			UE_LOG(LogCA3D, Log, TEXT("ACA3DGameMode: 캐릭터 자동 배정 — %s → %d%s"),
+				*Target->GetPlayerName(), Pick, Target->IsABot() ? TEXT(" (봇)") : TEXT(""));
+		}
+		else
+		{
+			// 남은 풀에서 뽑았으니 정의상 실패할 수 없다 — 뜨면 점유 스캔과 단일 경로 검증이
+			// 어긋난 것이다 (두 곳이 다른 출처를 보기 시작했다는 신호).
+			UE_LOG(LogCA3D, Warning,
+				TEXT("ACA3DGameMode: 자동 배정 거부됨 — %s → %d (점유 스캔과 TryAssignCharacter 검증 불일치)"),
+				*Target->GetPlayerName(), Pick);
+		}
+	}
+}
+
+void ACA3DGameMode::EndCharacterSelect()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	ACA3DGameState* CA3DGameState = GetGameState<ACA3DGameState>();
+	if (!CA3DGameState || !CA3DGameState->bCharacterSelectActive)
+	{
+		return; // 이미 종료됐거나 페이즈가 없던 매치 — 중복 호출 무시 (StopSuddenDeath 와 같은 방어)
+	}
+
+	GetWorldTimerManager().ClearTimer(CharacterSelectTimer);
+
+	// ① 미선택자(사람) 자동 배정 — 아직 플래그가 서 있어 단일 경로 검증을 그대로 통과한다.
+	AutoAssignUnassignedCharacters();
+
+	// ② 봇 즉시 투입 + 남은 풀에서 배정 (①과 같은 함수 경유 — 봇 전용 배정 경로를 만들지
+	//    않는다). 페이즈 매치는 BeginPlay 의 봇 타이머가 없으므로 채우기 시점이 여기 하나뿐이고,
+	//    사람의 선택이 전부 끝난 뒤라 봇이 사람의 캐릭터를 선점하는 일이 구조적으로 불가능하다.
+	SpawnFillBots();
+	AutoAssignUnassignedCharacters();
+
+	// ③ 매치 시작 시각을 **실제 시각**으로 재기록 — BeginPlay 는 예상 시각(당시 + Duration)을
+	//    넣어 두었다. 서든데스·HUD 타이머의 "매치 시작 후 N초" 의미가 여기서 확정된다.
+	CA3DGameState->MatchStartServerTime = CA3DGameState->GetServerWorldTimeSeconds();
+
+	// ④ 페이즈 종료 — 이후 사람의 선택 요청은 TryAssignCharacter 가 거부한다.
+	CA3DGameState->bCharacterSelectActive = false;
+
+	// ⑤ 보류된 폰 스폰 해소 — 스폰 게이트의 페이즈 연장이 여기서 풀린다 (④ 이후여야 한다:
+	//    FlushPendingSpawns 는 페이즈 플래그를 보고 되돌아간다).
+	FlushPendingSpawns();
+
+	// ⑥ 서든데스 예약 — SuddenDeathStart 는 "매치 시작 후 N초"이므로 기준이 지금이다.
+	const UCA3DRuleSet* EffectiveRules = Rules ? Rules : GetDefault<UCA3DRuleSet>();
+	GetWorldTimerManager().SetTimer(SuddenDeathTimer,
+		FTimerDelegate::CreateUObject(this, &ACA3DGameMode::StartSuddenDeath),
+		FMath::Max(EffectiveRules->SuddenDeathStart, KINDA_SMALL_NUMBER), false);
+
+	UE_LOG(LogCA3D, Log,
+		TEXT("ACA3DGameMode: 캐릭터 선택 페이즈 종료 — 참가 %d명 배정 완료, 매치 시작"),
+		MatchParticipantCount);
 }
 
 // ─── 서든데스 (Task 24, 서버 전용) ───────────────────────────────────────────

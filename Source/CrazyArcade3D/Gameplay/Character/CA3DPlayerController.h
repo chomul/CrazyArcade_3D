@@ -33,6 +33,13 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerSetCamYawIndex(uint8 NewIndex);
 
+	// 클라→서버: 캐릭터 선택 요청 (Task 36). 검증·배정·거부는 전부 서버 GameMode 의 단일 경로
+	// (TryAssignCharacter) — 여기는 전달만 한다 (OnPlaceBomb 이 캐릭터에 전달만 하는 것과 같은
+	// 원칙). 별도 응답 RPC 는 없다: 성공이면 복제된 ACA3DPlayerState::CharacterIndex 가 바뀌고,
+	// 거부면 안 바뀐다 — 상태 복제가 곧 응답이다.
+	UFUNCTION(Server, Reliable)
+	void ServerSelectCharacter(int32 Index);
+
 protected:
 	// BP 서브클래스(BP_CA3DPlayerController)에서 에셋만 지정 — BP 로직 금지.
 	UPROPERTY(EditDefaultsOnly, Category="Input")
@@ -122,6 +129,16 @@ private:
 	// 래치가 없으면 한 번 눌러 생존자 전원을 지나쳐 버린다. 축이 임계값 아래로 돌아오거나
 	// 입력이 끝나야(OnMoveCompleted) 다음 전환을 받는다.
 	bool bSpectateAxisLatched = false;
+
+	// ─── 캐릭터 선택 페이즈 커서/입력 모드 (Task 36, 로컬 시각·입력 전용) ───
+
+	// 페이즈 전이 시 커서·입력 모드를 전환한다: 활성 → 커서 + GameAndUI, 종료 → GameOnly 원복.
+	// PlayerTick 이 GameState 플래그를 폴링해 부르되 **전이 시에만** 적용한다 (아래 스냅샷).
+	void UpdateCharacterSelectInputMode();
+
+	// 마지막으로 적용한 페이즈 스냅샷 — 매 틱 SetInputMode 를 부르면 위젯 포커스가
+	// 매 프레임 리셋되므로, 값이 바뀐 순간에만 만진다 (PushCamYawIndex 와 같은 폴링+비교 관례).
+	bool bCharSelectInputApplied = false;
 
 	friend class FSpectateTest; // 자동화 테스트가 대상 선정·순환·자동 전환 검증을 위한 접근
 };

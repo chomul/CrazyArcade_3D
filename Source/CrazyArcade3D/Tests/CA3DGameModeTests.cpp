@@ -454,4 +454,380 @@ bool FCA3DSpawnGateTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 캐릭터 선택 페이즈 (Task 36) — 선착순 중복 불가·재선택 자연 해제·종료 시 자동 배정·
+// 봇 포함 전원 고유·스킵 경로 무회귀·종료 후 요청 거부·고정 시드 재현.
+//
+// 페이즈 종료는 타이머(CharacterSelectDuration) 만료가 부르지만, 여기서는 friend 로
+// EndCharacterSelect 를 직접 불러 결정론적으로 진행한다 (PsResolveDeathsNow 와 같은 계열 —
+// 실시간 대기는 자동화 테스트를 느리고 불안정하게 만든다).
+// 실제 리플리케이션(클라 위젯이 같은 값을 보는가)·커서 전이는 PIE 검증.
+// ─────────────────────────────────────────────────────────────────────────────
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCA3DCharacterSelectTest, "CrazyArcade3D.Framework.CharacterSelect",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+namespace
+{
+	// ⚠️ 무명 네임스페이스 헬퍼 이름은 번역 단위 병합에서 모듈 전체와 합쳐진다 — 접두사 Cs~.
+
+	// 시나리오별 월드 한 벌 — friend 접근이 필요한 구성(BuildWorld 람다)은 RunTest 본문에 있다.
+	struct FCsWorldFixture
+	{
+		UWorld* World = nullptr;
+		ACA3DGameMode* GameMode = nullptr;
+		ACA3DGameState* GameState = nullptr;
+		UCA3DRuleSet* Rules = nullptr;
+
+		void Destroy()
+		{
+			if (World)
+			{
+				GEngine->DestroyWorldContext(World);
+				World->DestroyWorld(false);
+				World = nullptr;
+			}
+		}
+	};
+
+	// PlayerArray 의 CharacterIndex 를 고정 순서로 수집 — 전원 배정·전원 고유·재현 검사용.
+	TArray<int32> CsCollectIndices(const ACA3DGameState* GameState)
+	{
+		TArray<int32> Out;
+		for (APlayerState* Each : GameState->PlayerArray)
+		{
+			if (const ACA3DPlayerState* State = Cast<ACA3DPlayerState>(Each))
+			{
+				Out.Add(State->CharacterIndex);
+			}
+		}
+		return Out;
+	}
+}
+
+bool FCA3DCharacterSelectTest::RunTest(const FString& Parameters)
+{
+	// ─── 구성 람다 (friend 접근이 필요해 무명 네임스페이스가 아니라 본문에 둔다 —
+	//     람다는 이 friend 멤버 함수의 접근 권한을 그대로 갖는다) ───
+
+	// 표준 월드 구성 (위 두 테스트와 같은 순서). 캐릭터 정의는 데이터만 채운다 — 이번 Task 는
+	// 데이터 정의까지가 범위라 메시·애님 에셋 없이도 배정 로직 전부가 검증 가능해야 한다.
+	auto BuildWorld = [](int32 CharacterCount, float SelectDuration, int32 Seed) -> FCsWorldFixture
+	{
+		FCsWorldFixture Out;
+
+		UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
+		GameInstance->InitializeStandalone();
+		Out.World = GameInstance->GetWorld();
+		if (!Out.World)
+		{
+			return Out;
+		}
+
+		Out.World->GetWorldSettings()->DefaultGameMode = ACA3DGameMode::StaticClass();
+
+		FURL URL;
+		Out.World->SetGameMode(URL);
+		Out.GameMode = Out.World->GetAuthGameMode<ACA3DGameMode>();
+		if (!Out.GameMode)
+		{
+			return Out;
+		}
+
+		Out.World->SpawnActor<AVoxelWorld>(); // 레벨 배치 액터 역할
+		Out.World->InitializeActorsForPlay(URL);
+
+		Out.Rules = NewObject<UCA3DRuleSet>(Out.GameMode);
+		for (int32 i = 0; i < CharacterCount; ++i)
+		{
+			FCA3DCharacterDef& Def = Out.Rules->Characters.AddDefaulted_GetRef();
+			Def.DisplayName = FText::FromString(FString::Printf(TEXT("Char %d"), i));
+		}
+		Out.Rules->CharacterSelectDuration = SelectDuration;
+		Out.GameMode->Rules = Out.Rules; // friend — BP(DA_Rules_Default) 대신 주입
+		Out.GameMode->bUseFixedSeed = true;
+		Out.GameMode->FixedSeed = Seed;
+
+		Out.World->BeginPlay(); // → StartPlay → GameMode::BeginPlay (페이즈 판가름 + 게이트)
+		Out.GameState = Out.World->GetGameState<ACA3DGameState>();
+		return Out;
+	};
+
+	// 접속 절차 재현 — SpawnGate 테스트와 같은 순서 (Login 의 UpdatePlayerStartSpot 은
+	// 우리 오버라이드가 no-op 이므로 생략).
+	auto Login = [](FCsWorldFixture& F) -> ACA3DPlayerController*
+	{
+		ACA3DPlayerController* PC = SgSpawnController(F.World);
+		if (PC)
+		{
+			F.GameMode->RegisterParticipant(PC);     // friend — PostLogin 앞부분
+			F.GameMode->HandleStartingNewPlayer(PC); // PostLogin 뒷부분 (페이즈 중이면 보류)
+		}
+		return PC;
+	};
+
+	// ─── 시나리오 A: 페이즈 진행 — 선착순·재선택·종료 자동 배정·봇 포함 8인 고유 ───
+	{
+		FCsWorldFixture A = BuildWorld(/*Characters*/ 8, /*Duration*/ 10.f, /*Seed*/ 777);
+		if (!TestNotNull(TEXT("A: 월드"), A.World) || !TestNotNull(TEXT("A: GameMode"), A.GameMode)
+			|| !TestNotNull(TEXT("A: GameState"), A.GameState))
+		{
+			A.Destroy();
+			return false;
+		}
+
+		// ─ 0. 페이즈 개시 상태 ─
+		TestTrue(TEXT("⓪ 페이즈 활성 플래그"), A.GameState->bCharacterSelectActive);
+		TestTrue(TEXT("⓪ 종료 시각이 미래"),
+			A.GameState->CharacterSelectEndServerTime > A.GameState->GetServerWorldTimeSeconds());
+		TestEqual(TEXT("⓪ MatchStartServerTime == 예상 시작 시각(페이즈 종료 시각)"),
+			A.GameState->MatchStartServerTime, A.GameState->CharacterSelectEndServerTime);
+		TestFalse(TEXT("⓪ 봇 타이머는 페이즈 종료로 미룸 (BeginPlay 예약 없음)"),
+			A.GameMode->GetWorldTimerManager().IsTimerActive(A.GameMode->BotFillTimer));
+		TestFalse(TEXT("⓪ 서든데스 타이머도 페이즈 종료로 미룸"),
+			A.GameMode->GetWorldTimerManager().IsTimerActive(A.GameMode->SuddenDeathTimer));
+
+		// 사람 3명 입장 — 페이즈 중에는 폰을 받지 않는다 (스폰 게이트의 페이즈 연장).
+		ACA3DPlayerController* PC0 = Login(A);
+		ACA3DPlayerController* PC1 = Login(A);
+		ACA3DPlayerController* PC2 = Login(A);
+		if (!TestNotNull(TEXT("⓪ PC0"), PC0) || !TestNotNull(TEXT("⓪ PC1"), PC1)
+			|| !TestNotNull(TEXT("⓪ PC2"), PC2))
+		{
+			A.Destroy();
+			return false;
+		}
+		TestNull(TEXT("⓪ 페이즈 중 폰 없음"), PC0->GetPawn());
+		TestEqual(TEXT("⓪ 3명 전원 스폰 보류"), A.GameMode->PendingSpawnControllers.Num(), 3);
+
+		ACA3DPlayerState* PS0 = PC0->GetPlayerState<ACA3DPlayerState>();
+		ACA3DPlayerState* PS1 = PC1->GetPlayerState<ACA3DPlayerState>();
+		ACA3DPlayerState* PS2 = PC2->GetPlayerState<ACA3DPlayerState>();
+		if (!TestNotNull(TEXT("⓪ PS0"), PS0) || !TestNotNull(TEXT("⓪ PS1"), PS1)
+			|| !TestNotNull(TEXT("⓪ PS2"), PS2))
+		{
+			A.Destroy();
+			return false;
+		}
+		TestEqual(TEXT("⓪ 초기값 미선택(INDEX_NONE)"), PS0->CharacterIndex, static_cast<int32>(INDEX_NONE));
+
+		// ─ 1. 선착순 — 같은 캐릭터 중복 선택 거부 ─
+		TestTrue(TEXT("① 첫 선택 성공"), A.GameMode->TryAssignCharacter(PS0, 2));
+		TestEqual(TEXT("① 선택 반영"), PS0->CharacterIndex, 2);
+		TestFalse(TEXT("① 같은 캐릭터 요청 거부 (선착순)"), A.GameMode->TryAssignCharacter(PS1, 2));
+		TestEqual(TEXT("① 거부된 쪽은 미선택 유지"), PS1->CharacterIndex, static_cast<int32>(INDEX_NONE));
+		// 클라 입력은 신뢰하지 않는다 — 범위 밖 인덱스 거부.
+		TestFalse(TEXT("① 범위 밖(8) 거부"), A.GameMode->TryAssignCharacter(PS1, 8));
+		TestFalse(TEXT("① 음수(-5) 거부"), A.GameMode->TryAssignCharacter(PS1, -5));
+		TestFalse(TEXT("① null PlayerState 거부"), A.GameMode->TryAssignCharacter(nullptr, 0));
+
+		// ─ 2. 재선택 — 이전 선택 자연 해제 ─
+		TestTrue(TEXT("② 재선택 성공"), A.GameMode->TryAssignCharacter(PS0, 5));
+		TestEqual(TEXT("② 새 값 반영"), PS0->CharacterIndex, 5);
+		TestTrue(TEXT("② 비워진 이전 캐릭터를 다른 사람이 가져간다 (자연 해제)"),
+			A.GameMode->TryAssignCharacter(PS1, 2));
+		TestTrue(TEXT("② 자기 값 재요청은 허용 (점유 스캔이 자신을 건너뜀)"),
+			A.GameMode->TryAssignCharacter(PS0, 5));
+
+		// ─ 3+4. 종료: 미선택자 자동 배정 + 봇 채우기 → 8인 전원 고유 ─
+		A.Rules->bFillWithBots = true;
+		A.Rules->BotFillTargetPlayers = 8;
+		A.GameMode->EndCharacterSelect(); // friend — 타이머 만료를 직접 재현
+
+		TestFalse(TEXT("③ 페이즈 플래그 해제"), A.GameState->bCharacterSelectActive);
+		TestEqual(TEXT("③ 참가 8명 (사람 3 + 봇 5)"), A.GameMode->MatchParticipantCount, 8);
+		TestEqual(TEXT("③ 수동 선택 보존 (PS0=5 — 자동 배정이 덮지 않는다)"), PS0->CharacterIndex, 5);
+		TestEqual(TEXT("③ 수동 선택 보존 (PS1=2)"), PS1->CharacterIndex, 2);
+
+		{
+			const TArray<int32> Indices = CsCollectIndices(A.GameState);
+			TestEqual(TEXT("④ PlayerState 8개"), Indices.Num(), 8);
+			TSet<int32> Unique;
+			for (int32 EachIndex : Indices)
+			{
+				TestTrue(TEXT("③ 전원 배정 (미선택자·봇 포함 INDEX_NONE 없음)"), EachIndex != INDEX_NONE);
+				TestTrue(TEXT("③ 전원 유효 범위 [0,8)"), EachIndex >= 0 && EachIndex < 8);
+				Unique.Add(EachIndex);
+			}
+			TestEqual(TEXT("④ 봇 포함 8인 전원 고유 인덱스"), Unique.Num(), Indices.Num());
+		}
+
+		// 종료가 보류 스폰을 해소하고 시작 시각·서든데스를 확정한다.
+		TestEqual(TEXT("③ 보류 목록 비움"), A.GameMode->PendingSpawnControllers.Num(), 0);
+		const APawn* Pawn0 = PC0->GetPawn();
+		TestNotNull(TEXT("③ 종료 후 사람 폰 스폰"), Pawn0);
+		TestEqual(TEXT("③ 폰 8개 (사람 3 + 봇 5)"), SgCountCharacters(A.World), 8);
+		TestTrue(TEXT("③ MatchStartServerTime 을 실제 시각으로 재기록 (예상 시각보다 앞)"),
+			A.GameState->MatchStartServerTime < A.GameState->CharacterSelectEndServerTime);
+		TestTrue(TEXT("③ 서든데스 타이머 예약 (페이즈 종료 후)"),
+			A.GameMode->GetWorldTimerManager().IsTimerActive(A.GameMode->SuddenDeathTimer));
+
+		// ─ 6. 페이즈 종료 후 사람의 선택 요청 거부 ─
+		TestFalse(TEXT("⑥ 종료 후 변경 요청 거부"),
+			A.GameMode->TryAssignCharacter(PS0, PS1->CharacterIndex));
+		TestFalse(TEXT("⑥ 종료 후 자기 값 재요청도 거부 (게이트가 점유보다 먼저)"),
+			A.GameMode->TryAssignCharacter(PS0, 5));
+		TestEqual(TEXT("⑥ 값 불변"), PS0->CharacterIndex, 5);
+
+		// 종료 중복 호출 무해 — 봇·시각·폰이 두 번 처리되지 않는다.
+		A.GameMode->EndCharacterSelect();
+		TestEqual(TEXT("③ 종료 재호출 — 참가 인원 불변"), A.GameMode->MatchParticipantCount, 8);
+		TestEqual(TEXT("③ 종료 재호출 — 폰 불변"), SgCountCharacters(A.World), 8);
+
+		A.Destroy();
+	}
+
+	// ─── 시나리오 B: 종료 후 요청 거부(풀이 남아 있어도) + 늦은 입장 자동 배정 ───
+	{
+		FCsWorldFixture B = BuildWorld(8, 10.f, 777);
+		if (!TestNotNull(TEXT("B: GameMode"), B.GameMode) || !TestNotNull(TEXT("B: GameState"), B.GameState))
+		{
+			B.Destroy();
+			return false;
+		}
+
+		ACA3DPlayerController* BPC0 = Login(B);
+		ACA3DPlayerController* BPC1 = Login(B);
+		ACA3DPlayerState* BPS0 = BPC0 ? BPC0->GetPlayerState<ACA3DPlayerState>() : nullptr;
+		ACA3DPlayerState* BPS1 = BPC1 ? BPC1->GetPlayerState<ACA3DPlayerState>() : nullptr;
+		if (!TestNotNull(TEXT("B: PS0"), BPS0) || !TestNotNull(TEXT("B: PS1"), BPS1))
+		{
+			B.Destroy();
+			return false;
+		}
+
+		B.GameMode->EndCharacterSelect(); // 봇 없음(룰셋 기본 꺼짐) — 2인만 자동 배정
+
+		TestTrue(TEXT("③b 종료 시 전원 자동 배정"),
+			BPS0->CharacterIndex != INDEX_NONE && BPS1->CharacterIndex != INDEX_NONE);
+		TestTrue(TEXT("③b 자동 배정 서로 고유"), BPS0->CharacterIndex != BPS1->CharacterIndex);
+
+		// 아직 아무도 안 쓰는 인덱스 확보 — 종료 후 거부의 사유가 점유가 아니라 **게이트**임을 못 박는다.
+		int32 FreeIndex = INDEX_NONE;
+		for (int32 i = 0; i < 8; ++i)
+		{
+			if (i != BPS0->CharacterIndex && i != BPS1->CharacterIndex)
+			{
+				FreeIndex = i;
+				break;
+			}
+		}
+		TestFalse(TEXT("⑥ 풀이 남아 있어도 종료 후 사람 요청 거부"),
+			B.GameMode->TryAssignCharacter(BPS0, FreeIndex));
+
+		// 페이즈 종료 후 늦은 입장 — RegisterParticipant 가 남은 풀에서 즉시 배정 + 즉시 스폰.
+		ACA3DPlayerController* BPC2 = Login(B);
+		ACA3DPlayerState* BPS2 = BPC2 ? BPC2->GetPlayerState<ACA3DPlayerState>() : nullptr;
+		if (TestNotNull(TEXT("늦은 입장 PS"), BPS2))
+		{
+			TestTrue(TEXT("늦은 입장 자동 배정"), BPS2->CharacterIndex != INDEX_NONE);
+			TestTrue(TEXT("늦은 입장 배정도 고유"),
+				BPS2->CharacterIndex != BPS0->CharacterIndex
+				&& BPS2->CharacterIndex != BPS1->CharacterIndex);
+			const APawn* LatePawn = BPC2->GetPawn();
+			TestNotNull(TEXT("늦은 입장 즉시 스폰 (보류 없음)"), LatePawn);
+		}
+
+		B.Destroy();
+	}
+
+	// ─── 시나리오 C: ⑤ Duration == 0 — 페이즈 없음, 기존 흐름 그대로 ───
+	{
+		FCsWorldFixture C = BuildWorld(8, 0.f, 777);
+		if (!TestNotNull(TEXT("C: GameMode"), C.GameMode) || !TestNotNull(TEXT("C: GameState"), C.GameState))
+		{
+			C.Destroy();
+			return false;
+		}
+
+		TestFalse(TEXT("⑤ 페이즈 플래그가 서지 않는다"), C.GameState->bCharacterSelectActive);
+		TestEqual(TEXT("⑤ 종료 시각 미기록"), C.GameState->CharacterSelectEndServerTime, 0.f);
+		TestTrue(TEXT("⑤ 봇 채우기 타이머는 기존 경로대로 BeginPlay 가 예약"),
+			C.GameMode->GetWorldTimerManager().IsTimerActive(C.GameMode->BotFillTimer));
+		TestTrue(TEXT("⑤ 서든데스 타이머도 기존 경로대로"),
+			C.GameMode->GetWorldTimerManager().IsTimerActive(C.GameMode->SuddenDeathTimer));
+
+		ACA3DPlayerController* CPC0 = Login(C);
+		if (TestNotNull(TEXT("⑤ 접속"), CPC0))
+		{
+			const APawn* CPawn0 = CPC0->GetPawn();
+			TestNotNull(TEXT("⑤ 즉시 스폰 (기존 흐름 — 보류 없음)"), CPawn0);
+
+			// 페이즈 없는 매치는 배정 자체가 없다 — 클라가 RPC 를 보내도 복제 값이 안 바뀐다.
+			ACA3DPlayerState* CPS0 = CPC0->GetPlayerState<ACA3DPlayerState>();
+			if (TestNotNull(TEXT("⑤ PS"), CPS0))
+			{
+				TestFalse(TEXT("⑤ 페이즈 없는 매치의 선택 요청 거부"), C.GameMode->TryAssignCharacter(CPS0, 0));
+				TestEqual(TEXT("⑤ CharacterIndex 미배정 유지"),
+					CPS0->CharacterIndex, static_cast<int32>(INDEX_NONE));
+			}
+		}
+
+		// 잘못된 종료 호출도 무해 — 플래그가 없어 즉시 반환 (시작 시각·타이머 안 건드림).
+		const float MatchStartBefore = C.GameState->MatchStartServerTime;
+		C.GameMode->EndCharacterSelect();
+		TestEqual(TEXT("⑤ 잘못된 종료 호출 — MatchStartServerTime 불변"),
+			C.GameState->MatchStartServerTime, MatchStartBefore);
+
+		C.Destroy();
+	}
+
+	// ─── 시나리오 D: ⑦ Characters 비어 있음 — 페이즈 스킵 + 경고 1회, 크래시 없음 ───
+	{
+		AddExpectedMessagePlain(TEXT("Characters 가 비어 있음"), ELogVerbosity::Warning,
+			EAutomationExpectedMessageFlags::Contains, 1);
+
+		FCsWorldFixture D = BuildWorld(/*Characters*/ 0, /*Duration*/ 10.f, 777);
+		if (!TestNotNull(TEXT("D: GameMode"), D.GameMode) || !TestNotNull(TEXT("D: GameState"), D.GameState))
+		{
+			D.Destroy();
+			return false;
+		}
+
+		TestFalse(TEXT("⑦ Characters 비어 있음 — 페이즈 스킵"), D.GameState->bCharacterSelectActive);
+		TestTrue(TEXT("⑦ 스킵 시 기존 경로 타이머 (서든데스)"),
+			D.GameMode->GetWorldTimerManager().IsTimerActive(D.GameMode->SuddenDeathTimer));
+
+		ACA3DPlayerController* DPC0 = Login(D);
+		if (TestNotNull(TEXT("⑦ 접속"), DPC0))
+		{
+			const APawn* DPawn0 = DPC0->GetPawn();
+			TestNotNull(TEXT("⑦ 즉시 스폰 — 크래시 없음"), DPawn0);
+		}
+
+		D.Destroy();
+	}
+
+	// ─── 시나리오 E: ⑧ 고정 시드 자동 배정 재현 — 같은 구성 두 번 = 같은 결과 ───
+	{
+		TArray<int32> RunResults[2];
+		for (int32 Run = 0; Run < 2; ++Run)
+		{
+			FCsWorldFixture E = BuildWorld(8, 10.f, /*Seed*/ 1234);
+			if (!TestNotNull(TEXT("E: GameMode"), E.GameMode) || !TestNotNull(TEXT("E: GameState"), E.GameState))
+			{
+				E.Destroy();
+				return false;
+			}
+			Login(E);
+			Login(E);
+			Login(E);
+			E.GameMode->EndCharacterSelect(); // 아무도 안 고름 — 3명 전원 자동 배정
+			RunResults[Run] = CsCollectIndices(E.GameState);
+			E.Destroy();
+		}
+
+		TestEqual(TEXT("⑧ 두 실행의 참가 수 동일"), RunResults[0].Num(), RunResults[1].Num());
+		TestEqual(TEXT("⑧ 두 실행 모두 3명"), RunResults[0].Num(), 3);
+		TestTrue(TEXT("⑧ 고정 시드 자동 배정 재현 — 두 실행의 배정이 완전히 동일"),
+			RunResults[0] == RunResults[1]);
+		for (int32 EachIndex : RunResults[0])
+		{
+			TestTrue(TEXT("⑧ 전원 배정됨"), EachIndex != INDEX_NONE);
+		}
+	}
+
+	return true;
+}
+
 #endif // WITH_AUTOMATION_TESTS
