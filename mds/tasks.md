@@ -473,6 +473,17 @@
         판정은 static `ShouldPlayFromCounter` 순수 함수 · 예측 클라 본인은 예측 성공 시 즉시 재생(불변식 3)
       · 검증: 두 타깃 빌드 통과 · **전체 33스위트 실패 0** (오케스트레이터 직접 재실행)
       · 잔여: PIE 몽타주/사망 연출 체감 · 에디터 작업(AttackMontage 8종 + AnimBP Slot 노드 + 룰셋 지정)
+- [x] **39. Task 37·38 보정 3종** (2026-08-14 사용자 지적: 사망 애님 길이 제각각 · 상한 상태
+      헛스윙 · 클라별 메시 위치·방향 어긋남) 체크리스트 `mds/Checklists/39-DeathMontage-InputGate-MeshCache.md`
+      · ① 사망 숨김 = `FCA3DCharacterDef::DeathMontage` 를 C++ 가 직접 재생, **PlayAnimMontage
+        반환 길이**로 숨김 타이머 (재생하는 것 = 타이머의 출처). `DeathHideDelay` 는 폴백으로 강등
+      · ② `ActiveBombCount` COND_OwnerOnly 복제 — 원격 클라 로컬 검증(`bHasSlot`)이 정확해져
+        상한 상태 재설치가 **인풋(예측) 단계에서 차단** (몽타주·설치음·RPC 전부 생략)
+      · ③ 외형 적용 직후 `CacheInitialMeshOffset()` — CMC `SmoothClientPosition_UpdateVisuals` 가
+        매 프레임 Base 캐시 기준으로 메시를 재배치해 원격 프록시에서만 낡은 오프셋으로 되돌리던 원인
+      · 검증: 두 타깃 빌드 통과 · **전체 33스위트 실패 0** (오케스트레이터 직접 재실행) —
+        PredictedBombVisual ⑫·CharacterAppearance ③-c/e 신규
+      · 잔여: 멀티 실전(원격 화면 메시 일치·상한 침묵·8종 Die 완주) · 에디터(DeathMontage 8종 + 룰셋 지정)
 
 ## 진행 중 메모
 

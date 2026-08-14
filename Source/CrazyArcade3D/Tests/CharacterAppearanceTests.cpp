@@ -158,6 +158,15 @@ bool FCharacterAppearanceTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("적용: 스케일 == MeshScale"),
 		MeshComp->GetRelativeScale3D().Equals(FVector(DefA.MeshScale), 0.001f));
 
+	// CMC 스무딩 캐시 (2026-08-14 Task 39) — 적용 직후 CacheInitialMeshOffset 이 같은 값으로
+	// 갱신됐는가. 안 갱신하면 시뮬레이티드 프록시의 SmoothClientPosition_UpdateVisuals 가
+	// 매 프레임 PostInitializeComponents 시점의 낡은 캐시 기준으로 메시 트랜스폼을 되돌린다 —
+	// **원격 프록시에서만** 어긋나는 버그라 단일 프로세스 실행으로는 화면에서 안 잡힌다.
+	TestTrue(TEXT("적용: BaseTranslationOffset == 적용한 상대 위치 (CMC 스무딩 캐시 갱신)"),
+		Character->GetBaseTranslationOffset().Equals(FVector(0.f, 0.f, -HalfHeight) + DefA.MeshOffset, 0.01f));
+	TestTrue(TEXT("적용: BaseRotationOffset == 적용한 회전 (〃)"),
+		Character->GetBaseRotationOffset().Equals(FRotator(0.f, DefA.MeshYawOffset, 0.f).Quaternion(), 0.001f));
+
 	// ─── ③-d 같은 인덱스 재적용 안 함 — 스냅샷 비교의 증명 ───
 	// 스케일을 일부러 어긋내고 다시 부른다: 재적용했다면 1.25 로 되돌아갔을 것이다.
 	MeshComp->SetRelativeScale3D(FVector(9.f));
@@ -171,6 +180,8 @@ bool FCharacterAppearanceTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("인덱스 변경: 메시 B 로 교체"), MeshComp->GetSkeletalMeshAsset() == MeshB);
 	TestTrue(TEXT("인덱스 변경: 스케일도 정의값(1.0)으로"),
 		MeshComp->GetRelativeScale3D().Equals(FVector(DefB.MeshScale), 0.001f));
+	TestTrue(TEXT("인덱스 변경: 스무딩 캐시도 새 정의값 추종 (Task 39)"),
+		Character->GetBaseTranslationOffset().Equals(FVector(0.f, 0.f, -HalfHeight) + DefB.MeshOffset, 0.01f));
 
 	// ─── ③-f 범위 밖 인덱스 — 크래시 없이 스킵, 기존 외형 유지, 스냅샷 기록(로그 1회) ───
 	PlayerState->CharacterIndex = 99;

@@ -29,7 +29,9 @@ void UStatusComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(UStatusComponent, bHasNeedle);
 	DOREPLIFETIME(UStatusComponent, bHasKick);
 	DOREPLIFETIME(UStatusComponent, LifeState);
-	// ActiveBombCount 는 서버 전용 — 의도적으로 비복제 (설계서 2.5).
+	// 소유자에게만 — 판정은 서버 단독이고, 소유 클라의 로컬 설치 검증(인풋 차단)에만 쓰인다.
+	// 관전자·타 클라는 볼 이유가 없다 (대역폭 + 정보 노출 최소, Task 39).
+	DOREPLIFETIME_CONDITION(UStatusComponent, ActiveBombCount, COND_OwnerOnly);
 }
 
 void UStatusComponent::BeginPlay()

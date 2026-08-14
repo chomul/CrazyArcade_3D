@@ -75,12 +75,15 @@ public:
 	UPROPERTY(ReplicatedUsing=OnRep_Life)
 	ELifeState LifeState = ELifeState::Alive;
 
-	// 현재 설치되어 살아 있는 폭탄 수 — 서버 전용, 복제 불필요.
-	// 설치 +1 / 폭발 -1 (Task 16 설치 검증이 MaxBombCount 와 비교).
+	// 현재 설치되어 살아 있는 폭탄 수. 설치 +1 / 폭발 -1 (Task 16 설치 검증이 MaxBombCount 와 비교).
+	// **판정은 서버 단독** — 소유 클라는 로컬 설치 검증(인풋 차단)용 읽기 전용 사본으로만 쓴다
+	// (Task 39: 비복제일 때는 원격 클라에서 항상 0 이라, 상한인데도 예측 검증이 통과해
+	//  몽타주·설치음이 헛나갔다). COND_OwnerOnly — 관전자·타 클라는 볼 이유가 없다.
+	UPROPERTY(Replicated)
 	int32 ActiveBombCount = 0;
 
-	// 마지막 사망 원인 — **서버 전용, 비복제** (ActiveBombCount 와 같은 근거: 판정에만 쓰이고
-	// 클라가 볼 이유가 없다). `LifeState == Dead` 이후에만 의미가 있다.
+	// 마지막 사망 원인 — **서버 전용, 비복제** (판정·통계에만 쓰이고 클라가 볼 이유가 없다).
+	// `LifeState == Dead` 이후에만 의미가 있다.
 	// 사인이 어딘가에 남지 않으면 EDeathCause 를 나눠 둔 의미가 없다 — 통계·킬 피드(후속)와
 	// 자동화 테스트가 "무엇에 죽었는가" 를 확인하는 유일한 출처다.
 	EDeathCause LastDeathCause = EDeathCause::None;

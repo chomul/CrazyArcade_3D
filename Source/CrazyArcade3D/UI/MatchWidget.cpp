@@ -56,8 +56,8 @@ FText UMatchWidget::FormatBombCount(const FMatchStatSnapshot& Stats)
 		return FText::FromString(TEXT("폭탄 -"));
 	}
 
-	// 현재 설치 중 / 최대. ActiveBombCount 는 서버 전용 값이라 클라에서는 항상 0 이다
-	// (복제하지 않는다 — StatusComponent 주석). 그래도 리슨 호스트·봇 화면에서는 맞는다.
+	// 현재 설치 중 / 최대. ActiveBombCount 는 소유자에게만 복제된다 (Task 39 — 예전엔
+	// 비복제라 원격 클라에서 항상 0 이었다). HUD 는 내 폰의 값만 보므로 이제 어디서든 맞는다.
 	const bool bAtCap = Stats.MaxBombCountCap > 0 && Stats.MaxBombCount >= Stats.MaxBombCountCap;
 	return FText::FromString(FString::Printf(TEXT("폭탄 %d/%d%s"),
 		Stats.ActiveBombCount, Stats.MaxBombCount, bAtCap ? TEXT(" (MAX)") : TEXT("")));

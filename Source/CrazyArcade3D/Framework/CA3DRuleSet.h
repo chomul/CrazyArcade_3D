@@ -45,6 +45,14 @@ struct FCA3DCharacterDef
 	UPROPERTY(EditAnywhere, Category="CharacterSelect")
 	TObjectPtr<UAnimMontage> AttackMontage;
 
+	// 사망 순간 재생하는 몽타주 (Task 39). 캐릭터 8종의 Die 애님 길이가 제각각이라 전역
+	// DeathHideDelay 하나로는 숨김 시점이 안 맞는다 — **재생하는 것이 곧 타이머의 출처**:
+	// C++ 이 이 몽타주를 직접 재생하고 반환된 실측 길이(재생 속도 반영)로 숨긴다.
+	// 미지정(nullptr)이면 DeathHideDelay 폴백 — 에셋 연결 전에도 사망 처리는 그대로 돈다
+	// (AttackMontage 와 같은 근거).
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	TObjectPtr<UAnimMontage> DeathMontage;
+
 	// 캡슐 기준 메시 위치 보정.
 	UPROPERTY(EditAnywhere, Category="CharacterSelect")
 	FVector MeshOffset = FVector::ZeroVector;
@@ -171,9 +179,10 @@ public:
 	UPROPERTY(EditAnywhere, Category="Life")
 	float SpawnInvulnTime = 0.f;
 
-	// 사망 후 액터를 숨기기까지의 시간(초) = 사망 애니메이션(AnimBP Dead 상태의 Die 애님)이
-	// 보이는 시간 (Task 38). 0 이하 = 즉시 숨김(기존 동작). 컬리전 해제·이동 정지는 이 값과
-	// 무관하게 사망 즉시다 — 지연되는 것은 **보이는 것**뿐이다.
+	// 사망 후 액터를 숨기기까지의 시간(초) — **DeathMontage 미지정/재생 불가 시의 폴백**
+	// (Task 39 에서 역할 변경). 캐릭터 정의에 DeathMontage 가 있고 재생에 성공하면 그 몽타주의
+	// 실측 길이가 숨김 시점이 되고 이 값은 쓰이지 않는다. 폴백일 때 0 이하 = 즉시 숨김(기존 동작).
+	// 컬리전 해제·이동 정지는 이 값과 무관하게 사망 즉시다 — 지연되는 것은 **보이는 것**뿐이다.
 	// (EditAnywhere 인 이유: 데이터 에셋 인스턴스는 템플릿이 아니라 EditDefaultsOnly 필드가
 	//  에셋 에디터에 안 뜬다 — 이 클래스의 다른 튜닝 값 전부와 같은 사정.)
 	UPROPERTY(EditAnywhere, Category="Life")

@@ -361,10 +361,18 @@ void ACA3DCharacter::ApplyCharacterAppearance()
 	// ZeroVector 가 곧 "발이 바닥에 닿는" 표준 배치다. MeshOffset 은 원점이 표준과 다른
 	// 외부 에셋의 보정값, MeshYawOffset 기본 -90 은 "메시 Y+ 정면 → 캡슐 X+ 정면" 관례 보정.
 	const float HalfHeight = GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
-	MeshComp->SetRelativeLocationAndRotation(
-		FVector(0.f, 0.f, -HalfHeight) + Def.MeshOffset,
-		FRotator(0.f, Def.MeshYawOffset, 0.f));
+	const FVector MeshRelativeLocation = FVector(0.f, 0.f, -HalfHeight) + Def.MeshOffset;
+	const FRotator MeshRelativeRotation(0.f, Def.MeshYawOffset, 0.f);
+	MeshComp->SetRelativeLocationAndRotation(MeshRelativeLocation, MeshRelativeRotation);
 	MeshComp->SetRelativeScale3D(FVector(Def.MeshScale));
+
+	// CMC 스무딩 캐시 갱신 (Task 39). CMC 의 SmoothClientPosition_UpdateVisuals 가 시뮬레이티드
+	// 프록시에서 **매 프레임** 메시 상대 트랜스폼을 "스무딩 오프셋 + GetBaseTranslationOffset/
+	// GetBaseRotationOffset" 으로 다시 쓰는데, 그 Base 캐시는 PostInitializeComponents 시점 값이다.
+	// 여기서 갱신하지 않으면 위에서 적용한 트랜스폼을 스무딩이 낡은 오프셋으로 되돌린다 —
+	// **원격 프록시에서만** 클라마다 메시 위치·방향이 어긋난다 (엔진 주석: "call this at runtime
+	// if you intend to change the default mesh offset from the capsule").
+	CacheInitialMeshOffset(MeshRelativeLocation, MeshRelativeRotation);
 
 	AppliedCharacterIndex = Index;
 	UE_LOG(LogCA3D, Log, TEXT("ACA3DCharacter %s: 캐릭터 외형 적용 — 인덱스 %d (%s)"),
@@ -820,12 +828,35 @@ void ACA3DCharacter::ApplyDeathState()
 
 	if (IsRunningDedicatedServer()) return; // 불변식 5 — 이하 시각 전용
 
-	// 숨김은 **지연**한다 (Task 38) — 즉시 숨기면 AnimBP Dead 상태의 Die 애님이 한 프레임도
-	// 안 보인다. 이 지연 구간 동안 캐릭터는 보이는 채로 서 있고(위에서 컬리전·이동은 이미
-	// 껐다 — 판정상으로는 완전한 시체다) AnimBP 의 bDead 가 Die 애님을 재생한다.
-	// 0 이하면 즉시 숨김(기존 동작). 룰셋 미도착이어도 기다리지 않는다 — 시각 전용이라
-	// CDO 폴백으로 충분하다 (ResolveVisualRules 관례).
-	const float HideDelay = ResolveVisualRules(GetWorld())->DeathHideDelay;
+	// 숨김은 **지연**한다 (Task 38) — 즉시 숨기면 사망 애님이 한 프레임도 안 보인다.
+	// 이 지연 구간 동안 캐릭터는 보이는 채로 서 있고(위에서 컬리전·이동은 이미 껐다 —
+	// 판정상으로는 완전한 시체다) 사망 애님이 재생된다.
+	//
+	// 숨김 시점의 1순위는 캐릭터별 DeathMontage 의 **실측 재생 길이**다 (Task 39) —
+	// 8종의 Die 애님 길이가 제각각이라 전역 DeathHideDelay 하나로는 안 맞는다.
+	// 재생하는 것이 곧 타이머의 출처: PlayAnimMontage 반환값(재생 속도 반영)이 그대로 숨김
+	// 시점이라 표시와 타이머가 어긋날 수 없다. 몽타주는 슬롯으로 상태 머신(bDead → Die)을
+	// 덮는다 — 같은 Die 애님이면 겹쳐도 동일 화면이고, 몽타주가 끝나는 순간 숨기므로
+	// 상태 머신 포즈로 되돌아가는 프레임은 보이지 않는다.
+	const UCA3DRuleSet* Rules = ResolveVisualRules(GetWorld());
+	const ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
+	const int32 Index = CA3DPlayerState ? CA3DPlayerState->CharacterIndex : INDEX_NONE;
+	if (Rules->Characters.IsValidIndex(Index) && Rules->Characters[Index].DeathMontage)
+	{
+		const float Duration = PlayAnimMontage(Rules->Characters[Index].DeathMontage);
+		if (Duration > 0.f)
+		{
+			GetWorldTimerManager().SetTimer(DeathHideTimerHandle,
+				FTimerDelegate::CreateUObject(this, &ACA3DCharacter::HideAfterDeath), Duration, false);
+			return;
+		}
+		// Duration 0 = 재생 실패 (메시·AnimInstance 미준비 — 헤드리스 테스트 포함) → 아래 폴백.
+	}
+
+	// 폴백 — 몽타주 미지정·인덱스 미확정·재생 실패는 DeathHideDelay. 0 이하면 즉시 숨김
+	// (기존 동작). 룰셋 미도착이어도 기다리지 않는다 — 시각 전용이라 CDO 폴백으로 충분하다
+	// (ResolveVisualRules 관례).
+	const float HideDelay = Rules->DeathHideDelay;
 	if (HideDelay <= 0.f)
 	{
 		HideAfterDeath();
@@ -981,8 +1012,11 @@ bool ACA3DCharacter::TryAcquirePredictedVisual(const FIntVector& Cell)
 		}
 	}
 
-	// 개수 예측치: ActiveBombCount 는 서버 전용(원격 클라에선 항상 0)이라 아직 확정 안 된
-	// 예측 비주얼 수를 더해 연타 초과를 로컬에서 거른다. 확정 후 어긋나면 서버가 거부한다.
+	// 개수 예측치: ActiveBombCount(소유자에게만 복제 — Task 39)에 아직 확정 안 된 예측
+	// 비주얼 수를 더한다. 상한까지 깔린 상태의 재설치 시도가 여기서 걸려 몽타주·설치음·RPC 가
+	// 전부 생략된다 (비복제였을 때는 원격 클라에서 항상 0 이라 상한인데도 통과 → 헛스윙).
+	// 복제 지연으로 [폭탄 확정(ABomb 복제) ↔ 카운트 복제] 도착 순서가 어긋나는 한 프레임 동안
+	// 잠깐 과차단될 수 있다 — 서버도 거부할 요청이므로 안전측, 무해하다.
 	const bool bHasSlot = Status
 		&& Status->ActiveBombCount + PredictedBombVisuals.Num() < Status->MaxBombCount;
 

@@ -145,6 +145,9 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 		Movement->MovementMode == MOVE_None);
 	// 2026-08-14 (Task 38): "즉시 숨김" → "지연 숨김" 으로 갱신. 즉시 숨기면 AnimBP Dead
 	// 상태의 Die 애님이 한 프레임도 안 보였다 — 사망 직후엔 보이는 채로 타이머만 걸려야 한다.
+	// 2026-08-14 (Task 39): 숨김 시점 1순위가 캐릭터별 DeathMontage 실측 길이가 됐다.
+	// 이 테스트는 PlayerState·캐릭터 정의가 없어(헤드리스는 재생도 0 반환) 몽타주 경로를 못
+	// 타고 **DeathHideDelay 폴백**으로 떨어진다 — 아래 단언이 곧 폴백 경로의 스펙이다.
 	TestFalse(TEXT("② 사망 직후엔 아직 보인다 — Die 애님 재생 구간 (지연 숨김)"), Character->IsHidden());
 	TestTrue(TEXT("② 숨김 타이머 가동 (DeathHideDelay 뒤 HideAfterDeath)"),
 		World->GetTimerManager().IsTimerActive(Character->DeathHideTimerHandle));

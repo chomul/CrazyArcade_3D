@@ -152,9 +152,12 @@ bool FPredictedBombVisualTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("② 솔리드 셀: 로컬 검증 거부"), Owner->TryAcquirePredictedVisual(FIntVector(4, 4, 0)));
 	TestEqual(TEXT("② 솔리드 셀: 비주얼 액터 0개"), CountPredictedVisuals(World), 0);
 
-	// ③ 개수 초과(확정분): ActiveBombCount 가 이미 상한 — 리슨 호스트 값 기준의 초과 거부.
+	// ③ 개수 초과(확정분): ActiveBombCount 가 이미 상한이면 거부 — 몽타주·설치음·RPC 이전
+	// 인풋 단계 차단 (2026-08-14 Task 39: 소유자에게만 복제되므로 원격 클라도 이 값으로 거른다.
+	// 비복제였을 때는 원격 클라에서 항상 0 이라 상한인데도 통과 → 헛스윙이 났다).
 	Status->ActiveBombCount = Status->MaxBombCount; // 기본 1
-	TestFalse(TEXT("③ 개수 초과(확정분): 로컬 검증 거부"), Owner->TryAcquirePredictedVisual(PlaceCell));
+	TestFalse(TEXT("③ 개수 초과(확정분): 로컬 검증 거부 — 몽타주·RPC 이전 차단"),
+		Owner->TryAcquirePredictedVisual(PlaceCell));
 	TestEqual(TEXT("③ 개수 초과: 비주얼 액터 0개"), CountPredictedVisuals(World), 0);
 	Status->ActiveBombCount = 0;
 
@@ -246,6 +249,24 @@ bool FPredictedBombVisualTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("⑪ 리슨 호스트: 예측 비주얼 생성 안 함"), Owner->PredictedBombVisuals.Num(), 0);
 	TestEqual(TEXT("⑪ 리슨 호스트: ServerPlaceBomb 직행 — 진짜 폭탄 1개"), PbvCountBombs(World), 1);
 	TestEqual(TEXT("⑪ 리슨 호스트: ActiveBombCount 점유"), Status->ActiveBombCount, 1);
+
+	// ─── 7. ActiveBombCount 복제 등록 (2026-08-14 Task 39) ───
+	// 위 ③의 인풋 차단이 원격 클라에서 성립하려면 이 값이 소유 클라에 실제로 내려가야 한다 —
+	// Replicated 지정 + GetLifetimeReplicatedProps 등록을 확인한다 (PlayerStateTests ⑦ 관례).
+	{
+		const FProperty* CountProp =
+			UStatusComponent::StaticClass()->FindPropertyByName(FName(TEXT("ActiveBombCount")));
+		TestTrue(TEXT("⑫ ActiveBombCount 가 Replicated (CPF_Net)"),
+			CountProp && CountProp->HasAnyPropertyFlags(CPF_Net));
+
+		UStatusComponent::StaticClass()->SetUpRuntimeReplicationData(); // RepIndex 지연 초기화 강제 (PlayerStateTests ⑦ 주석)
+		TArray<FLifetimeProperty> ChildProps;
+		Status->GetLifetimeReplicatedProps(ChildProps);
+		TArray<FLifetimeProperty> ParentProps;
+		Status->UActorComponent::GetLifetimeReplicatedProps(ParentProps);
+		TestEqual(TEXT("⑫ GetLifetimeReplicatedProps 가 부모 대비 7개 추가 등록 (기존 6 + ActiveBombCount — 2026-08-14 Task 39)"),
+			ChildProps.Num() - ParentProps.Num(), 7);
+	}
 
 	// ─── 정리 ───
 	World->DestroyWorld(false);
