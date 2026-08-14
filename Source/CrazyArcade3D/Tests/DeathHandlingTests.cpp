@@ -20,6 +20,7 @@
 #include "Gameplay/Bomb/Bomb.h"
 #include "Gameplay/Bomb/ExplosionSubsystem.h"
 #include "Voxel/VoxelWorld.h"
+#include "Framework/CA3DRuleSet.h" // DeathHideDelay 폴백 검증 — CDO 를 잠시 바꾼다 (Task 38)
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -142,8 +143,16 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 		Capsule->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 	TestTrue(TEXT("② MovementMode == MOVE_None — 시체가 바닥을 뚫고 떨어지지 않는다(관전 시점 고정)"),
 		Movement->MovementMode == MOVE_None);
-	// 액터 단위 숨김 — 메시 컴포넌트 하나만 끄면 BP 가 추가한 메시가 남는다 (실제 PIE 버그였다).
-	TestTrue(TEXT("② 액터 숨김 (시각 — 데디 가드 안쪽, BP 추가 메시까지 포함)"), Character->IsHidden());
+	// 2026-08-14 (Task 38): "즉시 숨김" → "지연 숨김" 으로 갱신. 즉시 숨기면 AnimBP Dead
+	// 상태의 Die 애님이 한 프레임도 안 보였다 — 사망 직후엔 보이는 채로 타이머만 걸려야 한다.
+	TestFalse(TEXT("② 사망 직후엔 아직 보인다 — Die 애님 재생 구간 (지연 숨김)"), Character->IsHidden());
+	TestTrue(TEXT("② 숨김 타이머 가동 (DeathHideDelay 뒤 HideAfterDeath)"),
+		World->GetTimerManager().IsTimerActive(Character->DeathHideTimerHandle));
+	// 타이머 만료 지점을 직접 호출 — 지연 후 도달하는 코드가 액터 단위 숨김인 것을 확인한다.
+	// 액터 단위인 이유: 메시 컴포넌트 하나만 끄면 BP 가 추가한 메시가 남는다 (실제 PIE 버그였다).
+	Character->HideAfterDeath();
+	TestTrue(TEXT("② HideAfterDeath: 액터 숨김 (시각 — 데디 가드 안쪽, BP 추가 메시까지 포함)"),
+		Character->IsHidden());
 	TestTrue(TEXT("② 폰은 살아 있다 — 파괴·풀 반납 없음 (서버 권한 상태 액터 풀링 금지)"),
 		IsValid(Character));
 
@@ -165,11 +174,16 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("④ 사망 후 설치 거부 — 폭탄 여전히 1개"), DhCountBombs(World), 1);
 
 	// ─── 5. 중복 ServerKill 무시 ───
-	// 표식: 숨김을 되돌려 두고 재-Kill 한다. 사망 처리가 다시 돌면 표식이 지워진다.
+	// 표식: 숨김을 되돌리고 숨김 타이머도 지운 뒤 재-Kill 한다. 사망 처리가 다시 돌면
+	// 타이머가 다시 걸리거나(지연 경로) 다시 숨겨진다(즉시 경로) — 둘 다 잡힌다.
+	// (2026-08-14 Task 38: 지연 숨김 도입으로 "숨김 되돌리기" 하나로는 재실행이 안 잡혀 타이머 표식 추가)
 	Character->SetActorHiddenInGame(false);
+	World->GetTimerManager().ClearTimer(Character->DeathHideTimerHandle);
 	Status->ServerKill(EDeathCause::Water);
 	TestEqual(TEXT("⑤ 중복 Kill: LifeState 그대로 Dead"), Status->LifeState, ELifeState::Dead);
-	TestFalse(TEXT("⑤ 중복 Kill: 사망 처리 재실행 없음 (표식 유지)"), Character->IsHidden());
+	TestFalse(TEXT("⑤ 중복 Kill: 사망 처리 재실행 없음 (숨김 표식 유지)"), Character->IsHidden());
+	TestFalse(TEXT("⑤ 중복 Kill: 숨김 타이머 재예약 없음 (타이머 표식 유지)"),
+		World->GetTimerManager().IsTimerActive(Character->DeathHideTimerHandle));
 	TestTrue(TEXT("⑤ 중복 Kill: 위치 불변"), Character->GetActorLocation().Equals(DeathLocation));
 
 	// ─── 6. 갇힘(Trapped): 미세 이동 유지 + 갇힌 채 사망 시 타이머 잔존 없음 ───
@@ -215,6 +229,9 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 	// ─── 8. 클라 경로 — OnRep_Life(Dead) 도 서버와 같은 ApplyDeathState 를 통과한다 ───
 	// 테스트 월드에는 넷드라이버가 없으므로 "복제 도착"을 손으로 흉내 낸다: LifeState 를
 	// 서버가 보낸 값처럼 써넣고 OnRep 을 직접 호출한다 (friend).
+	// 2026-08-14 (Task 38): 이 절은 DeathHideDelay <= 0 폴백(= 예전의 즉시 숨김)도 겸해서
+	// 검증한다 — GameState 없는 테스트 월드는 룰셋이 CDO 폴백이라 CDO 값을 잠시 0 으로
+	// 바꿨다가 복원한다 (다른 스위트가 같은 CDO 를 본다 — 복원을 빼먹으면 안 된다).
 	ACA3DCharacter* Remote = World->SpawnActor<ACA3DCharacter>(
 		ACA3DCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
 	if (TestNotNull(TEXT("클라 경로 검증용 캐릭터 스폰"), Remote))
@@ -224,14 +241,22 @@ bool FDeathHandlingTest::RunTest(const FString& Parameters)
 		UCharacterMovementComponent* RemoteMovement = Remote->GetCharacterMovement();
 		RemoteMovement->SetMovementMode(MOVE_Walking);
 
+		UCA3DRuleSet* MutableRules = GetMutableDefault<UCA3DRuleSet>();
+		const float SavedHideDelay = MutableRules->DeathHideDelay;
+		MutableRules->DeathHideDelay = 0.f; // 0 이하 = 즉시 숨김 (기존 동작 폴백)
+
 		RemoteStatus->LifeState = ELifeState::Dead; // 서버 복제분이 도착했다고 가정
 		RemoteStatus->OnRep_Life();
+
+		MutableRules->DeathHideDelay = SavedHideDelay;
 
 		TestTrue(TEXT("⑧ 클라 OnRep: 캡슐 컬리전 off (복제되지 않는 값 — 클라가 직접 적용)"),
 			Remote->GetCapsuleComponent()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 		TestTrue(TEXT("⑧ 클라 OnRep: MOVE_None (ReplicatedMovementMode 는 COND_SimulatedOnly — 본인에게 안 온다)"),
 			RemoteMovement->MovementMode == MOVE_None);
-		TestTrue(TEXT("⑧ 클라 OnRep: 액터 숨김"), Remote->IsHidden());
+		TestTrue(TEXT("⑧ 클라 OnRep: DeathHideDelay 0 → 타이머 없이 즉시 액터 숨김"), Remote->IsHidden());
+		TestFalse(TEXT("⑧ 클라 OnRep: 즉시 경로는 숨김 타이머를 걸지 않는다"),
+			World->GetTimerManager().IsTimerActive(Remote->DeathHideTimerHandle));
 		TestTrue(TEXT("⑧ 클라 OnRep: 폰 유지 (관전 시점은 죽은 자리 그대로)"), IsValid(Remote));
 
 		// 사망 후 입력 차단은 클라에서도 같은 캐릭터 가드가 담당한다.

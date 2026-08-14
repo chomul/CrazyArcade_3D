@@ -17,6 +17,8 @@
 #include "Camera/PlayerCameraManager.h"      // PendingViewTarget — 블렌드 중 새 대상 판정
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"   // 외형 적용(Task 37) — 메시·애님 클래스 교체
+#include "Animation/AnimMontage.h"              // 설치 몽타주(Task 38)
+#include "Net/UnrealNetwork.h"                  // DOREPLIFETIME (BombPlaceCounter)
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
@@ -112,6 +114,13 @@ UStatusComponent* ACA3DCharacter::GetStatus() const
 	return Status;
 }
 
+void ACA3DCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(ACA3DCharacter, BombPlaceCounter);
+}
+
 void ACA3DCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -150,6 +159,13 @@ void ACA3DCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		}
 	}
 	PredictedBombVisuals.Empty();
+
+	// 파괴·레벨 전환 중 지연 숨김 타이머가 남지 않게 정리 (UStatusComponent::EndPlay 의
+	// TrappedTimer 와 같은 관례 — 액터 파괴 시 자동 정리되긴 하지만 경로를 명시한다).
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(DeathHideTimerHandle);
+	}
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -241,6 +257,9 @@ void ACA3DCharacter::Tick(float DeltaSeconds)
 	// 적용돼야 한다 (원격 폰 포함). 데디만 함수 내부 최상단에서 걸러진다 —
 	// 리슨 서버·스탠드얼론은 서버이면서 화면도 있으므로 IsRunningDedicatedServer 만 거른다.
 	ApplyCharacterAppearance();
+
+	// 설치 몽타주 폴링 (Task 38) — 외형과 같은 사정(권한 가드 앞·데디만 내부에서 거름).
+	UpdateBombPlaceMontage();
 
 	if (!HasAuthority()) return; // 불변식 5 — 낙사 판정은 상태 변경으로 이어지므로 서버 전용
 
@@ -350,6 +369,68 @@ void ACA3DCharacter::ApplyCharacterAppearance()
 	AppliedCharacterIndex = Index;
 	UE_LOG(LogCA3D, Log, TEXT("ACA3DCharacter %s: 캐릭터 외형 적용 — 인덱스 %d (%s)"),
 		*GetName(), Index, *Def.DisplayName.ToString());
+}
+
+// ─── 폭탄 설치 Attack 몽타주 (Task 38) ──────────────────────────────────────
+
+bool ACA3DCharacter::ShouldPlayFromCounter(int32 Counter, int32 Snapshot, bool bLocallyControlled, bool bHasAuthority)
+{
+	if (Counter == Snapshot)
+	{
+		return false; // 변화 없음 — 폴링의 평상시 경로
+	}
+	if (Snapshot == INDEX_NONE)
+	{
+		return false; // 첫 관측 — 과거 설치분(늦은 접속)에 헛스윙하지 않는다. 동기화만
+	}
+	if (bLocallyControlled && !bHasAuthority)
+	{
+		return false; // 원격 클라 본인 — 예측이 이미 재생했다 (두 번 휘두르면 안 된다)
+	}
+	return true; // 리슨 호스트 본인 · 봇 · 원격 시뮬레이티드 프록시
+}
+
+void ACA3DCharacter::UpdateBombPlaceMontage()
+{
+	// 몽타주는 순수 시각 — 설치 판정(ServerPlaceBomb 권위 검증)과 무관하다 (외형 적용과 같은 근거).
+	if (IsRunningDedicatedServer()) return; // 불변식 5 — 시각 전용
+
+	const int32 Counter = BombPlaceCounter;
+	if (Counter == AppliedBombPlaceCounter)
+	{
+		return; // 평상시 — 비교 한 번이 전체 비용 (스냅샷 비교 관례)
+	}
+
+	const bool bPlay = ShouldPlayFromCounter(
+		Counter, AppliedBombPlaceCounter, IsLocallyControlled(), HasAuthority());
+	AppliedBombPlaceCounter = Counter; // 재생 여부와 무관하게 동기화 — 같은 변화에 두 번 반응 금지
+
+	if (bPlay)
+	{
+		PlayAttackMontage();
+	}
+}
+
+void ACA3DCharacter::PlayAttackMontage()
+{
+	if (IsRunningDedicatedServer()) return; // 불변식 5 — 시각 전용
+
+	// 몽타주의 출처는 외형(ApplyCharacterAppearance)과 같은 룰셋 캐릭터 정의다 — 캐릭터마다
+	// 스켈레톤이 달라 "무슨 몽타주인가" 는 CharacterIndex 를 따라가야 한다.
+	const ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
+	const int32 Index = CA3DPlayerState ? CA3DPlayerState->CharacterIndex : INDEX_NONE;
+	if (Index == INDEX_NONE)
+	{
+		return; // 선택 미확정(선택 페이즈 전·PlayerState 미도착) — 조용히 생략
+	}
+
+	const UCA3DRuleSet* Rules = ResolveVisualRules(GetWorld());
+	if (!Rules->Characters.IsValidIndex(Index) || !Rules->Characters[Index].AttackMontage)
+	{
+		return; // 정의 미비·몽타주 미지정 — 재생만 생략 (설치 자체는 정상, 외형 스킵과 같은 관례)
+	}
+
+	PlayAnimMontage(Rules->Characters[Index].AttackMontage);
 }
 
 // ─── 관전 카메라 각 (2026-08-09) ─────────────────────────────────────────────
@@ -739,6 +820,25 @@ void ACA3DCharacter::ApplyDeathState()
 
 	if (IsRunningDedicatedServer()) return; // 불변식 5 — 이하 시각 전용
 
+	// 숨김은 **지연**한다 (Task 38) — 즉시 숨기면 AnimBP Dead 상태의 Die 애님이 한 프레임도
+	// 안 보인다. 이 지연 구간 동안 캐릭터는 보이는 채로 서 있고(위에서 컬리전·이동은 이미
+	// 껐다 — 판정상으로는 완전한 시체다) AnimBP 의 bDead 가 Die 애님을 재생한다.
+	// 0 이하면 즉시 숨김(기존 동작). 룰셋 미도착이어도 기다리지 않는다 — 시각 전용이라
+	// CDO 폴백으로 충분하다 (ResolveVisualRules 관례).
+	const float HideDelay = ResolveVisualRules(GetWorld())->DeathHideDelay;
+	if (HideDelay <= 0.f)
+	{
+		HideAfterDeath();
+		return;
+	}
+	GetWorldTimerManager().SetTimer(DeathHideTimerHandle,
+		FTimerDelegate::CreateUObject(this, &ACA3DCharacter::HideAfterDeath), HideDelay, false);
+}
+
+void ACA3DCharacter::HideAfterDeath()
+{
+	if (IsRunningDedicatedServer()) return; // 불변식 5 — 시각 전용 (호출처가 이미 걸렀지만 관례 가드)
+
 	// 액터 전체를 숨긴다 — 스켈레탈 메시(GetMesh)만 끄면 **BP 서브클래스가 추가한 메시
 	// 컴포넌트가 그대로 남는다** (2026-07-30 PIE 에서 시체가 계속 보이던 원인).
 	// 여기서 "무엇이 보이는 컴포넌트인지"를 코드가 알 필요가 없게 액터 단위로 끈다.
@@ -853,6 +953,12 @@ void ACA3DCharacter::TryPlaceBombPredicted()
 	{
 		return;
 	}
+
+	// 예측 즉시 재생 (Task 38) — 설치음(TryAcquirePredictedVisual)과 같은 근거로 왕복을 안
+	// 기다린다. 서버가 거부해도 이미 재생된 몽타주는 "헛스윙"일 뿐이다 — 되돌릴 상태가 없다
+	// (불변식 3: 예측은 시각 전용). 확정 복제(BombPlaceCounter)는 UpdateBombPlaceMontage 가
+	// "로컬 조종 + 비권한" 분기로 걸러 두 번 휘두르지 않는다.
+	PlayAttackMontage();
 
 	ServerPlaceBomb(Cell);
 }
@@ -977,6 +1083,10 @@ void ACA3DCharacter::ServerPlaceBomb_Implementation(FIntVector Cell)
 
 	Bomb->ServerArm(this, Status->BombRange, Cell); // ActiveBombCount++ 는 ServerArm 안 (슬롯 점유/반환 대칭)
 	Bomb->FinishSpawning(SpawnTransform);
+
+	// 설치 확정 신호 (Task 38) — **스폰 성공이 확정된 여기서만** ++. 거부 경로에서는 절대
+	// 안 올린다 (거부인데 올리면 관전자 화면에서 헛스윙이 보인다 — 표시와 실제의 어긋남).
+	++BombPlaceCounter; // 랩어라운드 무해 — 변화 감지 용도 (헤더 주석)
 }
 
 void ACA3DCharacter::ClientRejectBomb_Implementation(FIntVector Cell)

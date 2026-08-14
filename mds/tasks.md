@@ -463,6 +463,16 @@
       · 검증: 프로젝트 파일 재생성 + 두 타깃 빌드 통과 · 전체 33스위트 실패 0
       · 잔여: 데디 exe 에서 메시 미적용 확인(에디터 프로세스로는 검증 불가) · PIE 8종 체감 ·
         에디터 작업(AnimBP 8종 — Parent=`CA3DAnimInstance`, Idle/WalkFWD/Run/Dizzy/Die 매핑)
+- [x] **38. 폭탄 설치 Attack 몽타주 + 사망 지연 숨김** (2026-08-14 사용자: 설치 시 Attack 재생 ·
+      "죽으면 바로 충돌 안 되게 한 다음 애니메이션 끝나고 안 보이도록")
+      체크리스트 `mds/Checklists/38-BombMontageDeathHide.md` · 신규 스위트 없음(Bomb·DeathHandling·MatchLeave 확장)
+      · 사망: `ApplyDeathState` 는 즉시 NoCollision+MOVE_None 그대로, 숨김만 `HideAfterDeath()` 로
+        분리해 룰셋 `DeathHideDelay`(기본 2초, 0 이하=즉시) 타이머로 지연 — 그동안 AnimBP `bDead` 가 Die 재생
+      · 몽타주: `FCA3DCharacterDef::AttackMontage` + 복제 카운터 `BombPlaceCounter`(서버 설치 확정
+        지점에서만 ++, 거부 불변) → 틱 폴링 + 스냅샷(첫 관측 INDEX_NONE 센티널 = 늦은 접속 헛스윙 방지).
+        판정은 static `ShouldPlayFromCounter` 순수 함수 · 예측 클라 본인은 예측 성공 시 즉시 재생(불변식 3)
+      · 검증: 두 타깃 빌드 통과 · **전체 33스위트 실패 0** (오케스트레이터 직접 재실행)
+      · 잔여: PIE 몽타주/사망 연출 체감 · 에디터 작업(AttackMontage 8종 + AnimBP Slot 노드 + 룰셋 지정)
 
 ## 진행 중 메모
 

@@ -15,6 +15,7 @@ class USoundBase;      // 아래 Feedback 카테고리 — 전방 선언으로 �
 class UNiagaraSystem;  // 〃 (Niagara 는 Private 의존 — 공개 헤더에 나이아가라 헤더를 끌어오지 않는다)
 class USkeletalMesh;   // 아래 CharacterSelect 카테고리 — 전방 선언으로 충분
 class UAnimInstance;   // 〃
+class UAnimMontage;    // 〃 (AttackMontage — Task 38)
 
 // 선택 가능한 캐릭터 1종의 정의 (Task 36). **이번 Task 는 데이터 정의까지만** —
 // 실제 외형 적용(폰 메시·애님 교체)은 Task 37 이 ACA3DPlayerState::CharacterIndex 로
@@ -37,6 +38,12 @@ struct FCA3DCharacterDef
 
 	UPROPERTY(EditAnywhere, Category="CharacterSelect")
 	TSubclassOf<UAnimInstance> AnimClass;
+
+	// 폭탄 설치 순간 재생하는 몽타주 (Task 38). 캐릭터마다 스켈레톤이 달라 애님도 정의
+	// 데이터에 있어야 한다 (Mesh·AnimClass 와 같은 근거). 미지정(nullptr)이면 재생 생략 —
+	// 에셋 연결 전에도 설치 동작 자체는 그대로 돌아야 한다.
+	UPROPERTY(EditAnywhere, Category="CharacterSelect")
+	TObjectPtr<UAnimMontage> AttackMontage;
 
 	// 캡슐 기준 메시 위치 보정.
 	UPROPERTY(EditAnywhere, Category="CharacterSelect")
@@ -163,6 +170,14 @@ public:
 	// 스폰 직후 무적 시간(초). (유무 미확정)
 	UPROPERTY(EditAnywhere, Category="Life")
 	float SpawnInvulnTime = 0.f;
+
+	// 사망 후 액터를 숨기기까지의 시간(초) = 사망 애니메이션(AnimBP Dead 상태의 Die 애님)이
+	// 보이는 시간 (Task 38). 0 이하 = 즉시 숨김(기존 동작). 컬리전 해제·이동 정지는 이 값과
+	// 무관하게 사망 즉시다 — 지연되는 것은 **보이는 것**뿐이다.
+	// (EditAnywhere 인 이유: 데이터 에셋 인스턴스는 템플릿이 아니라 EditDefaultsOnly 필드가
+	//  에셋 에디터에 안 뜬다 — 이 클래스의 다른 튜닝 값 전부와 같은 사정.)
+	UPROPERTY(EditAnywhere, Category="Life")
+	float DeathHideDelay = 2.0f;
 
 	// ─── Life — 갇힌 상대 터뜨리기 (2026-08-10 사용자 확정: 원작 크레이지 아케이드 규칙) ───
 	//

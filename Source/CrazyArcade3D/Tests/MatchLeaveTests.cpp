@@ -35,6 +35,7 @@
 #include "Gameplay/Character/CA3DCharacter.h"
 #include "Gameplay/Character/CA3DPlayerController.h"
 #include "Gameplay/Character/StatusComponent.h"
+#include "Components/CapsuleComponent.h" // 이탈 사망의 ApplyDeathState 경로 확인 (Task 38 갱신)
 #include "UI/MatchWidget.h"
 #include "TimerManager.h"
 
@@ -202,7 +203,13 @@ bool FMatchLeaveTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("① 기존 사망 경로를 그대로 탔다 — LifeState == Dead"),
 				Status0->LifeState, ELifeState::Dead);
 			TestEqual(TEXT("① 사인이 Left 로 기록"), Status0->LastDeathCause, EDeathCause::Left);
-			TestTrue(TEXT("① 폰 숨김까지 기존 경로가 처리 (ApplyDeathState)"), Pawns[0]->IsHidden());
+			// 2026-08-14 (Task 38): 즉시 숨김 → 지연 숨김(DeathHideDelay). ApplyDeathState 를
+			// 탔다는 증거는 "숨겨졌다" 가 아니라 "즉시는 안 숨고 캡슐 컬리전이 꺼졌다" 로 바뀐다
+			// (숨김 자체·타이머 강제 발화는 DeathHandlingTests ② 담당 — 여기서는 경로 통과만 본다).
+			TestFalse(TEXT("① 이탈 직후엔 아직 보인다 — 사망 처리가 지연 숨김 경로 (ApplyDeathState)"),
+				Pawns[0]->IsHidden());
+			TestTrue(TEXT("① 캡슐 컬리전 off 까지 기존 경로가 처리 (ApplyDeathState)"),
+				Pawns[0]->GetCapsuleComponent()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 		}
 	}
 

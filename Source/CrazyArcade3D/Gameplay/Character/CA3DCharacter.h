@@ -120,6 +120,21 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientRejectBomb(FIntVector Cell);
 
+	// ─── 폭탄 설치 Attack 몽타주 (Task 38) ───
+
+	// BombPlaceCounter 복제 등록 (캐릭터의 유일한 자체 복제 프로퍼티).
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	// "이번 카운터 변화에 몽타주를 재생하는가" — 판정만 떼어낸 순수 함수 (AnimInstance·
+	// MatchWidget 의 값 가공 함수 관례: 인스턴스 없이 전 분기를 테스트한다).
+	//   · Counter == Snapshot            → 변화 없음, 재생 안 함
+	//   · Snapshot == INDEX_NONE         → 첫 관측(스폰 직후·늦은 접속) — 동기화만.
+	//     안 거르면 중간 접속자 화면에서 남들이 일제히 헛스윙한다
+	//   · 로컬 조종 + 비권한             → 원격 클라 본인 — 예측(TryPlaceBombPredicted)이
+	//     이미 재생했으므로 동기화만 (두 번 휘두르면 안 된다)
+	//   · 그 외(리슨 호스트 본인·봇·원격 시뮬레이티드 프록시) → 재생
+	static bool ShouldPlayFromCounter(int32 Counter, int32 Snapshot, bool bLocallyControlled, bool bHasAuthority);
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -227,6 +242,39 @@ private:
 	// 범위 밖·Mesh 미지정으로 스킵한 인덱스도 기록한다 — 룰셋 에셋은 매치 중 안 바뀌므로
 	// 재시도해도 결과가 같고, 기록해야 Verbose 로그가 1회로 끝난다.
 	int32 AppliedCharacterIndex = INDEX_NONE;
+
+	// ─── 폭탄 설치 Attack 몽타주 (Task 38) ───
+
+	// 서버가 설치 성공을 확정한 지점(ServerPlaceBomb 의 FinishSpawning 직후)에서만 ++.
+	// 거부 경로에서는 절대 안 올린다. 값 자체가 아니라 **변화**가 신호다 — 클라 틱 폴링
+	// (UpdateBombPlaceMontage)이 스냅샷과 비교해 재생하므로 uint8 랩어라운드는 무해하다.
+	// RPC 가 아니라 복제 카운터인 이유: Multicast 는 그 순간 접속한 클라에게만 간다는 함정을
+	// 피하는 것이 아니라(몽타주는 일회성 연출이라 늦은 접속자에게 안 가도 맞다), 외형 적용과
+	// 같은 "복제 도착 순서 비보장" 폴링 관례에 태우기 위해서다.
+	UPROPERTY(Replicated)
+	uint8 BombPlaceCounter = 0;
+
+	// 재생 완료 스냅샷 (AppliedCharacterIndex 관례). INDEX_NONE 센티널이 중요하다 —
+	// 첫 관측(스폰 직후·늦은 접속으로 이미 0 이 아닌 값이 복제돼 온 경우)은 재생 없이
+	// 동기화만 한다 (ShouldPlayFromCounter 주석).
+	int32 AppliedBombPlaceCounter = INDEX_NONE;
+
+	// Tick 폴링 — ApplyCharacterAppearance 바로 옆(권한 가드 앞)에서 매 틱. 데디는 함수
+	// 최상단에서 걸러진다 (순수 시각 — 몽타주는 어떤 판정에도 쓰이지 않는다).
+	void UpdateBombPlaceMontage();
+
+	// 단일 재생 경로 — 예측(TryPlaceBombPredicted)과 복제 관측(UpdateBombPlaceMontage)이
+	// 같은 이 함수를 탄다. 룰셋 Characters[CharacterIndex].AttackMontage 미지정·인덱스
+	// 미확정이면 조용히 생략 (외형 적용과 같은 폴백 — 에셋 없이도 동작은 정상).
+	void PlayAttackMontage();
+
+	// ─── 사망 지연 숨김 (Task 38) ───
+
+	// SetActorHiddenInGame(true) 의 단일 지점 — ApplyDeathState 가 즉시(DeathHideDelay 0 이하)
+	// 또는 타이머로 지연 호출한다. 지연 구간 동안 AnimBP Dead 상태가 Die 애님을 재생한다.
+	void HideAfterDeath();
+
+	FTimerHandle DeathHideTimerHandle;
 
 	// ─── 관전 카메라 각 (2026-08-09) ───
 

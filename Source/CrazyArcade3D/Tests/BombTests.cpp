@@ -150,9 +150,13 @@ bool FBombTest::RunTest(const FString& Parameters)
 	Owner->SetActorLocation(LocForFootCell(4, 4, 1), false, nullptr, ETeleportType::TeleportPhysics);
 
 	// ⑤ 성공: 폭탄 스폰 + 장전 + 슬롯 점유 + 레지스트리 등록.
+	TestEqual(TEXT("⑤ 전제: BombPlaceCounter 0 (Task 38 — 설치 몽타주 신호)"),
+		static_cast<int32>(Owner->BombPlaceCounter), 0);
 	Owner->ServerPlaceBomb(FIntVector(4, 4, 1));
 	TestEqual(TEXT("⑤ 설치 성공: 폭탄 1개"), CountBombs(World), 1);
 	TestEqual(TEXT("⑤ 설치 성공: ActiveBombCount == 1"), Status->ActiveBombCount, 1);
+	TestEqual(TEXT("⑤ 설치 성공: BombPlaceCounter 0 → 1 (성공 확정 지점에서만 ++)"),
+		static_cast<int32>(Owner->BombPlaceCounter), 1);
 	ABomb* FirstBomb = Explosion->FindBombAt(FIntVector(4, 4, 1));
 	if (TestNotNull(TEXT("⑤ 레지스트리에서 셀로 조회됨"), FirstBomb))
 	{
@@ -175,6 +179,11 @@ bool FBombTest::RunTest(const FString& Parameters)
 	// ⑧ 솔리드 셀: Empty 가 아닌 칸(바닥판) → 거부.
 	Owner->ServerPlaceBomb(FIntVector(4, 4, 0));
 	TestEqual(TEXT("⑧ 솔리드 셀: 폭탄 여전히 1개"), CountBombs(World), 1);
+
+	// 거부 3연속(⑥ 개수 초과 · ⑦ 점유 셀 · ⑧ 솔리드 셀) 뒤에도 카운터 불변 — 거부인데 올리면
+	// 관전자 화면에서 헛스윙이 보인다 (Task 38: 표시와 실제의 어긋남 금지).
+	TestEqual(TEXT("⑧ 거부 경로: BombPlaceCounter 불변 (여전히 1)"),
+		static_cast<int32>(Owner->BombPlaceCounter), 1);
 
 	// ─── 3. 퓨즈 만료 → 폭발 단계 1회: 파괴 단일 경로·발밑 셀 피격·슬롯 반환 ───
 	// 소유자는 범위 밖으로 대피, 피해자는 -X 물줄기 칸에 배치, +X 에는 Destructible.
@@ -240,8 +249,59 @@ bool FBombTest::RunTest(const FString& Parameters)
 
 	// ─── 5. 사망 상태 거부 ───
 	Status->ServerKill(EDeathCause::Fall);
+	const int32 CounterBeforeDeadPlace = Owner->BombPlaceCounter; // 연쇄 절의 성공 2회까지 누적된 값
 	Owner->ServerPlaceBomb(FIntVector(4, 4, 1));
 	TestEqual(TEXT("⑭ 사망 상태: 설치 거부 — 폭탄 0개"), CountBombs(World), 0);
+	TestEqual(TEXT("⑭ 사망 거부: BombPlaceCounter 불변"),
+		static_cast<int32>(Owner->BombPlaceCounter), CounterBeforeDeadPlace);
+
+	// ─── 6. 설치 몽타주 재생 판정 (Task 38 — ShouldPlayFromCounter 순수 함수 전 분기) ───
+	// 실제 몽타주 재생은 nullrhi 자동화에서 불가 — "이번 카운터 변화에 재생하는가" 라는
+	// 판정만 고정한다 (AnimInstance 의 값 가공 함수 테스트와 같은 관례).
+
+	// 변화 없음 — 폴링의 평상시 경로.
+	TestFalse(TEXT("⑮ Counter == Snapshot → 재생 안 함"),
+		ACA3DCharacter::ShouldPlayFromCounter(3, 3, false, false));
+
+	// 첫 관측 — 스폰 직후(0 관측)든 늦은 접속(이미 5 인 값 관측)이든 동기화만.
+	// 안 거르면 중간 접속자 화면에서 남들이 일제히 헛스윙한다.
+	TestFalse(TEXT("⑮ 첫 관측(Snapshot INDEX_NONE, 값 0) → 동기화만"),
+		ACA3DCharacter::ShouldPlayFromCounter(0, INDEX_NONE, false, false));
+	TestFalse(TEXT("⑮ 첫 관측(늦은 접속 — 이미 5) → 동기화만"),
+		ACA3DCharacter::ShouldPlayFromCounter(5, INDEX_NONE, false, false));
+
+	// 원격 클라 본인(로컬 조종 + 비권한) — 예측이 이미 재생했으므로 동기화만.
+	TestFalse(TEXT("⑮ 로컬 조종 + 비권한(원격 클라 본인) → 예측이 재생했으니 생략"),
+		ACA3DCharacter::ShouldPlayFromCounter(1, 0, true, false));
+
+	// 재생하는 세 갈래: 리슨 호스트 본인(예측 생략 경로) · 봇 · 원격 시뮬레이티드 프록시.
+	TestTrue(TEXT("⑮ 로컬 조종 + 권한(리슨 호스트 본인) → 재생"),
+		ACA3DCharacter::ShouldPlayFromCounter(1, 0, true, true));
+	TestTrue(TEXT("⑮ 비조종 + 권한(봇·서버 시점) → 재생"),
+		ACA3DCharacter::ShouldPlayFromCounter(1, 0, false, true));
+	TestTrue(TEXT("⑮ 비조종 + 비권한(원격 시뮬레이티드 프록시) → 재생"),
+		ACA3DCharacter::ShouldPlayFromCounter(1, 0, false, false));
+
+	// uint8 랩어라운드(255 → 0)도 "변화" 다 — 카운터는 값이 아니라 변화가 신호다.
+	TestTrue(TEXT("⑮ 랩어라운드(255 → 0)도 변화로 인정"),
+		ACA3DCharacter::ShouldPlayFromCounter(0, 255, false, false));
+
+	// 복제 등록 — 카운터가 Replicated 지정 + GetLifetimeReplicatedProps 에 실제로 추가됐는가
+	// (CA3DPlayerStateTests ⑦ 관례. 캐릭터의 자체 복제 프로퍼티는 이것 하나뿐이다 — Task 38).
+	{
+		const FProperty* CounterProp =
+			ACA3DCharacter::StaticClass()->FindPropertyByName(FName(TEXT("BombPlaceCounter")));
+		TestTrue(TEXT("⑯ BombPlaceCounter 가 Replicated"),
+			CounterProp && CounterProp->HasAnyPropertyFlags(CPF_Net));
+
+		ACA3DCharacter::StaticClass()->SetUpRuntimeReplicationData(); // RepIndex 지연 초기화 강제 (PlayerStateTests ⑦ 주석)
+		TArray<FLifetimeProperty> ChildProps;
+		Owner->GetLifetimeReplicatedProps(ChildProps);
+		TArray<FLifetimeProperty> ParentProps;
+		Owner->ACharacter::GetLifetimeReplicatedProps(ParentProps);
+		TestEqual(TEXT("⑯ GetLifetimeReplicatedProps 가 부모 대비 1개 추가 등록 (BombPlaceCounter)"),
+			ChildProps.Num() - ParentProps.Num(), 1);
+	}
 
 	// ─── 정리 ───
 	World->DestroyWorld(false);
