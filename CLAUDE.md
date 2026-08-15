@@ -104,7 +104,7 @@ Core      ──▶ (없음)
 
 ## 반드시 지킬 불변식
 
-이 5개는 구조 설계의 근간이다. 어기면 버그가 아니라 설계가 무너진다.
+이 6개는 구조 설계의 근간이다. 어기면 버그가 아니라 설계가 무너진다.
 
 ### 1. 서버·클라가 같은 함수를 통과한다
 
@@ -187,7 +187,7 @@ Epic 표준을 따른다. 이름은 **PascalCase**, 약어는 대문자 유지(`
 | 데디 서버 | 나이아가라·사운드·머티리얼·BP가 서버에서 돌지 않는지 확인 (GDD 7.4) |
 | **스스로 움직이는 액터** | `AActor::bReplicateMovement` 는 **기본값 false.** `bReplicates=true` 만 켜고 `SetActorLocation` 으로 액터를 옮기면 **클라에는 스폰 위치만 간다** — `ReplicatedMovement` 가 `IsReplicatingMovement()` 조건으로 통째로 꺼진다. `APawn` 은 생성자에서 스스로 켜므로 캐릭터에서는 안 겪는다. 증상이 고약한 이유: 다른 복제값(`ABomb::Cell`)은 잘 가서 **위험 데칼만 움직이고 메시는 제자리**가 된다. 그리고 **서버 한 곳에서 도는 자동화 테스트로는 절대 안 잡힌다** — 위치를 직접 검사하는 테스트가 전부 통과한다 (`BombKickTests` ⑫ 가 플래그 자체를 검사하는 이유) |
 | **폰 스폰 시점** | 엔진은 `SpawnPlayActor`(→`Login`→`PostLogin`)를 **`World::BeginPlay()` 앞에서** 부른다. 우리 맵은 `GameMode::BeginPlay` 에서 시드로 생성되므로 **첫 사람이 들어올 때는 지형도 스폰 셀도 없다.** 그대로 두면 엔진 폴백이 `WorldSettings`(=원점)를 돌려주고 사람이 매번 낙사한다. 게다가 `InitNewPlayer` 가 그 원점을 `Player->StartSpot` 에 **굳혀** 두므로, 나중에 제대로 스폰해도 `ShouldSpawnAtStartSpot` 이 그 값을 재사용한다 — **`UpdatePlayerStartSpot`·`ShouldSpawnAtStartSpot` 둘 다 막아야 한다.** ⚠️ **PIE 로는 안 잡힌다**: PIE 는 `APlayerStartPIE` 를 뷰포트 카메라 위치에 미리 깔고 엔진 폴백이 그걸 최우선으로 고른다 (`mds/Checklists/32-SpawnGate.md`) |
-| **관전 카메라 각** | 관전 시점은 **대상 폰의 `GetViewRotation()`** 이 정한다(스프링암 `bUsePawnControlRotation`). 그런데 카메라 yaw 는 컨트롤러 로컬 값이라 복제되지 않고, 원격 폰은 `Controller == nullptr` 이라 엔진 폴백(`BlendedTargetViewRotation`)으로 떨어지는데 그 값을 채우는 서버 코드는 **서버 PC 의 ViewTarget 이 바뀔 때만** 돈다 — 클라에서 `SetViewTargetWithBlend` 를 부르는 우리 구조에서는 영원히 0 = **카메라가 눕는다.** 그래서 각을 `ACA3DPlayerState::CamYawIndex` 로 복제하고 `ACA3DCharacter::GetViewRotation()` 이 그것을 돌려준다 |
+| **관전 카메라 각** | 관전 시점은 **대상 폰의 `GetViewRotation()`** 이 정한다(스프링암 `bUsePawnControlRotation`). 그런데 카메라 yaw 는 컨트롤러 로컬 값이라 복제되지 않고, 원격 폰은 `Controller == nullptr` 이라 엔진 폴백(`BlendedTargetViewRotation`)으로 떨어지는데 그 값을 채우는 서버 코드는 **서버 PC 의 ViewTarget 이 바뀔 때만** 돈다 — 클라에서 `SetViewTargetWithBlend` 를 부르는 우리 구조에서는 영원히 0 = **카메라가 눕는다.** → `ACA3DCharacter::GetViewRotation()` 이 **두 갈래**로 답한다: ① **지금 이 폰을 보고 있는 로컬 컨트롤러**가 있으면 그 컨트롤러의 각(조종 중인 내 폰과 관전 중인 남의 폰이 같은 가지 — 그래서 관전 중에도 Q/E 가 먹는다), ② 없으면 복제된 `ACA3DPlayerState::CamYawIndex`. **각의 주인은 보는 사람이다**(2026-08-09 재설계 — 대상 폰 소유로 두면 관전자가 돌릴 수 없다). 관전 시작 시 대상의 복제 인덱스를 시작각으로 받아 오므로 "그 사람이 보던 각"도 유지된다 |
 | **HISM = 컬리전** | HISM 인스턴스가 지형의 **유일한 물리 형상**. "시각 전용"으로 보고 데디에서 끄면 서버에 바닥이 없어 캐릭터가 지형을 통과한다 — `BuildFromGrid`/`RemoveBlock` 에 데디 가드 **금지**. 그리고 **PIE로는 이런 버그가 안 잡힌다**: PIE 데디 모드는 에디터 프로세스라 `IsRunningDedicatedServer()` 가 false. 진짜 서버 exe(또는 에디터 `-server`)로만 검증된다 (`mds/Checklists/dedi-server-windows.md`) |
 | **머티리얼 인스턴스** | MI 의 `Material Property Overrides`(`BasePropertyOverrides`)가 **부모 머티리얼을 이긴다.** 부모를 Masked 로 바꿔도 MI 가 `BlendMode`/`OpacityMaskClipValue` 를 오버라이드하고 있으면 오파시티 마스크가 통째로 무시된다 — 계산은 다 도는데 화면만 안 변해 원인 찾기가 매우 어렵다. 그리고 **메시 하나가 슬롯을 여럿 갖고, 메시마다 다른 MI 를 쓴다** (큐브팩 A/B/D 가 MI 3개). 하나만 고치면 "일부 블록만 안 된다"가 된다 (`mds/Checklists/27-OcclusionFade.md`) |
 | 기본 맵 설정 | `Config/DefaultEngine.ini` 의 `GameDefaultMap` 은 **의도적으로 주석 처리됨.** 없는 에셋을 가리키면 에디터가 첫 실행부터 에러. 맵 제작 후 켤 것 |
