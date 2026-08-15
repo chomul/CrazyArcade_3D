@@ -9,6 +9,7 @@
 class UCA3DRuleSet;
 class AVoxelWorld;
 class APlayerStart;
+class ACA3DGameState;
 class ACA3DPlayerState;
 class AController;
 
@@ -55,6 +56,37 @@ public:
 	// PlayerArray 의 CharacterIndex 순회 = 단일 출처) / 페이즈 종료 후 변경 거부.
 	// 재선택은 자기 값 덮어쓰기라 이전 선택이 자연 해제된다. 거부 시 false — 되돌릴 것이 없다.
 	bool TryAssignCharacter(ACA3DPlayerState* PS, int32 Index);
+
+	// ─── 로비 페이즈 (Task 41, 서버 전용) ───────────────────────────────────────
+	// 캐릭터 선택 페이즈(Task 36)의 구조를 한 칸 앞에 그대로 복제한다: 페이즈 플래그는
+	// GameState 에 복제되고 갱신 주체는 이 클래스 단독, 상태 변경은 아래 Try~ 두 함수가
+	// **단일 경로**다 (TryAssignCharacter 와 같은 근거 — 경로가 갈라지면 검증이 두 벌이 된다).
+
+	// 준비 상태 변경의 단일 경로. 서버 전용.
+	// 거부(false): PlayerState 없음 / 로비 중이 아님 / 요청자가 방장(준비 대상이 아니다) /
+	// 이미 같은 값(복제 트래픽과 로그를 만들지 않는다). 거부 시 상태는 한 비트도 바뀌지 않는다.
+	bool TrySetReady(ACA3DPlayerState* PlayerState, bool bInReady);
+
+	// 매치 시작 요청의 단일 경로. 서버 전용.
+	// 거부(false): PlayerState 없음 / 로비 중이 아님 / 요청자가 방장이 아님 / 준비 미완.
+	// 성공하면 EndLobby() 로 이어진다 — 시작은 **언제나 방장의 명시적 요청**으로만 일어난다
+	// (조건이 자동으로 충족돼도 스스로 시작하지 않는다. 방장 승계 직후가 그런 순간이다).
+	bool TryStartMatchFromLobby(ACA3DPlayerState* Requester);
+
+	// 시작 가능 판정의 **단일 공식** — 방장을 제외한 전원이 준비 완료여야 한다.
+	// 방장 혼자면 NonHostCount == 0 → true (혼자 연습하는 판을 못 시작하면 안 된다).
+	//
+	// static 순수 함수인 이유: 서버 판정(TryStartMatchFromLobby)과 UI 의 시작 버튼 활성이
+	// **같은 공식**을 통과해야 "버튼은 활성인데 눌러도 안 되는" 어긋남이 생기지 않는다
+	// (UMatchWidget 표시 가공을 static 으로 둔 것과 같은 근거).
+	static bool CanStartFromLobby(int32 NonHostCount, int32 ReadyNonHostCount);
+
+	// 위 공식의 입력을 PlayerArray 에서 센다 (점유 조회가 PlayerArray 단일 출처인 것과 같은 관례 —
+	// 별도 카운터를 들고 있으면 이탈·봇 투입 때마다 두 곳을 맞춰야 하고 어긋난 순간 유령 인원이 생긴다).
+	// 제외 대상: **봇**(매치 시작 후 투입되는 인원이라 로비에 없다) · **이탈자**(bLeftMatch —
+	// PlayerState 는 결과 화면 때문에 남지만 그 사람을 기다리면 로비가 영영 안 끝난다) · 방장.
+	// UI 도 이 함수를 부른다 (UI→Framework 읽기 전용).
+	static void CountLobbyReadiness(const ACA3DGameState* GameState, int32& OutNonHostCount, int32& OutReadyNonHostCount);
 
 protected:
 	// ─── 스폰 위치의 단일 출처를 지키는 두 오버라이드 ───
@@ -166,8 +198,31 @@ private:
 
 	FTimerHandle SuddenDeathTimer;
 
+	// ─── 로비 페이즈 (Task 41, 서버 전용) ───
+
+	// 지금 방장이 있는가 — 방장 유무의 **단일 출처는 ACA3DPlayerState::bIsHost** 다
+	// (별도 포인터를 들고 있으면 이탈·파괴 때마다 두 곳을 맞춰야 하고 어긋나면 유령 방장이 생긴다).
+	// 이탈자(bLeftMatch)는 세지 않는다.
+	bool HasLobbyHost() const;
+
+	// 방장 이탈 시 승계 — 남은 사람 중 **가장 먼저 들어온 사람**(ColorIndex 최소)에게.
+	// 남은 사람이 없으면 방장 없음(다음에 들어온 사람이 방장이 된다).
+	// ⚠️ 여기서 시작 조건을 다시 보지 않는다 — 승계 순간 남은 전원이 이미 준비 상태라
+	// 조건이 자동 충족될 수 있지만, 시작은 언제나 방장의 명시적 요청으로만 일어나야 한다.
+	void ReassignLobbyHost(const ACA3DPlayerState* LeavingState);
+
+	// 로비 종료 → 캐릭터 선택 페이즈로. TryStartMatchFromLobby(방장의 명시적 요청)만 부른다.
+	// 보류 스폰 해소를 여기서 한 번 두드리는 이유는 .cpp 주석 참조 (선택 페이즈를 쓰지 않는
+	// 설정에서는 StartPlay 의 해소가 이미 지나가 있다).
+	void EndLobby();
+
 	// ─── 캐릭터 선택 페이즈 (Task 36, 서버 전용) ───
 	// GameState 의 페이즈 플래그를 **여기서만** 쓴다 (서든데스와 같은 관례 — 갱신 주체 단일화).
+
+	// 페이즈 시작 — BeginPlay(로비를 쓰지 않을 때)와 EndLobby(로비를 쓸 때)가 부르는 **한 함수**.
+	// 페이즈를 돌리지 않는 설정(Duration 0 · Characters 비었음)이면 기존 흐름 그대로
+	// 봇 채우기·서든데스 타이머를 예약한다 — 분기는 여기 한 곳뿐이다.
+	void StartCharacterSelect();
 
 	// 페이즈 종료: ① 미선택자 자동 배정 → ② 봇 즉시 투입·배정 → ③ 매치 시작 시각 확정 →
 	// ④ 플래그 해제 → ⑤ 보류 스폰 해소 → ⑥ 서든데스 예약. BeginPlay 가 Duration 초 뒤로 예약.
@@ -196,4 +251,5 @@ private:
 	friend class FSuddenDeathTest;     // 자동화 테스트가 서든데스 시작·정지 배선을 직접 호출하기 위한 접근 (Task 24)
 	friend class FMatchLeaveTest;      // 자동화 테스트가 중도 이탈 매치를 직접 구성하기 위한 접근 (2026-08-10)
 	friend class FCA3DCharacterSelectTest; // 자동화 테스트가 선택 페이즈 종료·배정을 직접 호출하기 위한 접근 (Task 36)
+	friend class FCA3DLobbyTest;       // 자동화 테스트가 로비 등록·이탈·시작을 직접 호출하기 위한 접근 (Task 41)
 };

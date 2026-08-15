@@ -32,6 +32,10 @@ static TAutoConsoleVariable<int32> CVarCA3DCameraRelativeInput(
 	1,
 	TEXT("WASD 입력 기준. 1 = 카메라 기준(기본, 90도 스냅각에 맞춰 회전), 0 = 월드 축"));
 
+// ⚠️ 로비 콘솔 명령(`ca3d.Ready`·`ca3d.StartMatch`)은 **여기가 아니라 `UI/LobbyWidget.cpp`** 에 있다 —
+// `ca3d.SelectCharacter` 가 `UI/CharacterSelectWidget.cpp` 에 있는 것과 같은 자리다(폴백 검증용
+// 명령은 그 페이즈의 위젯 파일이 소유한다). 두 곳에 두면 같은 이름이 중복 등록된다.
+
 namespace
 {
 	// 룰셋 해석 — 카메라 pitch·거리·보간 속도의 출처. 복제 미도착이면 CDO 기본값으로 진행
@@ -103,6 +107,33 @@ void ACA3DPlayerController::ServerSelectCharacter_Implementation(int32 Index)
 		// 검증(범위·선착순·페이즈 종료 후 거부)은 전부 단일 경로 안 — 여기서 미리 거르면
 		// 검증이 두 벌이 된다. 거부되면 아무 일도 없다 (복제 값 불변이 곧 거부 응답).
 		GameMode->TryAssignCharacter(CA3DPlayerState, Index);
+	}
+}
+
+void ACA3DPlayerController::ServerSetReady_Implementation(bool bInReady)
+{
+	if (!HasAuthority()) return; // 불변식 5 (Server RPC 라 실도달 없음 — 명시 가드)
+
+	// 데디 가드는 걸지 않는다 — 복제 상태(bReady)를 바꾸는 서버 경로다 (ServerSelectCharacter 와 같은 계열).
+	ACA3DGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<ACA3DGameMode>() : nullptr;
+	ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
+	if (GameMode && CA3DPlayerState)
+	{
+		// 검증(로비 중인가·방장인가·같은 값인가)은 전부 단일 경로 안이다.
+		GameMode->TrySetReady(CA3DPlayerState, bInReady);
+	}
+}
+
+void ACA3DPlayerController::ServerStartMatch_Implementation()
+{
+	if (!HasAuthority()) return; // 불변식 5
+
+	ACA3DGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<ACA3DGameMode>() : nullptr;
+	ACA3DPlayerState* CA3DPlayerState = GetPlayerState<ACA3DPlayerState>();
+	if (GameMode && CA3DPlayerState)
+	{
+		// 방장 여부·준비 완료 판정은 GameMode 단독 — 거부되면 아무 일도 없다(복제 값 불변이 곧 거부 응답).
+		GameMode->TryStartMatchFromLobby(CA3DPlayerState);
 	}
 }
 
@@ -210,16 +241,21 @@ void ACA3DPlayerController::UpdateCharacterSelectInputMode()
 	if (!IsLocalPlayerController()) return;
 
 	const ACA3DGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ACA3DGameState>() : nullptr;
-	const bool bSelectActive = GameState && GameState->bCharacterSelectActive;
-	if (bSelectActive == bCharSelectInputApplied)
+
+	// **로비(Task 41)와 캐릭터 선택(Task 36)을 하나의 상태로 본다** — 둘 다 "위젯을 클릭해야 하는
+	// 매치 전 페이즈" 라 커서 규칙이 같고, 로비 → 선택으로 넘어갈 때 커서가 한 프레임 사라졌다
+	// 다시 나타나는 깜빡임도 없다 (전이가 아니라 연속이므로 아래 스냅샷 비교가 그대로 통과한다).
+	const bool bMenuPhaseActive = GameState
+		&& (GameState->bLobbyActive || GameState->bCharacterSelectActive);
+	if (bMenuPhaseActive == bCharSelectInputApplied)
 	{
 		return; // 전이 없음 — 아무것도 만지지 않는다 (매 틱 SetInputMode 는 위젯 포커스를 리셋한다)
 	}
-	bCharSelectInputApplied = bSelectActive;
+	bCharSelectInputApplied = bMenuPhaseActive;
 
-	if (bSelectActive)
+	if (bMenuPhaseActive)
 	{
-		// 선택 위젯(후속 UI Task)을 마우스로 눌러야 한다. GameOnly 가 아니라 GameAndUI 인 이유:
+		// 로비·선택 위젯을 마우스로 눌러야 한다. GameOnly 가 아니라 GameAndUI 인 이유:
 		// 페이즈 중에도 Q/E 카메라 회전 같은 게임 입력은 살아 있어야 한다 (폰은 아직 없지만
 		// 입력 바인딩은 컨트롤러 소유라 유효하다).
 		bShowMouseCursor = true;

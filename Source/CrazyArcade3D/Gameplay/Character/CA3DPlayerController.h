@@ -40,6 +40,17 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerSelectCharacter(int32 Index);
 
+	// 클라→서버: 로비 준비 상태 변경 (Task 41). ServerSelectCharacter 와 같은 원칙 —
+	// 판정(방장 여부·로비 상태·중복)은 전부 서버 GameMode 의 단일 경로(TrySetReady)이고
+	// 여기는 전달만 한다. 응답 RPC 는 없다: 복제된 ACA3DPlayerState::bReady 가 곧 응답이다.
+	UFUNCTION(Server, Reliable)
+	void ServerSetReady(bool bInReady);
+
+	// 클라→서버: 로비에서 매치 시작 요청 (Task 41, 방장만). 판정은 GameMode 단독
+	// (TryStartMatchFromLobby) — 여기서 미리 거르면 검증이 두 벌이 된다.
+	UFUNCTION(Server, Reliable)
+	void ServerStartMatch();
+
 protected:
 	// BP 서브클래스(BP_CA3DPlayerController)에서 에셋만 지정 — BP 로직 금지.
 	UPROPERTY(EditDefaultsOnly, Category="Input")
@@ -130,10 +141,12 @@ private:
 	// 입력이 끝나야(OnMoveCompleted) 다음 전환을 받는다.
 	bool bSpectateAxisLatched = false;
 
-	// ─── 캐릭터 선택 페이즈 커서/입력 모드 (Task 36, 로컬 시각·입력 전용) ───
+	// ─── 매치 전 페이즈 커서/입력 모드 (Task 36 선택 + Task 41 로비, 로컬 시각·입력 전용) ───
 
 	// 페이즈 전이 시 커서·입력 모드를 전환한다: 활성 → 커서 + GameAndUI, 종료 → GameOnly 원복.
 	// PlayerTick 이 GameState 플래그를 폴링해 부르되 **전이 시에만** 적용한다 (아래 스냅샷).
+	// 로비와 선택 페이즈는 **하나의 상태로 묶어** 본다 (둘 다 위젯을 클릭해야 하는 매치 전
+	// 단계라 커서 규칙이 같고, 로비 → 선택 전환에서 커서가 깜빡이지 않는다).
 	void UpdateCharacterSelectInputMode();
 
 	// 마지막으로 적용한 페이즈 스냅샷 — 매 틱 SetInputMode 를 부르면 위젯 포커스가

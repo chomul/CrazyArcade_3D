@@ -598,6 +598,21 @@ public:
 	UPROPERTY(EditAnywhere, Category="CharacterSelect", meta=(ClampMin="0.0"))
 	float CharacterSelectDuration = 0.f;
 
+	// ── Lobby (Task 41, 2026-08-16 사용자 확정) ────────────────────
+	// "사람이 모이고 게임 시작 버튼이 눌린 다음에 캐릭터 선택창이 진행된다."
+	// 처음 들어온 사람이 방장, 나머지는 준비 버튼. **모두 준비해야** 방장이 시작을 누를 수 있다.
+	// 로비에는 **시간 제한이 없다** — 방장이 누를 때까지 기다린다(타이머 없음).
+
+	// 매치 시작 전 로비 페이즈를 쓰는가.
+	// ⚠️ **C++ 기본값이 false 인 것은 무회귀가 목적이다** — 위 CharacterSelectDuration 기본 0 과
+	// 완전히 같은 전략이다. 기존 자동화 스위트와 기존 실행 흐름(BeginPlay → 곧바로 선택 페이즈
+	// 또는 즉시 시작)이 이 Task 뒤에도 한 줄도 달라지면 안 된다. 실제 true 는 에디터의
+	// DA_Rules_Default 에서 지정한다.
+	// (EditAnywhere 인 이유: 데이터 에셋 인스턴스는 템플릿이 아니라 EditDefaultsOnly 필드가
+	//  에셋 에디터에 안 뜬다 — 이 클래스의 다른 튜닝 값 전부와 같은 사정.)
+	UPROPERTY(EditAnywhere, Category="Lobby")
+	bool bUseLobby = false;
+
 	// ── Feedback (사운드·이펙트 슬롯) ─────────────────────────────
 	//
 	// 각 줄이 **사건 하나**다 (Gameplay/CA3DFeedback.h 의 ECA3DCue). 소리와 이펙트를 한 쌍으로

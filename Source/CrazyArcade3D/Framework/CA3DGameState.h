@@ -63,6 +63,20 @@ public:
 	UPROPERTY(Replicated)
 	bool bSuddenDeathActive = false;
 
+	// ─── 로비 페이즈 (Task 41, 2026-08-16 사용자 확정) ───
+	// "사람이 모이고 게임 시작 버튼이 눌린 다음에" 캐릭터 선택이 진행된다 — 로비는 그 앞 단계다.
+	// 갱신 주체는 **GameMode 단독** (bCharacterSelectActive·bSuddenDeathActive 와 같은 관례).
+	//
+	// **시간 제한이 없다** — 그래서 bCharacterSelectActive 와 달리 짝이 되는 "종료 시각" 필드가
+	// 없다. 로비는 방장이 시작 버튼을 누를 때까지 무한 대기하며, 끝내는 유일한 경로는
+	// ACA3DGameMode::TryStartMatchFromLobby → EndLobby 다 (타이머 없음).
+	//
+	// 소비처는 전부 읽기 전용:
+	//   · ACA3DPlayerController — 커서/입력 모드 전이 (선택 페이즈와 같은 폴링 경로)
+	//   · 로비 위젯(UI Task) — 참가자 목록·준비 표시·시작 버튼 활성
+	UPROPERTY(Replicated)
+	bool bLobbyActive = false;
+
 	// ─── 캐릭터 선택 페이즈 (Task 36) ───
 	// 갱신 주체는 **GameMode 단독** — bSuddenDeathActive 와 같은 관례 (이 클래스는 로직이 없다.
 	// 갱신 주체가 둘이 되면 "페이즈 종료 처리 중인데 플래그는 true" 같은 모순이 표현 가능해진다).

@@ -11,6 +11,7 @@
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "UI/CharacterSelectWidget.h"
+#include "UI/LobbyWidget.h"
 #include "UI/MatchWidget.h"
 
 #if !UE_BUILD_SHIPPING
@@ -64,7 +65,58 @@ void ACA3DHUD::Tick(float DeltaSeconds)
 		return;
 	}
 
+	UpdateLobbyLifetime();
 	UpdateCharacterSelectLifetime();
+
+	// 매치 HUD 는 로비·선택 페이즈 동안 접힌다 — 접힌 위젯은 스스로 틱하지 못하므로
+	// 되돌리는 구동자는 여기(액터 틱)다 (헤더의 UpdateMatchWidgetVisibility 주석).
+	UpdateMatchWidgetVisibility();
+}
+
+void ACA3DHUD::UpdateLobbyLifetime()
+{
+	// UpdateCharacterSelectLifetime 과 **완전히 같은 상태 기반 패턴** — 전용 이벤트 없이
+	// GameState 복제 플래그를 폴링해 "활성 ↔ 위젯 존재"를 맞춘다. 에지 플래그가 필요 없고,
+	// 로비 도중 들어온 늦은 접속자도 첫 틱에 위젯이 뜬다.
+	const UWorld* World = GetWorld();
+	const ACA3DGameState* GameState = World ? World->GetGameState<ACA3DGameState>() : nullptr;
+	const bool bLobbyActive = GameState && GameState->bLobbyActive;
+
+	if (bLobbyActive && !LobbyWidget && LobbyWidgetClass)
+	{
+		LobbyWidget = CreateWidget<ULobbyWidget>(GetOwningPlayerController(), LobbyWidgetClass);
+		if (!LobbyWidget)
+		{
+			UE_LOG(LogCA3D, Warning, TEXT("ACA3DHUD: 로비 위젯 생성 실패 — %s"), *LobbyWidgetClass->GetName());
+			return;
+		}
+		LobbyWidget->AddToViewport();
+		UE_LOG(LogCA3D, Log, TEXT("ACA3DHUD: 로비 위젯 표시 — %s"), *LobbyWidgetClass->GetName());
+	}
+	else if (!bLobbyActive && LobbyWidget)
+	{
+		// 로비 종료 전이 — 선택 페이즈/매치로 넘어가므로 위젯째 내린다.
+		LobbyWidget->RemoveFromParent();
+		LobbyWidget = nullptr;
+		UE_LOG(LogCA3D, Log, TEXT("ACA3DHUD: 로비 위젯 종료 (페이즈 종료 전이)"));
+	}
+}
+
+void ACA3DHUD::UpdateMatchWidgetVisibility()
+{
+	if (!MatchWidget)
+	{
+		return; // WBP 미지정 — 캔버스 폴백이 같은 규칙으로 스탯 줄을 걸러 준다 (DrawHUD)
+	}
+
+	const UWorld* World = GetWorld();
+	const ACA3DGameState* GameState = World ? World->GetGameState<ACA3DGameState>() : nullptr;
+	if (!GameState)
+	{
+		return; // 접속 직후 — 페이즈를 알 수 없는 동안은 현 상태를 유지한다
+	}
+
+	MatchWidget->ApplyPhaseVisibility(GameState->bLobbyActive, GameState->bCharacterSelectActive);
 }
 
 void ACA3DHUD::UpdateCharacterSelectLifetime()
@@ -142,6 +194,25 @@ bool ACA3DHUD::ShouldDrawSelectFallback() const
 #endif
 }
 
+bool ACA3DHUD::ShouldDrawLobbyFallback() const
+{
+#if !UE_BUILD_SHIPPING
+	const int32 Mode = CVarCA3DDebugHUD.GetValueOnGameThread();
+	if (Mode == 0)
+	{
+		return false;
+	}
+	if (Mode > 0)
+	{
+		return true;
+	}
+	// 자동 — 로비의 담당 위젯은 LobbyWidget 이므로 그것의 유무를 본다 (선택 폴백과 같은 방식).
+	return LobbyWidget == nullptr;
+#else
+	return false;
+#endif
+}
+
 void ACA3DHUD::DrawHUD()
 {
 	Super::DrawHUD();
@@ -149,7 +220,8 @@ void ACA3DHUD::DrawHUD()
 #if !UE_BUILD_SHIPPING
 	const bool bMatchFallback = ShouldDrawDebugFallback();
 	const bool bSelectFallback = ShouldDrawSelectFallback();
-	if (!Canvas || (!bMatchFallback && !bSelectFallback))
+	const bool bLobbyFallback = ShouldDrawLobbyFallback();
+	if (!Canvas || (!bMatchFallback && !bSelectFallback && !bLobbyFallback))
 	{
 		return;
 	}
@@ -165,7 +237,19 @@ void ACA3DHUD::DrawHUD()
 	// 폴백과 위젯이 다른 공식을 쓰면 "디버그 표시와 실제 HUD 가 다른" 최악의 상황이 된다.
 	const UCA3DRuleSet* Rules = UMatchWidget::ResolveRules(World);
 
+	// 본인 PlayerState — 로비의 "나" 표식과 선택 페이즈의 "내 선택" 표기가 함께 쓴다.
+	const APlayerController* OwningController = GetOwningPlayerController();
+	const ACA3DPlayerState* MyState = OwningController
+		? Cast<ACA3DPlayerState>(OwningController->PlayerState) : nullptr;
+
 	TArray<FString> Lines;
+
+	// 로비 정보 (Task 41) — WBP_Lobby 없이도 참가자·준비 상태가 보이고,
+	// 개발용 콘솔 명령(ca3d.Ready / ca3d.StartMatch)으로 진행까지 검증할 수 있다.
+	if (bLobbyFallback && GameState->bLobbyActive)
+	{
+		Lines.Append(ULobbyWidget::BuildLobbyFallbackLines(GameState, MyState));
+	}
 
 	// 선택 페이즈 정보 — WBP_CharacterSelect 없이도 페이즈가 보이고(카운트다운·점유),
 	// 개발용 콘솔 명령(ca3d.SelectCharacter)으로 실제 선택까지 검증할 수 있다.
@@ -174,9 +258,6 @@ void ACA3DHUD::DrawHUD()
 		const float Remaining = GameState->CharacterSelectEndServerTime - GameState->GetServerWorldTimeSeconds();
 		Lines.Add(UCharacterSelectWidget::FormatSelectHeadline(Remaining));
 
-		const APlayerController* OwningController = GetOwningPlayerController();
-		const ACA3DPlayerState* MyState = OwningController
-			? Cast<ACA3DPlayerState>(OwningController->PlayerState) : nullptr;
 		const FString Occupancy = UCharacterSelectWidget::FormatOccupancyLine(
 			UCharacterSelectWidget::CollectCharacterNames(Rules),
 			UCharacterSelectWidget::BuildOccupiedMask(UCharacterSelectWidget::CollectCharacterIndices(GameState)),
@@ -187,7 +268,9 @@ void ACA3DHUD::DrawHUD()
 		}
 	}
 
-	if (bMatchFallback)
+	// 매치 스탯(생존·시간·아이템)은 **로비·선택 페이즈 동안 그리지 않는다**
+	// (2026-08-16 요청 ②: 아이템 현황 UI 는 게임 안에서만 — 위젯 쪽 규칙과 같은 판정 함수를 쓴다).
+	if (bMatchFallback && UMatchWidget::ShouldShowMatchHUD(GameState->bLobbyActive, GameState->bCharacterSelectActive))
 	{
 		const FMatchStatSnapshot Stats = UMatchWidget::CaptureStats(
 			UMatchWidget::ResolveStatus(GetOwningPawn()), Rules);

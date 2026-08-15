@@ -220,6 +220,26 @@ FText UMatchWidget::FormatLocalHeadline(const TArray<FMatchResultRow>& Rows, boo
 		Local->bTied ? TEXT("공동 ") : TEXT(""), Local->Rank));
 }
 
+bool UMatchWidget::ShouldShowMatchHUD(bool bLobbyActive, bool bCharacterSelectActive)
+{
+	// 게임 안에서만 보인다 — 로비도 선택도 아닐 때가 곧 "게임 안"이다 (헤더 주석).
+	return !bLobbyActive && !bCharacterSelectActive;
+}
+
+void UMatchWidget::ApplyPhaseVisibility(bool bLobbyActive, bool bCharacterSelectActive)
+{
+	const int32 VisibleFlag = ShouldShowMatchHUD(bLobbyActive, bCharacterSelectActive) ? 1 : 0;
+	if (VisibleFlag == LastPhaseVisibleFlag)
+	{
+		return; // 대부분의 프레임 — 매 틱 SetVisibility 를 부르면 슬레이트 무효화가 낭비된다
+	}
+	LastPhaseVisibleFlag = VisibleFlag;
+
+	// SelfHitTestInvisible — 루트는 클릭을 먹지 않고 자식(있다면)은 그대로 받는다.
+	// Collapsed 는 레이아웃 공간까지 없애 계층과 무관하게 확실히 사라진다 (헤더 주석).
+	SetVisibility(VisibleFlag != 0 ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+}
+
 // ─── 읽기 헬퍼 (출처 해석) ───────────────────────────────────────────────────
 
 const UCA3DRuleSet* UMatchWidget::ResolveRules(const UWorld* World)
@@ -360,6 +380,17 @@ void UMatchWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		}
 	}
 	const ACA3DGameState* GameState = CachedGameState.Get();
+
+	// ⓪ 페이즈 숨김 (2026-08-16 요청 ②) — 로비·캐릭터 선택 동안 매치 HUD 는 화면에서 사라진다.
+	//    접는 것은 여기서도 하지만 **되돌리는 구동자는 ACA3DHUD::Tick** 이다 (접힌 위젯은
+	//    Slate 가 Tick 을 부르지 않는다 — ApplyPhaseVisibility 헤더 주석).
+	ApplyPhaseVisibility(GameState->bLobbyActive, GameState->bCharacterSelectActive);
+	if (!ShouldShowMatchHUD(GameState->bLobbyActive, GameState->bCharacterSelectActive))
+	{
+		// 숨김 중에는 텍스트 갱신·결과 계산을 건너뛴다. **Last* 캐시는 건드리지 않는다** —
+		// 다시 보이는 첫 틱에 스냅샷 비교가 전부 정상 복원한다 (헤더 LastPhaseVisibleFlag 주석).
+		return;
+	}
 
 	// ① 경과 시간 — 매 프레임 바뀌는 유일한 값. 그래도 초가 넘어갈 때만 문자열을 만든다.
 	const float Elapsed = GameState->GetServerWorldTimeSeconds() - GameState->MatchStartServerTime;

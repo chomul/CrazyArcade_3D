@@ -30,6 +30,21 @@ public:
 	UPROPERTY(Replicated)
 	int32 CharacterIndex = INDEX_NONE;
 
+	// ─── 로비 페이즈 (Task 41) ─── 로직 없음(이 클래스의 원칙) — 판정·갱신은 전부 서버의
+	// 단일 경로 ACA3DGameMode(TrySetReady / RegisterParticipant / HandleParticipantLeft)가 한다.
+
+	// 로비 준비 완료. **방장은 항상 무시된다** — 개념상 준비 대상이 아니다(자기 자신에게
+	// 준비를 알릴 이유가 없다). 시작 조건은 "방장을 제외한 전원이 준비"이며 그 판정 공식은
+	// ACA3DGameMode::CanStartFromLobby 한 곳에만 있다 (서버 판정과 UI 버튼 활성이 같은 공식).
+	UPROPERTY(Replicated)
+	bool bReady = false;
+
+	// 방장 = **첫 입장 사람**. 봇은 절대 방장이 아니다 — 봇은 매치 시작 후에 투입되는 인원이라
+	// 시작 버튼을 누를 주체가 될 수 없다(그러면 사람이 하나도 준비되지 않아도 판이 시작된다).
+	// 방장이 나가면 남은 사람 중 가장 먼저 들어온 사람(ColorIndex 최소)에게 승계된다.
+	UPROPERTY(Replicated)
+	bool bIsHost = false;
+
 	// 탈락 순위 (0 = 아직 생존, 1 = 우승, N = N등). 매치 종료 판정·결과 화면용.
 	// 동시 사망자는 같은 값을 공유한다 (공동 등수 — GameMode::ResolvePendingDeaths 참조).
 	UPROPERTY(Replicated)

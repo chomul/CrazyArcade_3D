@@ -284,6 +284,22 @@ bool FMatchWidgetTest::RunTest(const FString& Parameters)
 			HudCDO->MatchWidgetClass == nullptr);
 	}
 
+	// ─── ⑦ 페이즈 동안 매치 HUD 숨김 (2026-08-16 요청 ②) ──────────────────
+	// "캐릭터 선택할 때 왼쪽 아래 아이템 현황 UI 가 보인다 — 게임 안에서만 보이면 된다."
+	// 위젯 루트 가시성(ApplyPhaseVisibility)과 캔버스 폴백의 스탯 줄이 **이 함수 하나**로
+	// 갈린다 — 판정이 두 벌이면 "위젯은 숨었는데 폴백은 그리는" 어긋남이 생긴다.
+	{
+		TestFalse(TEXT("⑦ 로비 중에는 숨김"),
+			UMatchWidget::ShouldShowMatchHUD(/*bLobbyActive*/true, /*bCharacterSelectActive*/false));
+		TestFalse(TEXT("⑦ 캐릭터 선택 중에는 숨김"),
+			UMatchWidget::ShouldShowMatchHUD(false, true));
+		TestFalse(TEXT("⑦ 둘 다 활성인 전이 프레임도 숨김"),
+			UMatchWidget::ShouldShowMatchHUD(true, true));
+		// 매치 중 · 매치 종료 후 결과 화면이 여기다 — 둘 다 false 라 별도 분기 없이 통과한다.
+		TestTrue(TEXT("⑦ 둘 다 아닐 때(= 게임 안)만 표시"),
+			UMatchWidget::ShouldShowMatchHUD(false, false));
+	}
+
 	return true;
 }
 

@@ -162,6 +162,23 @@ public:
 	// 이 줄의 승패 문구는 처음부터 맞다.
 	static FText FormatLocalHeadline(const TArray<FMatchResultRow>& Rows, bool bDraw);
 
+	// 매치 HUD 를 지금 보여야 하는가 (2026-08-16 사용자 요청 ②: "캐릭터 선택할 때 왼쪽 아래
+	// 아이템 현황 UI 가 보인다 — 게임 안에서만 보이면 된다"). **둘 다 false 일 때만** true.
+	// 매치 종료 후 결과 화면은 두 플래그가 모두 false 라 자연히 통과한다 — 별도 분기가 없다.
+	static bool ShouldShowMatchHUD(bool bLobbyActive, bool bCharacterSelectActive);
+
+	// 위 판정을 **위젯 루트 하나**에 적용한다.
+	//
+	// 개별 자식(ItemPanel 등)을 끄지 않는 이유: 아이템 텍스트가 ItemPanel 바깥에 있는 WBP
+	// 계층이면 자식 단위로 끌 때 일부가 화면에 남는다 (2026-08-16 실측 증상). 루트를 접으면
+	// 계층과 무관하게 사라진다.
+	//
+	// ⚠️ **구동자는 ACA3DHUD::Tick(액터 틱)이다.** Slate 는 위젯 Tick 을 Paint 경로에서
+	// 실행하는데(SWidget::Paint 안의 EWidgetUpdateFlags::NeedsTick), Collapsed 위젯은 부모가
+	// arrange 하지 않아 Paint 되지 않는다 — 스스로 접은 위젯은 NativeTick 이 멈춰 **자기 힘으로
+	// 다시 펴지 못한다.** NativeTick 도 같은 함수를 부르지만(접는 프레임), 되돌리는 쪽은 HUD 다.
+	void ApplyPhaseVisibility(bool bLobbyActive, bool bCharacterSelectActive);
+
 	// ─── 읽기 헬퍼 (출처 해석) — 캔버스 폴백과 공유한다 ───
 
 	// 폰에서 StatusComponent 를 찾는다 — 폰이 바뀔 때만 부르고 결과를 캐시할 것
@@ -222,6 +239,12 @@ private:
 	FMatchStatSnapshot LastStats;
 	int32 LastAliveCount = MIN_int32;
 	int32 LastElapsedWholeSeconds = MIN_int32;
+
+	// 마지막으로 적용한 페이즈 가시성 (1 = 표시, 0 = 접힘). bool 이 아니라 int32 인 이유는
+	// MIN_int32 초기값이 "아직 한 번도 적용 안 됨"을 뜻해 첫 적용이 반드시 통과하기 때문이다.
+	// 위 Last* 캐시들과 **독립**이다 — 접힌 동안 그 캐시들은 손대지 않으므로(NativeTick 조기
+	// 반환), 다시 보이는 첫 틱에 스냅샷 비교가 전부 정상 복원한다.
+	int32 LastPhaseVisibleFlag = MIN_int32;
 
 	// 결과 패널을 **게이트를 통과해 실제로 표시했는가** (Task 40 — 게이트에 걸려 return 한
 	// 호출에서는 세우지 않는다. "ShowResult 가 불렸는가"가 아니다).
