@@ -78,17 +78,27 @@ Source/CrazyArcade3D/
 
 ### 폴더 간 의존 규칙
 
+**제약은 헤더에만 건다.** 헤더 `#include` 의 허용 방향:
+
 ```
 MapGen    ──▶ Voxel
 Voxel     ──▶ (없음)     ⬅ 게임 규칙을 몰라야 함
 Gameplay  ──▶ Voxel, Core
 Framework ──▶ 전부
-UI        ──▶ Framework (읽기 전용)
+UI        ──▶ Framework
 Core      ──▶ (없음)
 ```
 
-**`Voxel` 이 `Gameplay` 를 참조하는 순간 구조가 무너진다.** 지형은 "누가 왜 부쉈는지" 몰라야 하고,
-그래야 맵 생성기·에디터 툴에서 재사용되며 `IVoxelRenderer` 교체(그리디 메싱 승격)가 가능하다.
+**`.cpp` 는 위 방향을 거슬러도 된다** — 구현이 상위 폴더를 알아야 하는 자리가 실제로 있다:
+`Voxel/VoxelWorld.cpp` → `MapGen/`·`Framework/`(생성기 선택·룰셋 읽기) · `Gameplay/*.cpp` 11개 →
+`Framework/`(룰셋) · `UI/*.cpp` → `Gameplay/Character/`(StatusComponent·PlayerController, **읽기 전용**).
+
+**헤더 예외는 하나뿐**: `FItemPlacement`(`Gameplay/Item/ItemTypes.h`)를 `Voxel/VoxelWorld.h`·`MapGen/*.h` 가
+헤더에서 include 한다 — **데이터 타입 참조까지만**이고 액터·로직 참조는 금지다.
+
+진짜 규칙은 화살표가 아니라 이것이다: **지형은 "누가 왜 부쉈는지" 몰라야 한다.** 그래야 맵 생성기·에디터
+툴에서 재사용되고 `IVoxelRenderer` 교체(그리디 메싱 승격)가 가능하다. `Voxel` 이 폭탄·플레이어를
+아는 순간 구조가 무너진다.
 
 ---
 
