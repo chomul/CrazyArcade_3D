@@ -96,6 +96,30 @@ $proj = "C:\Sung Unreal Project\CrazyArcade_3D\CrazyArcade3D.uproject"
 클라는 언쿡(에디터 바이너리 `-game`)이어도 붙는다 — 같은 빌드라 클래스·프로퍼티 레이아웃이 같다.
 리눅스 배포도 결국 같은 절차를 타므로(플랫폼만 교체) 이 경험은 그대로 재사용된다.
 
+## 클라이언트 패키징 + 로컬 멀티 테스트 (2026-08-16 확립)
+
+서버와 클라는 **타깃이 달라 따로 패키징**한다 (쿡도 `WindowsServer`/`Windows` 플랫폼별 별도).
+`-map=L_Arena` 로 쿡 범위를 한정한다 — 에셋 팩 쇼케이스 맵 12개를 전부 쿡하면 낭비다.
+
+```powershell
+$uat  = "C:\UnrealEngine5.8\Engine\Build\BatchFiles\RunUAT.bat"
+$proj = "C:\Sung Unreal Project\CrazyArcade_3D\CrazyArcade3D.uproject"
+# 서버 (증분이면 ~1분)
+& $uat BuildCookRun -project="$proj" -noP4 -nodebuginfo -utf8output `
+    -platform=Win64 -server -serverconfig=Development -noclient -cook -build -stage -pak -map=L_Arena
+# 클라 (첫 쿡 ~27분 — 셰이더. 이후는 증분)
+& $uat BuildCookRun -project="$proj" -noP4 -nodebuginfo -utf8output `
+    -platform=Win64 -clientconfig=Development -cook -build -stage -pak -map=L_Arena
+# 산출물: Saved/StagedBuilds/Windows/CrazyArcade3D/Binaries/Win64/CrazyArcade3D.exe
+#         콘텐츠는 .pak 이 아니라 .ucas/.utoc(IoStore)에 들어간다 — pak 10MB 만 보고 놀라지 말 것
+```
+
+- ⚠️ **데디 exe 는 `GameDefaultMap` 을 쓰지 않는다** — 맵을 첫 인자로 줘야 한다
+  (`CrazyArcade3DServer.exe L_Arena -log`). 안 주면 엔진 `Entry` 맵으로 떠서 아무 일도 안 일어난다.
+- 클라는 IP 를 첫 인자로 주면 바로 붙는다: `CrazyArcade3D.exe 127.0.0.1 -windowed -resx=1280 -resy=720`
+- 한 번에 띄우기: 프로젝트 루트 **`run-packaged-test.ps1`** (서버 1 + 클라 N).
+  **탈주 테스트는 이 구성에서만 성립한다** — PIE 는 창 하나를 닫으면 세션 전체가 죽는다 (체크리스트 35).
+
 ## 리눅스 데디 서버 (클라우드 배포 시점으로 이월 — 2026-07-30)
 
 Win64 서버 빌드는 소스 엔진으로 바로 되고, **개발·테스트는 이걸로 충분하다.**
