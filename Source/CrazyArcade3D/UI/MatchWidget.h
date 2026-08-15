@@ -142,6 +142,15 @@ public:
 	// 읽는다. 이 함수는 "랭크가 다 도착한 데이터라면 규약이 성립하는가"의 검증용으로 남긴다.
 	static bool IsDrawResult(const TArray<FMatchResultRow>& Rows, bool bMatchEnded);
 
+	// 결과 확정 게이트 (Task 40): 종료 + 행 존재 + **전원 Rank > 0** 일 때만 true.
+	//
+	// bMatchEnded(GameState)와 FinalRank(PlayerState)는 **서로 다른 액터라 복제 도착 순서
+	// 보장이 없다** — 종료 플래그가 먼저 온 클라에는 랭크 0(미확정) 행이 섞여 있고, 그 중간
+	// 상태를 화면에 내보내지 않는 게이트다. 서버는 bMatchEnded=true 가 되는 시점에 모든
+	// 참가자의 랭크를 이미 확정했으므로(우승 1 / 사망·탈주 공동 등수 ≥ 2 / 무승부 전원 ≥ 2,
+	// CA3DGameMode::ResolvePendingDeaths), 이 조건이 성립하는 첫 틱부터가 완성본이다.
+	static bool IsResultDataComplete(const TArray<FMatchResultRow>& Rows, bool bMatchEnded);
+
 	// "1등  Player 1" / 공동이면 "공동 3등  Bot 2". 본인 행에는 앞에 표식을 붙인다.
 	static FText FormatResultRow(const FMatchResultRow& Row);
 
@@ -213,6 +222,9 @@ private:
 	FMatchStatSnapshot LastStats;
 	int32 LastAliveCount = MIN_int32;
 	int32 LastElapsedWholeSeconds = MIN_int32;
+
+	// 결과 패널을 **게이트를 통과해 실제로 표시했는가** (Task 40 — 게이트에 걸려 return 한
+	// 호출에서는 세우지 않는다. "ShowResult 가 불렸는가"가 아니다).
 	bool bResultShown = false;
 
 	// 마지막으로 그린 결과 본문 — 결과 화면은 종료 후에도 **매 틱 다시 만든다** (아래 이유).
@@ -220,9 +232,10 @@ private:
 	//
 	// 굳히지 않는 이유 (2026-08-06 실측 버그): bMatchEnded 는 GameState, FinalRank 는
 	// PlayerState — **서로 다른 액터라 복제 도착 순서 보장이 없다.** 클라에서 bMatchEnded 가
-	// 먼저 오면 우승자 랭크가 아직 0이라, 첫 프레임에 굳히는 방식은 우승 매치를 "무승부"로
-	// 그리고 영영 안 고친다 (서버 로그 "우승자 확정" vs 위젯 "무승부"가 실제로 어긋났다).
-	// 매 틱 다시 만들면 늦게 온 랭크가 다음 틱에 표시를 스스로 고친다.
+	// 먼저 오면 우승자 랭크가 아직 0이라, 첫 프레임에 굳히면 잘못된 표시를 영영 안 고친다
+	// (서버 로그 "우승자 확정" vs 위젯 "무승부"가 실제로 어긋났다). 지금은 여기에 더해
+	// IsResultDataComplete 게이트가 **랭크가 다 도착할 때까지 패널 자체를 숨기므로**(Task 40),
+	// 다 도착한 틱에 완성본으로 첫 표시되고 이 본문 비교는 표시 후 재작업만 걸러 준다.
 	FString LastResultBody;
 
 	friend class FMatchWidgetTest; // 자동화 테스트가 갱신 캐시 상태를 확인하기 위한 접근

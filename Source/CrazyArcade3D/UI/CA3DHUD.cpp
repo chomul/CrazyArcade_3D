@@ -201,11 +201,17 @@ void ACA3DHUD::DrawHUD()
 
 		if (GameState->bMatchEnded)
 		{
+			// 결과 확정 게이트 (Task 40) — 위젯(ShowResult)과 **같은 함수**를 통과한다
+			// (폴백과 위젯이 다른 공식을 쓰면 표시가 어긋난다). 랭크 0 이 섞인 중간 상태면
+			// 결과 줄을 아예 추가하지 않는다 — "집계 중" 문구도 없다 ("안 보이도록"이 요구).
 			const TArray<FMatchResultRow> Rows = UMatchWidget::CollectResultRows(GameState);
-			Lines.Add(UMatchWidget::IsDrawResult(Rows, true) ? TEXT("── 무승부 ──") : TEXT("── 매치 종료 ──"));
-			for (const FMatchResultRow& Row : Rows)
+			if (UMatchWidget::IsResultDataComplete(Rows, GameState->bMatchEnded))
 			{
-				Lines.Add(UMatchWidget::FormatResultRow(Row).ToString());
+				Lines.Add(UMatchWidget::IsDrawResult(Rows, true) ? TEXT("── 무승부 ──") : TEXT("── 매치 종료 ──"));
+				for (const FMatchResultRow& Row : Rows)
+				{
+					Lines.Add(UMatchWidget::FormatResultRow(Row).ToString());
+				}
 			}
 		}
 	}

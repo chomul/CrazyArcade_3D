@@ -156,6 +156,26 @@ bool UMatchWidget::IsDrawResult(const TArray<FMatchResultRow>& Rows, bool bMatch
 	return true;
 }
 
+bool UMatchWidget::IsResultDataComplete(const TArray<FMatchResultRow>& Rows, bool bMatchEnded)
+{
+	// bMatchEnded 와 FinalRank 는 다른 액터라 도착 순서 보장이 없다 — 랭크 0 이 섞인
+	// 중간 상태를 화면에 내보내지 않는 게이트 (Task 40). 서버는 종료 시점에 전원의 랭크를
+	// 이미 확정했으므로(우승 1 / 사망·탈주 ≥ 2 / 무승부 전원 ≥ 2), 전원 Rank > 0 = 완성본.
+	// 빈 배열도 미완성이다 — PlayerState 가 하나도 안 온 클라가 빈 결과 창을 띄우면 안 된다.
+	if (!bMatchEnded || Rows.Num() == 0)
+	{
+		return false;
+	}
+	for (const FMatchResultRow& Row : Rows)
+	{
+		if (Row.Rank <= 0)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 FText UMatchWidget::FormatResultRow(const FMatchResultRow& Row)
 {
 	// 본인 행 표식 — 첫 줄(FormatLocalHeadline)이 등수를 알려주고, 이 표식이 목록에서
@@ -386,9 +406,10 @@ void UMatchWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 	// ④ 결과 화면 — 종료 후에도 **매 틱** 부른다 (한 번만 그리면 안 된다).
 	//    bMatchEnded(GameState)와 FinalRank(PlayerState)는 다른 액터라 복제 순서 보장이
-	//    없다 — 첫 프레임에 굳히면 우승자 랭크가 늦게 도착한 클라가 우승 매치를 무승부로
-	//    그린 채 멈춘다 (LastResultBody 헤더 주석, 2026-08-06 실측). ShowResult 내부가
-	//    본문 비교로 재작업을 걸러 비용은 전이 프레임에만 든다.
+	//    없다 — ShowResult 내부의 IsResultDataComplete 게이트가 **랭크가 다 도착할 때까지
+	//    패널 자체를 숨기고**, 다 도착한 틱에 완성본으로 첫 표시한다 (Task 40). 매 틱
+	//    재호출이 곧 재시도라 별도 재시도 로직이 없고, 표시 후에는 본문 비교가 재작업을 걸러
+	//    비용은 전이 프레임에만 든다 (LastResultBody 헤더 주석).
 	if (GameState->bMatchEnded)
 	{
 		ShowResult();
@@ -416,16 +437,25 @@ void UMatchWidget::ShowResult()
 		return; // 종료 전 호출은 무시 — 결과 게이트는 BuildResultRows 와 여기 두 겹이다
 	}
 
-	bResultShown = true;
-
 	// 본인 PlayerState — 결과 목록에서 "내 행"을 짚기 위한 기준.
 	const TArray<FMatchResultRow> Rows = CollectResultRows(GameState, GetOwningPlayerState());
+
+	// 결과 확정 게이트 (Task 40) — 랭크가 다 도착하기 전에는 **패널 자체를 표시하지 않는다**
+	// (Collapsed 유지, "집계 중" 같은 중간 문구도 없다 — 사용자 요청이 "안 보이도록"이다).
+	// NativeTick 이 매 틱 다시 부르므로 랭크가 다 도착한 틱에 자동으로 완성본이 표시된다.
+	if (!IsResultDataComplete(Rows, GameState->bMatchEnded))
+	{
+		return;
+	}
+
+	// 게이트를 통과해 실제로 표시하는 경로에서만 세운다 (헤더의 bResultShown 주석).
+	bResultShown = true;
 
 	// 승패 판정은 **행 스캔이 아니라 GameState 의 복제된 우승자**에서 읽는다.
 	// MatchWinner 는 bMatchEnded 와 같은 액터라 같은 번들로 원자 도착한다 — 종료를 아는
 	// 프레임에 승패도 반드시 함께 안다 (2026-08-06 무승부 오표시 수정, GameState 헤더 주석).
-	// 행(FinalRank)은 다른 액터라 한 프레임 늦을 수 있지만, 그건 "-등" 표시가 다음 틱에
-	// 채워지는 것뿐이고 승패 문구가 틀리는 일은 없다.
+	// 행(FinalRank)은 다른 액터라 늦을 수 있지만, 위 게이트가 완성 전 표시를 막으므로
+	// "-등"(랭크 0) 행이 화면에 나가는 일은 없다 (Task 40).
 	const bool bDraw = (GameState->MatchWinner == nullptr);
 
 	// 첫 줄은 **내 성적**, 그 아래가 전체 순위 (2026-08-06 사용자 요청 — 목록에서 자기

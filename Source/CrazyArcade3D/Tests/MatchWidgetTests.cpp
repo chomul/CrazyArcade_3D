@@ -231,6 +231,41 @@ bool FMatchWidgetTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("⑤ GameState 없음 → 빈 배열"), UMatchWidget::CollectResultRows(nullptr).Num(), 0);
 	}
 
+	// ─── ⑤b 결과 확정 게이트 (Task 40) ────────────────────────────────────
+	// bMatchEnded(GameState)와 FinalRank(PlayerState)는 다른 액터라 복제 도착 순서 보장이
+	// 없다 — 랭크 0 이 섞인 중간 상태에서 결과 창이 먼저 뜨면 안 된다. ShowResult 와
+	// DrawHUD 폴백이 이 게이트를 통과할 때만 결과를 표시한다.
+	{
+		// 종료 전 — 데이터가 다 있어도 결과는 미완성 취급 (선노출 차단).
+		TArray<FMatchResultRow> Complete;
+		Complete.Add(HudMakeRow(1, TEXT("Winner")));
+		Complete.Add(HudMakeRow(2, TEXT("Loser")));
+		TestFalse(TEXT("⑤b 종료 전에는 미완성"),
+			UMatchWidget::IsResultDataComplete(Complete, /*bMatchEnded*/false));
+
+		// 종료 + 빈 배열 — PlayerState 가 하나도 안 온 클라가 빈 결과 창을 띄우면 안 된다.
+		TestFalse(TEXT("⑤b 종료 + 빈 배열은 미완성"),
+			UMatchWidget::IsResultDataComplete(TArray<FMatchResultRow>(), true));
+
+		// 종료 + 랭크 0 섞임 — bMatchEnded 가 FinalRank 보다 먼저 도착한 전형적 중간 상태.
+		TArray<FMatchResultRow> Partial;
+		Partial.Add(HudMakeRow(0, TEXT("RankNotArrived")));
+		Partial.Add(HudMakeRow(2, TEXT("Loser")));
+		TestFalse(TEXT("⑤b 랭크 0 이 섞이면 미완성"),
+			UMatchWidget::IsResultDataComplete(Partial, true));
+
+		// 종료 + 전원 랭크 > 0 — 완성본. 이 틱부터 결과 창이 뜬다.
+		TestTrue(TEXT("⑤b 종료 + 전원 랭크 확정 = 완성"),
+			UMatchWidget::IsResultDataComplete(Complete, true));
+
+		// 무승부 형태(1등 공석, 전원 ≥ 2)도 완성이다 — 서버는 무승부에도 전원 등수를 매긴다.
+		TArray<FMatchResultRow> Draw;
+		Draw.Add(HudMakeRow(2, TEXT("A")));
+		Draw.Add(HudMakeRow(2, TEXT("B")));
+		TestTrue(TEXT("⑤b 무승부 형태(전원 ≥ 2)도 완성"),
+			UMatchWidget::IsResultDataComplete(Draw, true));
+	}
+
 	// ─── ⑥ 배선 회귀 — 에디터 작업 0 으로도 HUD 가 뜬다 ──────────────────
 	{
 		const ACA3DGameMode* GameModeCDO = GetDefault<ACA3DGameMode>();
