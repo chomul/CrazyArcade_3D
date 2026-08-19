@@ -1,4 +1,4 @@
-using UnrealBuildTool;
+﻿using UnrealBuildTool;
 
 public class CrazyArcade3D : ModuleRules
 {
@@ -45,6 +45,26 @@ public class CrazyArcade3D : ModuleRules
 			// (OnlineSubsystem 을 Private 으로 둔 것과 같은 판단).
 			"Niagara",
 		});
+
+		// 에디터 전용 툴 — EditorTools/CA3DThumbnailExporter (썸네일 PNG 추출).
+		//
+		// **bBuildEditor 안에서만** 건다. UnrealEd·ContentBrowser 는 에디터 타깃에만 존재하는
+		// 모듈이라 Game/Server 타깃에 넣으면 링크가 아니라 UBT 단계에서 바로 깨진다.
+		// 코드도 #if WITH_EDITOR 로 함께 막혀 있어 데디 서버 바이너리에는 심볼이 남지 않는다.
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[]
+			{
+				"UnrealEd",       // ThumbnailTools (ObjectTools.h) · GEditor
+				"ContentBrowser", // 지금 선택된 에셋 조회
+				"AssetRegistry",  // 경로 밑 에셋 일괄 조회
+				// FObjectThumbnail::GetImage() 의 본체는 Misc/ObjectThumbnail.inl 에 있고,
+				// 그 .inl 전체가 #if defined(IMAGECORE_API) 로 감싸여 있다. 이 의존이 빠지면
+				// 매크로가 정의되지 않아 .inl 이 통째로 비고 — 컴파일은 통과한 뒤 링크에서
+				// "GetImage 미해결 외부 심볼"로 터진다. 원인 찾기 아주 고약한 자리다.
+				"ImageCore",
+			});
+		}
 
 		// 도메인 폴더를 짧은 경로로 include 하기 위한 설정.
 		//   #include "Voxel/VoxelGrid.h"  (O)
