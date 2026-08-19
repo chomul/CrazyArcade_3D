@@ -208,30 +208,59 @@ int32 UCA3DThumbnailExporter::ExportThumbnailsInPath(const FString& PackagePath,
 
 // ── 콘솔 명령 ────────────────────────────────────────────────────────────────
 // 에디터 유틸리티 위젯을 따로 만들지 않아도 바로 쓸 수 있게 하는 진입점.
-// 블루프린트 함수는 "어딘가에서 불러 줘야" 하지만 콘솔은 ` 키 하나면 된다.
+// 블루프린트 함수는 "어딘가에서 불러 줘야" 하지만 콘솔은 명령 한 줄이면 된다.
+
+namespace
+{
+	// 선택 인자(출력폴더·해상도)를 **순서에 상관없이** 읽는다.
+	//
+	// 위치 인자(1번=폴더, 2번=해상도)로 두면 "폴더는 기본값 그대로, 해상도만 512"를 쓸 방법이
+	// 없다. 자리표시로 빈 문자열 `""` 을 넣는 흔한 요령이 **콘솔에서는 통하지 않기 때문**이다:
+	// 콘솔 인자는 FParse::Token 으로 쪼개지는데(ConsoleManager.cpp) 그 함수가 `return Arg.Len() > 0`
+	// 이라 빈 토큰에서 false 를 돌려주고, 인자 루프가 거기서 통째로 끊긴다 — 뒤에 쓴 512 가 조용히
+	// 사라진다. 그래서 "숫자로만 이뤄진 인자면 해상도, 아니면 폴더"로 판정한다.
+	void ParseOptionalArgs(const TArray<FString>& Args, int32 FirstIndex, FString& OutDir, int32& OutSize)
+	{
+		for (int32 Index = FirstIndex; Index < Args.Num(); ++Index)
+		{
+			const FString& Arg = Args[Index];
+			if (Arg.IsNumeric())
+			{
+				OutSize = FCString::Atoi(*Arg);
+			}
+			else
+			{
+				OutDir = Arg;
+			}
+		}
+	}
+}
 
 static FAutoConsoleCommand GExportSelectedThumbnailsCmd(
 	TEXT("CA3D.ExportSelectedThumbnails"),
-	TEXT("컨텐트 브라우저에서 선택한 에셋의 썸네일을 PNG 로 저장. 사용법: CA3D.ExportSelectedThumbnails [출력폴더] [해상도]"),
+	TEXT("컨텐트 브라우저에서 선택한 에셋의 썸네일을 PNG 로 저장. 사용법: CA3D.ExportSelectedThumbnails [해상도] [출력폴더] (둘 다 생략 가능·순서 무관)"),
 	FConsoleCommandWithArgsDelegate::CreateStatic([](const TArray<FString>& Args)
 	{
-		const FString OutputDir = Args.IsValidIndex(0) ? Args[0] : FString();
-		const int32   Size      = Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 0;
+		FString OutputDir;
+		int32   Size = 0;
+		ParseOptionalArgs(Args, 0, OutputDir, Size);
 		UCA3DThumbnailExporter::ExportSelectedThumbnails(OutputDir, Size);
 	}));
 
 static FAutoConsoleCommand GExportThumbnailsCmd(
 	TEXT("CA3D.ExportThumbnails"),
-	TEXT("패키지 경로 밑의 에셋 썸네일을 PNG 로 저장. 사용법: CA3D.ExportThumbnails /Game/Characters [출력폴더] [해상도]"),
+	TEXT("패키지 경로 밑의 에셋 썸네일을 PNG 로 저장. 사용법: CA3D.ExportThumbnails /Game/Characters [해상도] [출력폴더]"),
 	FConsoleCommandWithArgsDelegate::CreateStatic([](const TArray<FString>& Args)
 	{
 		if (!Args.IsValidIndex(0))
 		{
-			UE_LOG(LogCA3D, Warning, TEXT("[Thumbnail] 사용법: CA3D.ExportThumbnails /Game/Characters [출력폴더] [해상도]"));
+			UE_LOG(LogCA3D, Warning, TEXT("[Thumbnail] 사용법: CA3D.ExportThumbnails /Game/Characters [해상도] [출력폴더]"));
 			return;
 		}
-		const FString OutputDir = Args.IsValidIndex(1) ? Args[1] : FString();
-		const int32   Size      = Args.IsValidIndex(2) ? FCString::Atoi(*Args[2]) : 0;
+
+		FString OutputDir;
+		int32   Size = 0;
+		ParseOptionalArgs(Args, 1, OutputDir, Size);
 		UCA3DThumbnailExporter::ExportThumbnailsInPath(Args[0], OutputDir, /*bRecursive*/ true, Size);
 	}));
 
